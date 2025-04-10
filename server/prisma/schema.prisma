@@ -1,0 +1,20 @@
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://postgres:rakki123@localhost:5432/admin_tracker?schema=public"
+}
+
+model Booking {
+  id        Int     @id @default(autoincrement())
+  refNo     String  @unique
+  paxName   String
+  revenue   Float
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id        Int     @id @default(autoincrement())
+  email     String  @unique
+  password   String
+  first   Float
+  createdAt DateTime @default(now())
+}
