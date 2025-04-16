@@ -6,9 +6,13 @@ dotenv.config();
 const app = express();
 PORT = process.env.PORT || 5000;
 
-app.get("/test", (req,res) => {
-    res.send("hello from backend");
-})
+
+//Routes
+const userRoutes = require('./routes/userRoutes');
+app.use('/api/users', userRoutes);
+
+const bookingRoutes = require('./routes/bookingRoutes');
+app.use('/api/bookings', bookingRoutes);
 
 
 
