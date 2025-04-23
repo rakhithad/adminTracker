@@ -5,6 +5,8 @@ const apiResponse = require('../utils/apiResponse');
 
 //create a booking
 const createBooking = async(req,res) => {
+    console.log("Received body:", req.body); 
+
     try {
         const booking = await prisma.booking.create({data:req.body});
         apiResponse.success(res, booking,201);
