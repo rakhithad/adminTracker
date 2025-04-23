@@ -9,11 +9,14 @@ datasource db {
 
 model Booking {
   id                Int             @id @default(autoincrement())
-  refNo             String         @unique @map("ref_no") 
+  refNo             String          @map("ref_no") 
   paxName           String          @map("pax_name")
   agentName         String          @map("agent_name")  
-  teamName          String          @map("team_name")  
-
+  teamName          String?         @map("team_name")  
+  pnr               String          @map("pnr") 
+  airline           String          @map("airline")
+  fromTo            String          @map("from_to")
+  
   @@map("bookings")
 
 }

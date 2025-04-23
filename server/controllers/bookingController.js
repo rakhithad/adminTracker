@@ -3,17 +3,40 @@ const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
 
 
-//create a booking
-const createBooking = async(req,res) => {
-    console.log("Received body:", req.body); 
-
+const createBooking = async (req, res) => {
+    console.log("Received body:", req.body);
+    
     try {
-        const booking = await prisma.booking.create({data:req.body});
-        apiResponse.success(res, booking,201);
+        // Validate required fields
+        if (!req.body.ref_no || !req.body.pax_name || !req.body.agent_name) {
+            return apiResponse.error(res, "Missing required fields", 400);
+        }
+
+        // Create booking with explicit field mapping
+        const booking = await prisma.booking.create({
+            data: {
+                refNo: req.body.ref_no,
+                paxName: req.body.pax_name,
+                agentName: req.body.agent_name,
+                teamName: req.body.team_name || null, // Handle optional field
+                pnr: req.body.pnr,
+                airline: req.body.airline,
+                fromTo: req.body.from_to
+            }
+        });
+
+        return apiResponse.success(res, booking, 201);
     } catch (error) {
-        apiResponse.error(res, "Failed to create a booking");
+        console.error("Booking creation error:", error);
+        
+        // Handle specific Prisma errors
+        if (error.code === 'P2002') {
+            return apiResponse.error(res, "Booking with this reference number already exists", 409);
+        }
+        
+        return apiResponse.error(res, "Failed to create booking: " + error.message, 500);
     }
-}
+};
 
 //get all the bookings
 const getBookings = async(req,res) => {
