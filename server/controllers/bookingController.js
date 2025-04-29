@@ -3,6 +3,7 @@ const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
 
 
+
 const createBooking = async (req, res) => {
     console.log("Received body:", req.body);
     
@@ -11,6 +12,17 @@ const createBooking = async (req, res) => {
         if (!req.body.ref_no || !req.body.pax_name || !req.body.agent_name) {
             return apiResponse.error(res, "Missing required fields", 400);
         }
+        
+        const financialData = {
+            revenue: req.body.revenue ? parseFloat(req.body.revenue) : null,
+            prodCost: req.body.prodCost ? parseFloat(req.body.prodCost) : null,
+            transFee: req.body.transFee ? parseFloat(req.body.transFee) : null,
+            surcharge: req.body.surcharge ? parseFloat(req.body.surcharge) : null,
+            received: req.body.received ? parseFloat(req.body.received) : null,
+            balance: req.body.balance ? parseFloat(req.body.balance) : null,
+            profit: req.body.profit ? parseFloat(req.body.profit) : null,
+            invoiced: req.body.invoiced || null
+          };
 
         // Create booking with explicit field mapping
         const booking = await prisma.booking.create({
@@ -18,10 +30,17 @@ const createBooking = async (req, res) => {
                 refNo: req.body.ref_no,
                 paxName: req.body.pax_name,
                 agentName: req.body.agent_name,
-                teamName: req.body.team_name || null, // Handle optional field
+                teamName: req.body.team_name || null, 
                 pnr: req.body.pnr,
                 airline: req.body.airline,
-                fromTo: req.body.from_to
+                fromTo: req.body.from_to,
+                bookingType: req.body.bookingType,
+                bookingStatus: req.body.bookingStatus || 'PENDING',
+                pcDate: new Date(req.body.pcDate),
+                issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : null,
+                paymentMethod: req.body.paymentMethod,
+                lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
+                ...financialData
             }
         });
 
