@@ -112,9 +112,10 @@ export default function CreateBooking({ onBookingCreated }) {
   };
 
   return (
-    <div className="bg-gray-200 p-6 rounded-lg shadow">
+    <div className="bg-gray-200 p-6 rounded-lg shadow h-full"> {/* Added width classes */}
       <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
       
+      {/* Success/error messages */}
       {successMessage && (
         <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">
           {successMessage}
@@ -127,177 +128,186 @@ export default function CreateBooking({ onBookingCreated }) {
         </div>
       )}
       
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="md:col-span-2">
-          <label className="block text-gray-700 mb-1">Reference No*</label>
-          <input 
-            name="refNo" 
-            type="text" 
-            value={formData.refNo} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
-        </div>
-        
-        <div>
-          <label className="block text-gray-700 mb-1">Passenger Name*</label>
-          <input 
-            name="paxName" 
-            type="text" 
-            value={formData.paxName} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
-        </div>
-        
-        <div>
-          <label className="block text-gray-700 mb-1">Agent Name*</label>
-          <input 
-            name="agentName" 
-            type="text" 
-            value={formData.agentName} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
-        </div>
-        
-        <div>
-          <label className="block text-gray-700 mb-1">Team Name</label>
-          <input 
-            name="teamName" 
-            type="text" 
-            value={formData.teamName} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-          />
-        </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">PNR*</label>
-          <input 
-            name="pnr" 
-            type="text" 
-            value={formData.pnr} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
+      {/* Form with adjusted grid */}
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4"> {/* Changed to 3 columns */}
+        {/* First column */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-1">Reference No*</label>
+            <input 
+              name="refNo" 
+              type="text" 
+              value={formData.refNo} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+          
+          <div>
+            <label className="block text-gray-700 mb-1">Passenger Name*</label>
+            <input 
+              name="paxName" 
+              type="text" 
+              value={formData.paxName} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+          
+          <div>
+            <label className="block text-gray-700 mb-1">Agent Name*</label>
+            <input 
+              name="agentName" 
+              type="text" 
+              value={formData.agentName} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+          
+          <div>
+            <label className="block text-gray-700 mb-1">Team Name</label>
+            <input 
+              name="teamName" 
+              type="text" 
+              value={formData.teamName} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="block text-gray-700 mb-1">Airline*</label>
-          <input 
-            name="airline" 
-            type="text" 
-            value={formData.airline} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
+        {/* Second column */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-1">PNR*</label>
+            <input 
+              name="pnr" 
+              type="text" 
+              value={formData.pnr} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Airline*</label>
+            <input 
+              name="airline" 
+              type="text" 
+              value={formData.airline} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">From/To*</label>
+            <input 
+              name="fromTo" 
+              type="text" 
+              placeholder="e.g., NYC-LON"
+              value={formData.fromTo} 
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required 
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Booking Type*</label>
+            <select
+              name="bookingType"
+              value={formData.bookingType}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required
+            >
+              <option value="FRESH">FRESH</option>
+              <option value="DATE_CHANGE">DATE_CHANGE</option>
+              <option value="CANCELLATION">CANCELLATION</option>
+            </select>
+          </div>
         </div>
 
-        <div className="md:col-span-2">
-          <label className="block text-gray-700 mb-1">From/To*</label>
-          <input 
-            name="fromTo" 
-            type="text" 
-            placeholder="e.g., NYC-LON"
-            value={formData.fromTo} 
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required 
-          />
+        {/* Third column */}
+        <div className="space-y-4">
+          <div>
+            <label className="block text-gray-700 mb-1">Payment Method*</label>
+            <select
+              name="paymentMethod"
+              value={formData.paymentMethod}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required
+            >
+              <option value="FULL">FULL</option>
+              <option value="INTERNAL">INTERNAL</option>
+              <option value="REFUND">REFUND</option>
+              <option value="FULL_HUMM">FULL_HUMM</option>
+              <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Booking Status</label>
+            <select
+              name="bookingStatus"
+              value={formData.bookingStatus}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+            >
+              <option value="PENDING">Pending</option>
+              <option value="CONFIRMED">Confirmed</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="COMPLETED">Completed</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">PC Date*</label>
+            <input
+              type="date"
+              name="pcDate"
+              value={formData.pcDate}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Issued Date*</label>
+            <input
+              type="date"
+              name="issuedDate"
+              value={formData.issuedDate}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Last Payment Date</label>
+            <input
+              type="date"
+              name="lastPaymentDate"
+              value={formData.lastPaymentDate}
+              onChange={handleChange}
+              className="w-full p-2 border rounded"
+              required
+            />
+          </div>
+
+
         </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">Booking Type*</label>
-          <select
-            name="bookingType"
-            value={formData.bookingType}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required
-          >
-            <option value="FRESH">FRESH</option>
-            <option value="DATE_CHANGE">DATE_CHANGE</option>
-            <option value="CANCELLATION">CANCELLATION</option>
-          </select>
-        </div>
-
-
-        <div>
-          <label className="block text-gray-700 mb-1">Payment Method*</label>
-          <select
-            name="paymentMethod"
-            value={formData.paymentMethod}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required
-          >
-            <option value="FULL">FULL</option>
-            <option value="INTERNAL">INTERNAL</option>
-            <option value="REFUND">REFUND</option>
-            <option value="FULL_HUMM">FULL_HUMM</option>
-            <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
-
-
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">Booking Status</label>
-          <select
-            name="bookingStatus"
-            value={formData.bookingStatus}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-          >
-            <option value="PENDING">Pending</option>
-            <option value="CONFIRMED">Confirmed</option>
-            <option value="CANCELLED">Cancelled</option>
-            <option value="COMPLETED">Completed</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">PC Date*</label>
-          <input
-            type="date"
-            name="pcDate"
-            value={formData.pcDate}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">Issued Date*</label>
-          <input
-            type="date"
-            name="issuedDate"
-            value={formData.issuedDate}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-gray-700 mb-1">Last Payment Date</label>
-          <input
-            type="date"
-            name="lastPaymentDate"
-            value={formData.lastPaymentDate}
-            onChange={handleChange}
-            className="w-full p-2 border rounded"
-            required
-          />
-        </div>
-        <div className="md:col-span-2 border-t pt-4 mt-4">
+        <div className="md:col-span-4 border-t pt-4 mt-4">
   <h4 className="text-lg font-semibold mb-3">Financial Information</h4>
   
   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -399,7 +409,7 @@ export default function CreateBooking({ onBookingCreated }) {
 </div>
 
         <div className="md:col-span-2">
-          <button 
+        <button 
             type="submit" 
             className={`py-2 px-4 rounded text-white ${isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
             disabled={isSubmitting}

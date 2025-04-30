@@ -10,11 +10,17 @@ export default function AdminPage() {
   const [editingId, setEditingId] = useState(null);
   const [editFormData, setEditFormData] = useState({});
 
+  const formatDateDisplay = (dateString) => {
+    if (!dateString) return '-';
+    return dateString.split('T')[0]; // Extracts just the date portion
+  };
+
   const fetchBookings = async () => {
     try {
       const response = await getBookings();
       const bookingsData = Array.isArray(response.data.data) ? response.data.data : [];
       setBookings(bookingsData);
+    
     } catch (error) {
       console.error("Failed to fetch bookings:", error);
       setError("Failed to load bookings. Please try again later.");
@@ -25,6 +31,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     fetchBookings();
+    
   }, []);
 
   const handleNewBooking = (newBooking) => {
@@ -34,27 +41,10 @@ export default function AdminPage() {
   const handleEditClick = (booking) => {
     setEditingId(booking.id);
     setEditFormData({
-      refNo: booking.refNo,
-      paxName: booking.paxName,
-      agentName: booking.agentName,
-      teamName: booking.teamName,
-      pnr: booking.pnr,
-      airline: booking.airline,
-      fromTo: booking.fromTo,
-      bookingType: booking.bookingType,
-      bookingStatus: booking.bookingStatus,
-      pcDate: booking.pcDate,
-      issuedDate: booking.issuedDate,
-      paymentMethod: booking.paymentMethod,
-      lastPaymentDate: booking.lastPaymentDate,
-      revenue: booking.revenue,
-      prodCost: booking.prodCost,
-      transFee: booking.transFee,
-      surcharge: booking.surcharge,
-      received: booking.received,
-      balance: booking.balance,
-      profit: booking.profit,
-      invoiced: booking.invoiced
+      ...booking,
+      pcDate: booking.pcDate?.split('T')[0] || '',
+    issuedDate: booking.issuedDate?.split('T')[0] || '',
+    lastPaymentDate: booking.lastPaymentDate?.split('T')[0] || ''
     });
   };
 
@@ -95,10 +85,10 @@ export default function AdminPage() {
       booking.bookingType?.toLowerCase().includes(searchLower) ||
       booking.bookingStatus?.toLowerCase().includes(searchLower) ||
       booking.teamName?.toLowerCase().includes(searchLower) ||
-      booking.pcDate?.toLowerCase().includes(searchLower) ||
-      booking.issuedDate?.toLowerCase().includes(searchLower) ||
+      formatDateDisplay(booking.pcDate)?.toLowerCase().includes(searchLower) ||
+      formatDateDisplay(booking.issuedDate)?.toLowerCase().includes(searchLower) ||
       booking.paymentMethod?.toLowerCase().includes(searchLower) ||
-      booking.lastPaymentDate?.toLowerCase().includes(searchLower)
+      formatDateDisplay(booking.lastPaymentDate)?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -131,34 +121,44 @@ export default function AdminPage() {
     </div>
   );
 
+  
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Bookings Management</h1>
-            <p className="text-gray-600 mt-1">View and manage all bookings</p>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-            <div className="relative flex-grow max-w-md">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                placeholder="Search bookings..."
-                className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+    <div className="min-h-screen bg-gray-50 p-4 md:p-10">
+      <div className="max-w-full mx-auto">
+        {/* New header layout with title on left and form on right */}
+        <div className="flex flex-col md:flex-row gap-6 mb-6">
+          {/* Left half - Title section */}
+          <div className="md:w-1/2 flex flex-col items-center justify-center">
+            <div className="text-center md:text-left">
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Bookings Management</h1>
+              <p className="text-gray-600 mt-1">View and manage all bookings</p>
             </div>
             
+          </div>
+          
+          
+          
+          <div className="md:w-1/2">
             <CreateBooking onBookingCreated={handleNewBooking} />
           </div>
         </div>
+
+        {/* Search box moved up */}
+        <div className="relative mt-10 mb-5 w-full max-w-xl">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Search bookings..."
+              className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
 
         <div className="bg-white shadow-xl rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
@@ -180,6 +180,7 @@ export default function AdminPage() {
                   ))}
                 </tr>
               </thead>
+              
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.length > 0 ? (
                   filteredBookings.map((booking) => (
@@ -277,15 +278,15 @@ export default function AdminPage() {
                               <option value="Pending">Pending</option>
                               <option value="Cancelled">Cancelled</option>
                             </select>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                            <td className="px-4 py-3 whitespace-nowrap">
                             <input
                               type="date"
                               name="pcDate"
-                              value={editFormData.pcDate}
+                              value={editFormData.pcDate || ''}
                               onChange={handleEditFormChange}
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
+                            </td>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
@@ -448,17 +449,18 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {booking.pcDate}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {booking.issuedDate || '-'}
-                          </td>
+  {formatDateDisplay(booking.pcDate)}
+</td>
+<td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+  {formatDateDisplay(booking.issuedDate)}
+</td>
+
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                             {booking.paymentMethod}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {booking.lastPaymentDate || '-'}
-                          </td>
+  {formatDateDisplay(booking.lastPaymentDate)}
+</td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
                             {booking.revenue ? `£${booking.revenue}` : '-'}
                           </td>
