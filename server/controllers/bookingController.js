@@ -13,18 +13,39 @@ const createBooking = async (req, res) => {
             return apiResponse.error(res, "Missing required fields", 400);
         }
         
+        // Extract and validate prodCostBreakdown
+        const prodCostBreakdown = req.body.prodCostBreakdown || [];
+        if (!Array.isArray(prodCostBreakdown)) {
+            return apiResponse.error(res, "prodCostBreakdown must be an array", 400);
+        }
+        
+        for (const item of prodCostBreakdown) {
+            if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
+                return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
+            }
+        }
+        
+        // Calculate prodCost from prodCostBreakdown
+        const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+        
+        // Verify provided prodCost matches calculatedProdCost
+        if (req.body.prodCost && Math.abs(parseFloat(req.body.prodCost) - calculatedProdCost) > 0.01) {
+            return apiResponse.error(res, "Provided prodCost does not match the sum of prodCostBreakdown", 400);
+        }
+        
+        // Prepare financial data
         const financialData = {
             revenue: req.body.revenue ? parseFloat(req.body.revenue) : null,
-            prodCost: req.body.prodCost ? parseFloat(req.body.prodCost) : null,
+            prodCost: calculatedProdCost || null, // Use calculated prodCost
             transFee: req.body.transFee ? parseFloat(req.body.transFee) : null,
             surcharge: req.body.surcharge ? parseFloat(req.body.surcharge) : null,
             received: req.body.received ? parseFloat(req.body.received) : null,
             balance: req.body.balance ? parseFloat(req.body.balance) : null,
             profit: req.body.profit ? parseFloat(req.body.profit) : null,
             invoiced: req.body.invoiced || null
-          };
+        };
 
-        // Create booking with explicit field mapping
+        // Create booking with nested costItems
         const booking = await prisma.booking.create({
             data: {
                 refNo: req.body.ref_no,
@@ -40,7 +61,13 @@ const createBooking = async (req, res) => {
                 issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : null,
                 paymentMethod: req.body.paymentMethod,
                 lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
-                ...financialData
+                ...financialData,
+                costItems: {
+                    create: prodCostBreakdown.map(item => ({
+                        category: item.category,
+                        amount: parseFloat(item.amount)
+                    }))
+                }
             }
         });
 

@@ -14,7 +14,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
   const [nextId, setNextId] = useState(Math.max(...initialBreakdown.map(item => item.id || 0), 3) + 1);
   const [isValid, setIsValid] = useState(true); // Start as valid
 
-  // Calculate totals and validate whenever breakdown changes
+  
   useEffect(() => {
     const total = calculateTotal();
     setIsValid(total > 0);

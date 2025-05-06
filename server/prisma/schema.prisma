@@ -36,6 +36,11 @@ model Booking {
   
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  //relationships
+  costItems         CostItem[]      
+
+  
   
   @@map("bookings")
 
@@ -53,6 +58,20 @@ model User {
   
   @@map("users")
 }
+
+
+model CostItem {
+  id        Int     @id @default(autoincrement())
+  bookingId Int
+  category  String
+  amount    Float
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("cost_items")
+}
+
+
 
 enum Role {
   ADMIN
