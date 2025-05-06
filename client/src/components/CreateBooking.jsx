@@ -112,7 +112,7 @@ export default function CreateBooking({ onBookingCreated }) {
   };
 
   return (
-    <div className="bg-gray-200 p-6 rounded-lg shadow h-full"> {/* Added width classes */}
+    <div className="bg-gray-100 p-6 rounded-lg shadow h-full"> {/* Added width classes */}
       <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
       
       {/* Success/error messages */}
@@ -139,7 +139,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.refNo} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -151,7 +151,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.paxName} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -163,7 +163,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.agentName} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -175,7 +175,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.teamName} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
             />
           </div>
         </div>
@@ -189,7 +189,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.pnr} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -201,7 +201,7 @@ export default function CreateBooking({ onBookingCreated }) {
               type="text" 
               value={formData.airline} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -214,7 +214,7 @@ export default function CreateBooking({ onBookingCreated }) {
               placeholder="e.g., NYC-LON"
               value={formData.fromTo} 
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required 
             />
           </div>
@@ -225,7 +225,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="bookingType"
               value={formData.bookingType}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required
             >
               <option value="FRESH">FRESH</option>
@@ -243,7 +243,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="paymentMethod"
               value={formData.paymentMethod}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required
             >
               <option value="FULL">FULL</option>
@@ -260,7 +260,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="bookingStatus"
               value={formData.bookingStatus}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
             >
               <option value="PENDING">Pending</option>
               <option value="CONFIRMED">Confirmed</option>
@@ -276,7 +276,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="pcDate"
               value={formData.pcDate}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required
             />
           </div>
@@ -288,7 +288,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="issuedDate"
               value={formData.issuedDate}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required
             />
           </div>
@@ -300,7 +300,7 @@ export default function CreateBooking({ onBookingCreated }) {
               name="lastPaymentDate"
               value={formData.lastPaymentDate}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-2 bg-gray-200 border rounded"
               required
             />
           </div>
@@ -319,7 +319,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.revenue ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -331,7 +331,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.prodCost ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -343,7 +343,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.transFee ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -355,7 +355,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.surcharge ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -367,7 +367,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.received ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -379,7 +379,7 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.balance ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
@@ -391,18 +391,18 @@ export default function CreateBooking({ onBookingCreated }) {
         step="0.01"
         value={formData.profit ?? ''}
         onChange={handleNumberChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
 
     <div>
-      <label className="block text-gray-700 mb-1">Invoice Number</label>
+      <label className="block text-gray-700 mb-1">Invoiced</label>
       <input
         name="invoiced"
         type="text"
         value={formData.invoiced ?? ''}
         onChange={handleChange}
-        className="w-full p-2 border rounded"
+        className="w-full p-2 bg-gray-200 border rounded"
       />
     </div>
   </div>
@@ -414,7 +414,7 @@ export default function CreateBooking({ onBookingCreated }) {
             className={`py-2 px-4 rounded text-white ${isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Creating...' : 'Create Booking'}
+            {isSubmitting ? 'Creating...' : 'Create Folder'}
           </button>
         </div>
       </form>

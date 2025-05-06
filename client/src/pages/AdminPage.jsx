@@ -200,7 +200,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-2 py-5 whitespace-nowrap">
                             <input
                               type="text"
                               name="paxName"
@@ -209,7 +209,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-2 py-3 whitespace-nowrap">
                             <input
                               type="text"
                               name="agentName"
@@ -218,7 +218,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="text"
                               name="teamName"
@@ -227,7 +227,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="text"
                               name="pnr"
@@ -236,7 +236,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm font-mono"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="text"
                               name="airline"
@@ -245,7 +245,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="text"
                               name="fromTo"
@@ -254,31 +254,32 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <select
                               name="bookingType"
                               value={editFormData.bookingType}
                               onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
+                              className="w-full px-1 py-1 border rounded text-sm"
                             >
-                              <option value="Flight">Flight</option>
-                              <option value="Hotel">Hotel</option>
-                              <option value="Package">Package</option>
-                              <option value="Other">Other</option>
+                              <option value="FRESH">FRESH</option>
+                              <option value="DATE_CHANGE">DATE_CHANGE</option>
+                              <option value="CANCELLATION">CANCELLATION</option>
                             </select>
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <select
                               name="bookingStatus"
                               value={editFormData.bookingStatus}
                               onChange={handleEditFormChange}
                               className="w-full px-2 py-1 border rounded text-sm"
                             >
-                              <option value="Confirmed">Confirmed</option>
-                              <option value="Pending">Pending</option>
-                              <option value="Cancelled">Cancelled</option>
+                              <option value="PENDING">Pending</option>
+                              <option value="CONFIRMED">Confirmed</option>
+                              <option value="CANCELLED">Cancelled</option>
+                              <option value="COMPLETED">Completed</option>
                             </select>
-                            <td className="px-4 py-3 whitespace-nowrap">
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
                             <input
                               type="date"
                               name="pcDate"
@@ -287,7 +288,6 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                             </td>
-                          </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
                               type="date"
@@ -297,14 +297,18 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
+                          <td className="px-1 py-3 whitespace-nowrap">
+                          <select
                               name="paymentMethod"
                               value={editFormData.paymentMethod}
                               onChange={handleEditFormChange}
                               className="w-full px-2 py-1 border rounded text-sm"
-                            />
+                            >
+                              <option value="FULL">FULL</option>
+                              <option value="INTERNAL">INTERNAL</option>
+                              <option value="REFUND">REFUND</option>
+                              <option value="FULL_HUMM">FULL_HUMM</option>
+                            </select>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
@@ -324,7 +328,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="number"
                               name="prodCost"
@@ -333,7 +337,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="number"
                               name="transFee"
@@ -369,7 +373,7 @@ export default function AdminPage() {
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
+                          <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="number"
                               name="profit"
@@ -380,13 +384,14 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
-                              type="checkbox"
+                              type="number"
                               name="invoiced"
-                              checked={editFormData.invoiced || false}
+                              value={editFormData.invoiced || ''}
                               onChange={handleEditFormChange}
-                              className="h-4 w-4"
+                              className="w-full px-2 py-1 border rounded text-sm"
                             />
                           </td>
+                          
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
                             <div className="flex space-x-2">
                               <button
@@ -486,13 +491,13 @@ export default function AdminPage() {
                           }">
                             {booking.profit ? `£${booking.profit}` : '-'}
                           </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm">
-                            {booking.invoiced ? (
-                              <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Yes</span>
-                            ) : (
-                              <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">No</span>
-                            )}
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-bold ${
+                            booking.invoiced > 0 ? 'text-green-600' : 'text-red-600'
+                          }">
+                            {booking.invoiced ? `£${booking.invoiced}` : '-'}
                           </td>
+                          
+                          
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
                             <button
                               onClick={() => handleEditClick(booking)}
