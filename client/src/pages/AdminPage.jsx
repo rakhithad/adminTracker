@@ -160,26 +160,28 @@ export default function AdminPage() {
             />
           </div>
 
-        <div className="bg-white shadow-xl rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-800">
-                <tr>
-                  {[
-                    "Ref No", "Passenger", "Agent", "Team", "PNR", "Airline", 
-                    "Route", "Type", "Status", "Pc Date", "Issued", "Payment", 
-                    "Last Payment", "Revenue", "Cost", "Fee", "Surcharge", 
-                    "Received", "Balance", "Profit", "Invoiced", "Actions"
-                  ].map((header) => (
-                    <th 
-                      key={header}
-                      className="px-4 py-3 text-left text-xs font-semibold text-gray-100 uppercase tracking-wider"
-                    >
-                      {header}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+          <div className="bg-white shadow-xl rounded-xl overflow-hidden">
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead className="bg-gray-800">
+        <tr>
+          {[
+            "Ref No", "Passenger", "Agent", "Team", "PNR", "Airline", 
+            "Route", "Type", "Status", "Pc Date", "Issued", "Payment", 
+            "Last Payment", "Revenue", "Cost", "Fee", "Surcharge", 
+            "Received", "Balance", "Profit", "Invoiced", "Actions"
+          ].map((header, index) => (
+            <th 
+              key={header}
+              className={`px-4 py-3 text-left text-xs font-semibold text-gray-100 uppercase tracking-wider ${
+                index === 0 ? 'sticky left-0 z-10 bg-gray-800' : ''
+              }`}
+            >
+              {header}
+            </th>
+          ))}
+        </tr>
+      </thead>
               
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.length > 0 ? (
@@ -191,15 +193,15 @@ export default function AdminPage() {
                       {editingId === booking.id ? (
                         <>
                           {/* Editable Fields */}
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="refNo"
-                              value={editFormData.refNo}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap sticky left-0 z-10 bg-white">
+                    <input
+                      type="text"
+                      name="refNo"
+                      value={editFormData.refNo}
+                      onChange={handleEditFormChange}
+                      className="w-full px-2 py-1 border rounded text-sm"
+                    />
+                  </td>
                           <td className="px-2 py-5 whitespace-nowrap">
                             <input
                               type="text"
@@ -412,9 +414,9 @@ export default function AdminPage() {
                       ) : (
                         <>
                           {/* Read-only Fields */}
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600">
-                            {booking.refNo}
-                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600 sticky left-0 z-10 bg-white">
+                    {booking.refNo}
+                  </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                             {booking.paxName}
                           </td>
@@ -454,18 +456,18 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-  {formatDateDisplay(booking.pcDate)}
-</td>
-<td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-  {formatDateDisplay(booking.issuedDate)}
-</td>
+                            {formatDateDisplay(booking.pcDate)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                            {formatDateDisplay(booking.issuedDate)}
+                          </td>
 
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
                             {booking.paymentMethod}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-  {formatDateDisplay(booking.lastPaymentDate)}
-</td>
+                            {formatDateDisplay(booking.lastPaymentDate)}
+                          </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
                             {booking.revenue ? `£${booking.revenue}` : '-'}
                           </td>
