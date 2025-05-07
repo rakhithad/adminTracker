@@ -7,19 +7,21 @@ export default function CreateBooking({ onBookingCreated }) {
     refNo: '',
     paxName: '',
     agentName: '',
-    teamName: '',
+    teamName: '', // Default to valid enum value
     pnr: '',
     airline: '',
     fromTo: '',
     bookingType: 'FRESH',
     bookingStatus: 'PENDING',
-    pcDate: new Date().toISOString().split('T')[0], 
+    pcDate: new Date().toISOString().split('T')[0],
     issuedDate: '',
     paymentMethod: 'FULL',
     lastPaymentDate: '',
+    supplier: '',
+    travelDate: '',
     revenue: '',
     prodCost: '',
-    prodCostBreakdown: [], 
+    prodCostBreakdown: [],
     transFee: '',
     surcharge: '',
     received: '',
@@ -27,7 +29,7 @@ export default function CreateBooking({ onBookingCreated }) {
     profit: '',
     invoiced: ''
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -35,18 +37,15 @@ export default function CreateBooking({ onBookingCreated }) {
 
   // Auto-calculate financial fields when related values change
   useEffect(() => {
-    // Only calculate if we have numbers to work with
     const revenue = parseFloat(formData.revenue) || 0;
     const prodCost = parseFloat(formData.prodCost) || 0;
     const transFee = parseFloat(formData.transFee) || 0;
     const surcharge = parseFloat(formData.surcharge) || 0;
     const received = parseFloat(formData.received) || 0;
-    
-    // Calculate profit and balance
+
     const profit = revenue - prodCost - transFee - surcharge;
     const balance = revenue - received;
-    
-    // Update form data with calculations
+
     setFormData(prev => ({
       ...prev,
       profit: profit !== 0 ? profit.toString() : prev.profit,
@@ -64,7 +63,6 @@ export default function CreateBooking({ onBookingCreated }) {
 
   const handleNumberChange = (e) => {
     const { name, value } = e.target;
-    // Allow empty string or valid numbers
     if (value === '' || !isNaN(parseFloat(value))) {
       setFormData(prev => ({
         ...prev,
@@ -74,15 +72,12 @@ export default function CreateBooking({ onBookingCreated }) {
   };
 
   const handleBreakdownSubmit = (breakdown) => {
-    // Calculate total from breakdown
     const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    
     setFormData(prev => ({
       ...prev,
       prodCost: total.toFixed(2),
       prodCostBreakdown: breakdown
     }));
-    // Don't close the modal, just update the values
   };
 
   const handleSubmit = async (e) => {
@@ -93,19 +88,18 @@ export default function CreateBooking({ onBookingCreated }) {
 
     try {
       // Validate required fields
-      const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'airline', 'fromTo', 'pcDate', 'issuedDate'];
+      const requiredFields = ['refNo', 'paxName', 'agentName', 'teamName', 'pnr', 'airline', 'fromTo', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'supplier', 'travelDate'];
       const missingFields = requiredFields.filter(field => !formData[field]);
-      
+
       if (missingFields.length > 0) {
         throw new Error(`Please fill in all required fields: ${missingFields.join(', ')}`);
       }
 
-      // Format dates correctly
       const bookingData = {
         ref_no: formData.refNo,
         pax_name: formData.paxName,
         agent_name: formData.agentName,
-        team_name: formData.teamName || null, 
+        team_name: formData.teamName || null, // Send valid enum value or null
         pnr: formData.pnr,
         airline: formData.airline,
         from_to: formData.fromTo,
@@ -115,6 +109,8 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: formData.issuedDate,
         paymentMethod: formData.paymentMethod,
         lastPaymentDate: formData.lastPaymentDate || null,
+        supplier: formData.supplier || null, // Send valid enum value or null
+        travelDate: formData.travelDate,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
         prodCostBreakdown: formData.prodCostBreakdown,
@@ -128,18 +124,18 @@ export default function CreateBooking({ onBookingCreated }) {
 
       const response = await createBooking(bookingData);
       const newBooking = response.data.data;
-      
+
       setSuccessMessage('Booking created successfully!');
       if (onBookingCreated) {
         onBookingCreated(newBooking);
       }
-      
+
       // Reset form
       setFormData({
         refNo: '',
         paxName: '',
         agentName: '',
-        teamName: '',
+        teamName: '', // Reset to valid enum value
         pnr: '',
         airline: '',
         fromTo: '',
@@ -149,6 +145,8 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: '',
         paymentMethod: 'FULL',
         lastPaymentDate: '',
+        supplier: '', // Reset to valid enum value
+        travelDate: '',
         revenue: '',
         prodCost: '',
         prodCostBreakdown: [],
@@ -159,7 +157,7 @@ export default function CreateBooking({ onBookingCreated }) {
         profit: '',
         invoiced: ''
       });
-      
+
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Booking creation error:', error);
@@ -172,107 +170,107 @@ export default function CreateBooking({ onBookingCreated }) {
   return (
     <div className="bg-gray-100 p-6 rounded-lg shadow h-full">
       <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
-      
+
       {successMessage && (
         <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">
           {successMessage}
         </div>
       )}
-      
+
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-100 text-red-800 rounded">
           {errorMessage}
         </div>
       )}
-      
-      {/* Form with adjusted grid */}
+
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* First column */}
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-1">Reference No*</label>
-            <input 
-              name="refNo" 
-              type="text" 
-              value={formData.refNo} 
+            <input
+              name="refNo"
+              type="text"
+              value={formData.refNo}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
-          
+
           <div>
             <label className="block text-gray-700 mb-1">Passenger Name*</label>
-            <input 
-              name="paxName" 
-              type="text" 
-              value={formData.paxName} 
+            <input
+              name="paxName"
+              type="text"
+              value={formData.paxName}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
-          
+
           <div>
             <label className="block text-gray-700 mb-1">Agent Name*</label>
-            <input 
-              name="agentName" 
-              type="text" 
-              value={formData.agentName} 
+            <input
+              name="agentName"
+              type="text"
+              value={formData.agentName}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
-          
+
           <div>
-            <label className="block text-gray-700 mb-1">Team Name</label>
-            <input 
-              name="teamName" 
-              type="text" 
-              value={formData.teamName} 
+            <label className="block text-gray-700 mb-1">Team*</label>
+            <select
+              name="teamName"
+              value={formData.teamName}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-            />
+              required
+            >
+              <option value="PH">PH</option>
+              <option value="TOURS">TOURS</option>
+            </select>
           </div>
         </div>
 
-        {/* Second column */}
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-1">PNR*</label>
-            <input 
-              name="pnr" 
-              type="text" 
-              value={formData.pnr} 
+            <input
+              name="pnr"
+              type="text"
+              value={formData.pnr}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
 
           <div>
             <label className="block text-gray-700 mb-1">Airline*</label>
-            <input 
-              name="airline" 
-              type="text" 
-              value={formData.airline} 
+            <input
+              name="airline"
+              type="text"
+              value={formData.airline}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
 
           <div>
             <label className="block text-gray-700 mb-1">From/To*</label>
-            <input 
-              name="fromTo" 
-              type="text" 
+            <input
+              name="fromTo"
+              type="text"
               placeholder="e.g., NYC-LON"
-              value={formData.fromTo} 
+              value={formData.fromTo}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
-              required 
+              required
             />
           </div>
 
@@ -290,9 +288,20 @@ export default function CreateBooking({ onBookingCreated }) {
               <option value="CANCELLATION">CANCELLATION</option>
             </select>
           </div>
+
+          <div>
+            <label className="block text-gray-700 mb-1">Travel Date*</label>
+            <input
+              type="date"
+              name="travelDate"
+              value={formData.travelDate}
+              onChange={handleChange}
+              className="w-full p-2 bg-gray-200 border rounded"
+              required
+            />
+          </div>
         </div>
 
-        {/* Third column */}
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-1">Payment Method*</label>
@@ -339,18 +348,6 @@ export default function CreateBooking({ onBookingCreated }) {
           </div>
 
           <div>
-            <label className="block text-gray-700 mb-1">Issued Date*</label>
-            <input
-              type="date"
-              name="issuedDate"
-              value={formData.issuedDate}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-
-          <div>
             <label className="block text-gray-700 mb-1">Last Payment Date</label>
             <input
               type="date"
@@ -362,11 +359,42 @@ export default function CreateBooking({ onBookingCreated }) {
           </div>
         </div>
 
-        {/* Financial Information Section (spans full width) */}
         <div className="md:col-span-3 border-t pt-4 mt-4">
           <h4 className="text-lg font-semibold mb-3">Financial Information</h4>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-gray-700 mb-1">Supplier*</label>
+              <select
+                name="supplier"
+                value={formData.supplier}
+                onChange={handleChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              >
+                <option value="BTRES">BTRES</option>
+                <option value="LYCA">LYCA</option>
+                <option value="CEBU">CEBU</option>
+                <option value="BTRES_LYCA">BTRES_LYCA</option>
+                <option value="BA">BA</option>
+                <option value="TRAINLINE">TRAINLINE</option>
+                <option value="EASYJET">EASYJET</option>
+                <option value="FLYDUBAI">FLYDUBAI</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Issued Date*</label>
+              <input
+                type="date"
+                name="issuedDate"
+                value={formData.issuedDate}
+                onChange={handleChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              />
+            </div>
+
             <div>
               <label className="block text-gray-700 mb-1">Revenue (£)</label>
               <input
@@ -483,8 +511,8 @@ export default function CreateBooking({ onBookingCreated }) {
         </div>
 
         <div className="md:col-span-3 mt-4">
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             className={`py-2 px-6 rounded text-white ${isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
             disabled={isSubmitting}
           >

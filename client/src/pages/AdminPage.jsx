@@ -43,8 +43,9 @@ export default function AdminPage() {
     setEditFormData({
       ...booking,
       pcDate: booking.pcDate?.split('T')[0] || '',
-    issuedDate: booking.issuedDate?.split('T')[0] || '',
-    lastPaymentDate: booking.lastPaymentDate?.split('T')[0] || ''
+      issuedDate: booking.issuedDate?.split('T')[0] || '',
+      lastPaymentDate: booking.lastPaymentDate?.split('T')[0] || '',
+      travelDate: booking.travelDate?.split('T')[0] || ''
     });
   };
 
@@ -167,8 +168,8 @@ export default function AdminPage() {
         <tr>
           {[
             "Ref No", "Passenger", "Agent", "Team", "PNR", "Airline", 
-            "Route", "Type", "Status", "Pc Date", "Issued", "Payment", 
-            "Last Payment", "Revenue", "Cost", "Fee", "Surcharge", 
+            "Route", "Type", "Status", "Pc Date","Travel Date", "Issued", "Payment", 
+            "Last Payment","Supplier", "Revenue", "Cost", "Fee", "Surcharge", 
             "Received", "Balance", "Profit", "Invoiced", "Actions"
           ].map((header, index) => (
             <th 
@@ -221,14 +222,17 @@ export default function AdminPage() {
                             />
                           </td>
                           <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
+                            <select
                               name="teamName"
-                              value={editFormData.teamName || ''}
+                              value={editFormData.teamName}
                               onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
+                              className="w-full px-1 py-1 border rounded text-sm"
+                            >
+                              <option value="PH">PH</option>
+                              <option value="TOURS">TOURS</option>
+                            </select>
                           </td>
+                          
                           <td className="px-1 py-3 whitespace-nowrap">
                             <input
                               type="text"
@@ -289,7 +293,16 @@ export default function AdminPage() {
                               onChange={handleEditFormChange}
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
-                            </td>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <input
+                              type="date"
+                              name="travelDate"
+                              value={editFormData.travelDate || ''}
+                              onChange={handleEditFormChange}
+                              className="w-full px-2 py-1 border rounded text-sm"
+                            />
+                          </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
                               type="date"
@@ -320,6 +333,23 @@ export default function AdminPage() {
                               onChange={handleEditFormChange}
                               className="w-full px-2 py-1 border rounded text-sm"
                             />
+                          </td>
+                          <td className="px-1 py-3 whitespace-nowrap">
+                          <select
+                              name="supplier"
+                              value={editFormData.supplier}
+                              onChange={handleEditFormChange}
+                              className="w-full px-2 py-1 border rounded text-sm"
+                            >
+                              <option value="BTRES">BTRES</option>
+                              <option value="LYCA">LYCA</option>
+                              <option value="CEBU">CEBU</option>
+                              <option value="BTRES_LYCA">BTRES_LYCA</option>
+                              <option value="BA">BA</option>
+                              <option value="TRAINLINE">TRAINLINE</option>
+                              <option value="EASYJET">EASYJET</option>
+                              <option value="FLYDUBAI">FLYDUBAI</option>
+                            </select>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <input
@@ -437,9 +467,9 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`px-2 py-1 text-xs rounded-full ${
-                              booking.bookingType === 'Flight' ? 'bg-blue-100 text-blue-800' :
-                              booking.bookingType === 'Hotel' ? 'bg-green-100 text-green-800' :
-                              booking.bookingType === 'Package' ? 'bg-purple-100 text-purple-800' :
+                              booking.bookingType === 'FRESH' ? 'bg-blue-100 text-blue-800' :
+                              booking.bookingType === 'DATE_CHANGE' ? 'bg-green-100 text-green-800' :
+                              booking.bookingType === 'CANCELLATION' ? 'bg-purple-100 text-purple-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
                               {booking.bookingType}
@@ -447,9 +477,9 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`px-2 py-1 text-xs rounded-full ${
-                              booking.bookingStatus === 'Confirmed' ? 'bg-green-100 text-green-800' :
-                              booking.bookingStatus === 'Pending' ? 'bg-yellow-100 text-yellow-800' :
-                              booking.bookingStatus === 'Cancelled' ? 'bg-red-100 text-red-800' :
+                              booking.bookingStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                              booking.bookingStatus === 'CONFIRMED' ? 'bg-yellow-100 text-yellow-800' :
+                              booking.bookingStatus === 'PENDING' ? 'bg-red-100 text-red-800' :
                               'bg-gray-100 text-gray-800'
                             }`}>
                               {booking.bookingStatus}
@@ -457,6 +487,9 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                             {formatDateDisplay(booking.pcDate)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                            {formatDateDisplay(booking.travelDate)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                             {formatDateDisplay(booking.issuedDate)}
@@ -467,6 +500,9 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
                             {formatDateDisplay(booking.lastPaymentDate)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                            {formatDateDisplay(booking.supplier)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
                             {booking.revenue ? `£${booking.revenue}` : '-'}

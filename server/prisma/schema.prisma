@@ -13,10 +13,11 @@ model Booking {
   refNo             String          @map("ref_no") 
   paxName           String          @map("pax_name")
   agentName         String          @map("agent_name")  
-  teamName          String?         @map("team_name")  
+  teamName          Teams?          @map("team_name")  
   pnr               String          @map("pnr") 
   airline           String          @map("airline")
   fromTo            String          @map("from_to")
+  
 
   bookingType       BookingType     @map("booking_type")
   bookingStatus     BookingStatus?  @map("booking_status")
@@ -24,6 +25,8 @@ model Booking {
   issuedDate        DateTime?       @map("issued_date")
   paymentMethod     PaymentMethod   @map("payment_method")
   lastPaymentDate   DateTime?       @map("last_payment_date")
+  travelDate        DateTime?        @map("travel_date")
+  supplier          Suppliers?       @map("supplier")
   
   revenue          Float?         @map("revenue")
   prodCost         Float?         @map("prod_cost")
@@ -40,7 +43,7 @@ model Booking {
   //relationships
   costItems         CostItem[]      
 
-  
+
   
   @@map("bookings")
 
@@ -71,6 +74,21 @@ model CostItem {
   @@map("cost_items")
 }
 
+enum Teams {
+  PH
+  TOURS
+}
+
+enum Suppliers {
+  BTRES
+  LYCA
+  CEBU
+  BTRES_LYCA
+  BA
+  TRAINLINE
+  EASYJET
+  FLYDUBAI
+}
 
 
 enum Role {
