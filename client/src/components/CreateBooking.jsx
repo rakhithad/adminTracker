@@ -368,7 +368,7 @@ export default function CreateBooking({ onBookingCreated }) {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-700 mb-1">Revenue ($)</label>
+              <label className="block text-gray-700 mb-1">Revenue (£)</label>
               <input
                 name="revenue"
                 type="number"
@@ -380,7 +380,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Production Cost ($)</label>
+              <label className="block text-gray-700 mb-1">Production Cost (£)</label>
               <div className="flex">
                 <input
                   name="prodCost"
@@ -410,7 +410,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Transaction Fee ($)</label>
+              <label className="block text-gray-700 mb-1">Transaction Fee (£)</label>
               <input
                 name="transFee"
                 type="number"
@@ -422,7 +422,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Surcharge ($)</label>
+              <label className="block text-gray-700 mb-1">Surcharge (£)</label>
               <input
                 name="surcharge"
                 type="number"
@@ -434,7 +434,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Amount Received ($)</label>
+              <label className="block text-gray-700 mb-1">Amount Received (£)</label>
               <input
                 name="received"
                 type="number"
@@ -446,7 +446,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Balance ($)</label>
+              <label className="block text-gray-700 mb-1">Balance (£)</label>
               <input
                 name="balance"
                 type="number"
@@ -458,7 +458,7 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Profit ($)</label>
+              <label className="block text-gray-700 mb-1">Profit (£)</label>
               <input
                 name="profit"
                 type="number"
