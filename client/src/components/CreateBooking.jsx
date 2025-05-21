@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { createBooking } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
+import InternalDepositPopup from './InternalDepositPopup';
 
 export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
     refNo: '',
     paxName: '',
     agentName: '',
-    teamName: '', // Default to valid enum value
+    teamName: '',
     pnr: '',
     airline: '',
     fromTo: '',
@@ -34,6 +35,7 @@ export default function CreateBooking({ onBookingCreated }) {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+  const [showInternalDeposit, setShowInternalDeposit] = useState(false);
 
   // Auto-calculate financial fields when related values change
   useEffect(() => {
@@ -48,8 +50,8 @@ export default function CreateBooking({ onBookingCreated }) {
 
     setFormData(prev => ({
       ...prev,
-      profit: profit !== 0 ? profit.toString() : prev.profit,
-      balance: balance !== 0 ? balance.toString() : prev.balance
+      profit: profit !== 0 ? profit.toFixed(2) : prev.profit,
+      balance: balance !== 0 ? balance.toFixed(2) : prev.balance
     }));
   }, [formData.revenue, formData.prodCost, formData.transFee, formData.surcharge, formData.received]);
 
@@ -59,6 +61,9 @@ export default function CreateBooking({ onBookingCreated }) {
       ...prev,
       [name]: value
     }));
+    if (name === 'paymentMethod' && value !== 'INTERNAL') {
+      setShowInternalDeposit(false);
+    }
   };
 
   const handleNumberChange = (e) => {
@@ -80,6 +85,22 @@ export default function CreateBooking({ onBookingCreated }) {
     }));
   };
 
+  const handleInternalDepositSubmit = (depositData) => {
+    setFormData(prev => ({
+      ...prev,
+      revenue: depositData.revenue,
+      prodCost: depositData.prodCost,
+      prodCostBreakdown: depositData.prodCostBreakdown,
+      surcharge: depositData.surcharge,
+      received: depositData.received,
+      balance: depositData.balance,
+      profit: depositData.profit,
+      lastPaymentDate: depositData.lastPaymentDate,
+      travelDate: depositData.travelDate
+    }));
+    setShowInternalDeposit(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -87,7 +108,6 @@ export default function CreateBooking({ onBookingCreated }) {
     setSuccessMessage('');
 
     try {
-      // Validate required fields
       const requiredFields = ['refNo', 'paxName', 'agentName', 'teamName', 'pnr', 'airline', 'fromTo', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'supplier', 'travelDate'];
       const missingFields = requiredFields.filter(field => !formData[field]);
 
@@ -99,7 +119,7 @@ export default function CreateBooking({ onBookingCreated }) {
         ref_no: formData.refNo,
         pax_name: formData.paxName,
         agent_name: formData.agentName,
-        team_name: formData.teamName || null, // Send valid enum value or null
+        team_name: formData.teamName || null,
         pnr: formData.pnr,
         airline: formData.airline,
         from_to: formData.fromTo,
@@ -109,7 +129,7 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: formData.issuedDate,
         paymentMethod: formData.paymentMethod,
         lastPaymentDate: formData.lastPaymentDate || null,
-        supplier: formData.supplier || null, // Send valid enum value or null
+        supplier: formData.supplier || null,
         travelDate: formData.travelDate,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
@@ -130,12 +150,11 @@ export default function CreateBooking({ onBookingCreated }) {
         onBookingCreated(newBooking);
       }
 
-      // Reset form
       setFormData({
         refNo: '',
         paxName: '',
         agentName: '',
-        teamName: '', // Reset to valid enum value
+        teamName: '',
         pnr: '',
         airline: '',
         fromTo: '',
@@ -145,7 +164,7 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: '',
         paymentMethod: 'FULL',
         lastPaymentDate: '',
-        supplier: '', // Reset to valid enum value
+        supplier: '',
         travelDate: '',
         revenue: '',
         prodCost: '',
@@ -230,6 +249,7 @@ export default function CreateBooking({ onBookingCreated }) {
               className="w-full p-2 bg-gray-200 border rounded"
               required
             >
+              <option value="">SELECT TEAM</option>
               <option value="PH">PH</option>
               <option value="TOURS">TOURS</option>
             </select>
@@ -308,7 +328,12 @@ export default function CreateBooking({ onBookingCreated }) {
             <select
               name="paymentMethod"
               value={formData.paymentMethod}
-              onChange={handleChange}
+              onChange={(e) => {
+                handleChange(e);
+                if (e.target.value === 'INTERNAL') {
+                  setShowInternalDeposit(true);
+                }
+              }}
               className="w-full p-2 bg-gray-200 border rounded"
               required
             >
@@ -372,6 +397,7 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
                 required
               >
+                <option value="">SELECT SUPPLIER</option>
                 <option value="BTRES">BTRES</option>
                 <option value="LYCA">LYCA</option>
                 <option value="CEBU">CEBU</option>
@@ -527,6 +553,22 @@ export default function CreateBooking({ onBookingCreated }) {
           onClose={() => setShowCostBreakdown(false)}
           onSubmit={handleBreakdownSubmit}
           totalCost={parseFloat(formData.prodCost) || 0}
+        />
+      )}
+
+      {showInternalDeposit && (
+        <InternalDepositPopup
+          initialData={{
+            revenue: formData.revenue,
+            prodCost: formData.prodCost,
+            prodCostBreakdown: formData.prodCostBreakdown,
+            surcharge: formData.surcharge,
+            received: formData.received,
+            lastPaymentDate: formData.lastPaymentDate,
+            travelDate: formData.travelDate
+          }}
+          onClose={() => setShowInternalDeposit(false)}
+          onSubmit={handleInternalDepositSubmit}
         />
       )}
     </div>
