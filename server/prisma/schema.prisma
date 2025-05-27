@@ -17,61 +17,88 @@ model Booking {
   pnr               String          @map("pnr") 
   airline           String          @map("airline")
   fromTo            String          @map("from_to")
-  
-
   bookingType       BookingType     @map("booking_type")
   bookingStatus     BookingStatus?  @map("booking_status")
   pcDate            DateTime        @map("pc_date")
   issuedDate        DateTime?       @map("issued_date")
   paymentMethod     PaymentMethod   @map("payment_method")
   lastPaymentDate   DateTime?       @map("last_payment_date")
-  travelDate        DateTime?        @map("travel_date")
-  supplier          Suppliers?       @map("supplier")
-  
-  revenue          Float?         @map("revenue")
-  prodCost         Float?         @map("prod_cost")
-  transFee         Float?         @map("trans_fee")
-  surcharge        Float?         @map("surcharge")
-  received         Float?         @map("received")
-  balance          Float?         @map("balance")
-  profit           Float?         @map("profit")
-  invoiced         String?        @map("invoice")
-  
-  createdAt         DateTime       @default(now()) @map("created_at")
-  updatedAt         DateTime       @updatedAt @map("updated_at")
-
-  //relationships
+  travelDate        DateTime?       @map("travel_date")
+  supplier          Suppliers?      @map("supplier")
+  revenue           Float?          @map("revenue")
+  prodCost          Float?          @map("prod_cost")
+  transFee          Float?          @map("trans_fee")
+  surcharge         Float?          @map("surcharge")
+  received          Float?          @map("received")
+  balance           Float?          @map("balance")
+  profit            Float?          @map("profit")
+  invoiced          String?         @map("invoice")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         CostItem[]      
-
-
-  
   @@map("bookings")
+}
 
+model PendingBooking {
+  id                Int             @id @default(autoincrement())
+  refNo             String          @map("ref_no") 
+  paxName           String          @map("pax_name")
+  agentName         String          @map("agent_name")  
+  teamName          Teams?          @map("team_name")  
+  pnr               String          @map("pnr") 
+  airline           String          @map("airline")
+  fromTo            String          @map("from_to")
+  bookingType       BookingType     @map("booking_type")
+  bookingStatus     BookingStatus?  @map("booking_status")
+  pcDate            DateTime        @map("pc_date")
+  issuedDate        DateTime?       @map("issued_date")
+  paymentMethod     PaymentMethod   @map("payment_method")
+  lastPaymentDate   DateTime?       @map("last_payment_date")
+  travelDate        DateTime?       @map("travel_date")
+  supplier          Suppliers?      @map("supplier")
+  revenue           Float?          @map("revenue")
+  prodCost          Float?          @map("prod_cost")
+  transFee          Float?          @map("trans_fee")
+  surcharge         Float?          @map("surcharge")
+  received          Float?          @map("received")
+  balance           Float?          @map("balance")
+  profit            Float?          @map("profit")
+  invoiced          String?         @map("invoice")
+  status            PendingStatus   @default(PENDING) @map("status")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  costItems         PendingCostItem[]
+  @@map("pending_bookings")
 }
 
 model User {
   id          Int       @id @default(autoincrement())
-  email       String?    @unique
+  email       String?   @unique
   title       String?   @db.VarChar(10)
   firstName   String    @map("first_name")
   lastName    String    @map("last_name")
   contactNo   String?   @map("contact_no")
   role        Role
   createdAt   DateTime  @default(now()) @map("created_at")
-  
   @@map("users")
 }
-
 
 model CostItem {
   id        Int     @id @default(autoincrement())
   bookingId Int
   category  String
   amount    Float
-
   booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
   @@map("cost_items")
+}
+
+model PendingCostItem {
+  id            Int           @id @default(autoincrement())
+  pendingBookingId Int
+  category      String
+  amount        Float
+  pendingBooking PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+  @@map("pending_cost_items")
 }
 
 enum Teams {
@@ -89,7 +116,6 @@ enum Suppliers {
   EASYJET
   FLYDUBAI
 }
-
 
 enum Role {
   ADMIN
@@ -122,4 +148,10 @@ enum BookingStatus {
   PENDING
   CONFIRMED
   COMPLETED
+}
+
+enum PendingStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { createBooking } from '../api/api';
+import { createPendingBooking } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
 import InternalDepositPopup from './InternalDepositPopup';
 
@@ -37,7 +37,6 @@ export default function CreateBooking({ onBookingCreated }) {
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
   const [showInternalDeposit, setShowInternalDeposit] = useState(false);
 
-  // Auto-calculate financial fields when related values change
   useEffect(() => {
     const revenue = parseFloat(formData.revenue) || 0;
     const prodCost = parseFloat(formData.prodCost) || 0;
@@ -127,11 +126,11 @@ export default function CreateBooking({ onBookingCreated }) {
         bookingType: formData.bookingType,
         bookingStatus: formData.bookingStatus,
         pcDate: formData.pcDate,
-        issuedDate: formData.issuedDate,
+        issuedDate: formData.issuedDate || null,
         paymentMethod: formData.paymentMethod,
         lastPaymentDate: formData.lastPaymentDate || null,
         supplier: formData.supplier || null,
-        travelDate: formData.travelDate,
+        travelDate: formData.travelDate || null,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
         prodCostBreakdown: formData.prodCostBreakdown,
@@ -140,15 +139,16 @@ export default function CreateBooking({ onBookingCreated }) {
         received: formData.received ? parseFloat(formData.received) : null,
         balance: formData.balance ? parseFloat(formData.balance) : null,
         profit: formData.profit ? parseFloat(formData.profit) : null,
-        invoiced: formData.invoiced
+        invoiced: formData.invoiced,
+        status: 'PENDING'
       };
 
-      const response = await createBooking(bookingData);
-      const newBooking = response.data.data;
+      const response = await createPendingBooking(bookingData);
+      const newPendingBooking = response.data.data;
 
-      setSuccessMessage('Booking created successfully!');
+      setSuccessMessage('Booking submitted for admin approval!');
       if (onBookingCreated) {
-        onBookingCreated(newBooking);
+        onBookingCreated(newPendingBooking);
       }
 
       setFormData({
@@ -180,8 +180,8 @@ export default function CreateBooking({ onBookingCreated }) {
 
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
-      console.error('Booking creation error:', error);
-      setErrorMessage(error.response?.data?.message || error.message || 'Failed to create booking. Please try again.');
+      console.error('Booking submission error:', error);
+      setErrorMessage(error.response?.data?.message || error.message || 'Failed to submit booking. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -190,19 +190,16 @@ export default function CreateBooking({ onBookingCreated }) {
   return (
     <div className="bg-gray-100 p-6 rounded-lg shadow h-full">
       <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
-
       {successMessage && (
         <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">
           {successMessage}
         </div>
       )}
-
       {errorMessage && (
         <div className="mb-4 p-3 bg-red-100 text-red-800 rounded">
           {errorMessage}
         </div>
       )}
-
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="space-y-4">
           <div>
@@ -216,7 +213,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Passenger Name*</label>
             <input
@@ -228,7 +224,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Agent Name*</label>
             <input
@@ -240,7 +235,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Team*</label>
             <select
@@ -256,7 +250,6 @@ export default function CreateBooking({ onBookingCreated }) {
             </select>
           </div>
         </div>
-
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-1">PNR*</label>
@@ -269,7 +262,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Airline*</label>
             <input
@@ -281,7 +273,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">From/To*</label>
             <input
@@ -294,7 +285,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Booking Type*</label>
             <select
@@ -309,7 +299,6 @@ export default function CreateBooking({ onBookingCreated }) {
               <option value="CANCELLATION">CANCELLATION</option>
             </select>
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Travel Date*</label>
             <input
@@ -322,7 +311,6 @@ export default function CreateBooking({ onBookingCreated }) {
             />
           </div>
         </div>
-
         <div className="space-y-4">
           <div>
             <label className="block text-gray-700 mb-1">Payment Method*</label>
@@ -345,7 +333,6 @@ export default function CreateBooking({ onBookingCreated }) {
               <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
             </select>
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Booking Status</label>
             <select
@@ -356,11 +343,9 @@ export default function CreateBooking({ onBookingCreated }) {
             >
               <option value="PENDING">Pending</option>
               <option value="CONFIRMED">Confirmed</option>
-              <option value="CANCELLED">Cancelled</option>
               <option value="COMPLETED">Completed</option>
             </select>
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">PC Date*</label>
             <input
@@ -372,7 +357,6 @@ export default function CreateBooking({ onBookingCreated }) {
               required
             />
           </div>
-
           <div>
             <label className="block text-gray-700 mb-1">Last Payment Date</label>
             <input
@@ -384,10 +368,8 @@ export default function CreateBooking({ onBookingCreated }) {
             />
           </div>
         </div>
-
         <div className="md:col-span-3 border-t pt-4 mt-4">
           <h4 className="text-lg font-semibold mb-3">Financial Information</h4>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-gray-700 mb-1">Supplier*</label>
@@ -409,7 +391,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 <option value="FLYDUBAI">FLYDUBAI</option>
               </select>
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Issued Date*</label>
               <input
@@ -421,7 +402,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 required
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Revenue (£)</label>
               <input
@@ -433,7 +413,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Production Cost (£)</label>
               <div className="flex">
@@ -457,13 +436,12 @@ export default function CreateBooking({ onBookingCreated }) {
                 <div className="mt-2 text-sm text-gray-600">
                   {formData.prodCostBreakdown.map(item => (
                     <span key={item.id} className="mr-2">
-                      {item.category}: ${parseFloat(item.amount).toFixed(2)}
+                      {item.category}: £{parseFloat(item.amount).toFixed(2)}
                     </span>
                   ))}
                 </div>
               )}
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Transaction Fee (£)</label>
               <input
@@ -475,7 +453,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Surcharge (£)</label>
               <input
@@ -487,7 +464,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Amount Received (£)</label>
               <input
@@ -499,7 +475,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Balance (£)</label>
               <input
@@ -511,7 +486,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 readOnly
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Profit (£)</label>
               <input
@@ -523,7 +497,6 @@ export default function CreateBooking({ onBookingCreated }) {
                 readOnly
               />
             </div>
-
             <div>
               <label className="block text-gray-700 mb-1">Invoiced</label>
               <input
@@ -536,18 +509,16 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
           </div>
         </div>
-
         <div className="md:col-span-3 mt-4">
           <button
             type="submit"
             className={`py-2 px-6 rounded text-white ${isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Creating...' : 'Create Booking'}
+            {isSubmitting ? 'Submitting...' : 'Submit Booking'}
           </button>
         </div>
       </form>
-
       {showCostBreakdown && (
         <ProductCostBreakdown
           initialBreakdown={formData.prodCostBreakdown}
@@ -556,7 +527,6 @@ export default function CreateBooking({ onBookingCreated }) {
           totalCost={parseFloat(formData.prodCost) || 0}
         />
       )}
-
       {showInternalDeposit && (
         <InternalDepositPopup
           initialData={{
