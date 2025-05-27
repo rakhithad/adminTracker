@@ -88,15 +88,16 @@ export default function CreateBooking({ onBookingCreated }) {
   const handleInternalDepositSubmit = (depositData) => {
     setFormData(prev => ({
       ...prev,
-      revenue: depositData.revenue,
-      prodCost: depositData.prodCost,
-      prodCostBreakdown: depositData.prodCostBreakdown,
-      surcharge: depositData.surcharge,
-      received: depositData.received,
-      balance: depositData.balance,
-      profit: depositData.profit,
-      lastPaymentDate: depositData.lastPaymentDate,
-      travelDate: depositData.travelDate
+      revenue: depositData.revenue || depositData.totalSellingPrice || '',
+      prodCost: depositData.prodCost || '',
+      prodCostBreakdown: depositData.prodCostBreakdown || [],
+      surcharge: depositData.surcharge || '',
+      received: depositData.depositPaid || depositData.received || '',
+      transFee: depositData.totalTransactionFee || '',
+      balance: depositData.balance || '',
+      profit: depositData.profit || '',
+      lastPaymentDate: depositData.lastPaymentDate || '',
+      travelDate: depositData.travelDate || ''
     }));
     setShowInternalDeposit(false);
   };
@@ -565,7 +566,10 @@ export default function CreateBooking({ onBookingCreated }) {
             surcharge: formData.surcharge,
             received: formData.received,
             lastPaymentDate: formData.lastPaymentDate,
-            travelDate: formData.travelDate
+            travelDate: formData.travelDate,
+            totalSellingPrice: formData.revenue,
+            depositPaid: formData.received,
+            totalTransactionFee: formData.transFee
           }}
           onClose={() => setShowInternalDeposit(false)}
           onSubmit={handleInternalDepositSubmit}

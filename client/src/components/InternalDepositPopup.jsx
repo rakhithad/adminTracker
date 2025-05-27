@@ -12,48 +12,141 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     balance: '',
     profit: '',
     lastPaymentDate: initialData.lastPaymentDate || '',
-    travelDate: initialData.travelDate || ''
+    travelDate: initialData.travelDate || '',
+    totalSellingPrice: initialData.totalSellingPrice || '',
+    depositPaid: initialData.depositPaid || '',
+    repaymentPeriod: '',
+    monthlyInstalment: '',
+    totalTransactionFee: initialData.totalTransactionFee || '',
+    totalBalancePayable: ''
   });
 
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
-  const [isValid, setIsValid] = useState(true);
+  const [isValid, setIsValid] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Auto-calculate balance and profit
-  useEffect(() => {
-    const revenue = parseFloat(depositData.revenue) || 0;
-    const prodCost = parseFloat(depositData.prodCost) || 0;
-    const surcharge = parseFloat(depositData.surcharge) || 0;
-    const received = parseFloat(depositData.received) || 0;
+  // Fixed interest rate for Beyond 30 Days calculations
+  const FIXED_INTEREST_RATE = 11;
+  const MONTHLY_INTEREST_RATE = FIXED_INTEREST_RATE / 100 / 12;
 
-    const profit = revenue - prodCost - surcharge;
-    const balance = revenue - received;
+  // Auto-calculate fields based on period
+  useEffect(() => {
+    let profit = '';
+    let balance = '';
+    let monthlyInstalment = '';
+    let totalTransactionFee = '';
+    let totalBalancePayable = '';
+    let revenue = '';
+
+    if (depositData.period === 'within30') {
+      const revenueNum = parseFloat(depositData.revenue) || 0;
+      const prodCost = parseFloat(depositData.prodCost) || 0;
+      const surcharge = parseFloat(depositData.surcharge) || 0;
+      const received = parseFloat(depositData.received) || 0;
+
+      profit = (revenueNum - prodCost - surcharge).toFixed(2);
+      balance = (revenueNum - received).toFixed(2);
+
+      // Validate for Within 30 Days
+      const isRevenueValid = revenueNum > 0;
+      const isProdCostValid = prodCost >= 0;
+      const isSurchargeValid = surcharge >= 0;
+      const isReceivedValid = received >= 0;
+      const areDatesValid =
+        depositData.lastPaymentDate &&
+        depositData.travelDate &&
+        new Date(depositData.lastPaymentDate) < new Date(depositData.travelDate);
+
+      setIsValid(isRevenueValid && isProdCostValid && isSurchargeValid && isReceivedValid && areDatesValid);
+      setErrorMessage(
+        !areDatesValid && depositData.lastPaymentDate && depositData.travelDate
+          ? 'Last Payment Date must be before Travel Date'
+          : ''
+      );
+    } else if (depositData.period === 'beyond30') {
+      const totalSellingPrice = parseFloat(depositData.totalSellingPrice) || 0;
+      const depositPaid = parseFloat(depositData.depositPaid) || 0;
+      const repaymentPeriod = parseInt(depositData.repaymentPeriod) || 0;
+      const prodCost = parseFloat(depositData.prodCost) || 0;
+      const surcharge = parseFloat(depositData.surcharge) || 0;
+
+      balance = (totalSellingPrice - depositPaid).toFixed(2);
+      totalBalancePayable = (
+        parseFloat(balance) +
+        parseFloat(balance) * MONTHLY_INTEREST_RATE * repaymentPeriod
+      ).toFixed(2);
+      monthlyInstalment = (parseFloat(totalBalancePayable) / repaymentPeriod).toFixed(2);
+      totalTransactionFee = (parseFloat(totalBalancePayable) - parseFloat(balance)).toFixed(2);
+      revenue = (depositPaid + parseFloat(totalBalancePayable)).toFixed(2);
+      profit = (parseFloat(revenue) - prodCost - surcharge).toFixed(2);
+
+      // Validate for Beyond 30 Days
+      const isTotalSellingPriceValid = totalSellingPrice > 0;
+      const isDepositPaidValid = depositPaid >= 0;
+      const isRepaymentPeriodValid = repaymentPeriod > 0;
+      const isProdCostValid = prodCost >= 0;
+      const isSurchargeValid = surcharge >= 0;
+      const areDatesValid =
+        depositData.lastPaymentDate &&
+        depositData.travelDate &&
+        new Date(depositData.lastPaymentDate) < new Date(depositData.travelDate);
+
+      setIsValid(
+        isTotalSellingPriceValid &&
+        isDepositPaidValid &&
+        isRepaymentPeriodValid &&
+        isProdCostValid &&
+        isSurchargeValid &&
+        areDatesValid
+      );
+      setErrorMessage(
+        !areDatesValid && depositData.lastPaymentDate && depositData.travelDate
+          ? 'Last Payment Date must be before Travel Date'
+          : !isTotalSellingPriceValid
+          ? 'Total Selling Price must be greater than 0'
+          : !isRepaymentPeriodValid
+          ? 'Repayment Period must be greater than 0'
+          : !isProdCostValid
+          ? 'Production Cost must be non-negative'
+          : ''
+      );
+    }
 
     setDepositData(prev => ({
       ...prev,
-      profit: profit !== 0 ? profit.toFixed(2) : prev.profit,
-      balance: balance !== 0 ? balance.toFixed(2) : prev.balance
+      profit: profit !== '' && !isNaN(profit) ? profit : prev.profit,
+      balance: balance !== '' && !isNaN(balance) ? balance : prev.balance,
+      monthlyInstalment: monthlyInstalment !== '' && !isNaN(monthlyInstalment) ? monthlyInstalment : prev.monthlyInstalment,
+      totalTransactionFee: totalTransactionFee !== '' && !isNaN(totalTransactionFee) ? totalTransactionFee : prev.totalTransactionFee,
+      totalBalancePayable: totalBalancePayable !== '' && !isNaN(totalBalancePayable) ? totalBalancePayable : prev.totalBalancePayable,
+      revenue: revenue !== '' && !isNaN(revenue) ? revenue : prev.revenue
     }));
-
-    // Validate dates
-    if (depositData.lastPaymentDate && depositData.travelDate) {
-      const paymentDate = new Date(depositData.lastPaymentDate);
-      const travelDate = new Date(depositData.travelDate);
-      if (paymentDate >= travelDate) {
-        setErrorMessage('Last Payment Date must be before Travel Date');
-        setIsValid(false);
-      } else {
-        setErrorMessage('');
-        setIsValid(true);
-      }
-    } else {
-      setIsValid(false);
-    }
-  }, [depositData.revenue, depositData.prodCost, depositData.surcharge, depositData.received, depositData.lastPaymentDate, depositData.travelDate]);
+  }, [
+    depositData.period,
+    depositData.revenue,
+    depositData.prodCost,
+    depositData.surcharge,
+    depositData.received,
+    depositData.lastPaymentDate,
+    depositData.travelDate,
+    depositData.totalSellingPrice,
+    depositData.depositPaid,
+    depositData.repaymentPeriod
+  ]);
 
   const handleNumberChange = (e) => {
     const { name, value } = e.target;
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setDepositData(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  const handleIntegerChange = (e) => {
+    const { name, value } = e.target;
+    if (value === '' || /^\d+$/.test(value)) {
       setDepositData(prev => ({
         ...prev,
         [name]: value
@@ -82,14 +175,28 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   const handlePeriodChange = (period) => {
     setDepositData(prev => ({
       ...prev,
-      period
+      period,
+      // Preserve relevant fields when switching periods
+      revenue: period === 'within30' ? prev.revenue : '',
+      prodCost: prev.prodCost,
+      prodCostBreakdown: prev.prodCostBreakdown,
+      surcharge: prev.surcharge,
+      received: period === 'within30' ? prev.received : '',
+      totalSellingPrice: period === 'beyond30' ? prev.totalSellingPrice : '',
+      depositPaid: period === 'beyond30' ? prev.depositPaid : '',
+      repaymentPeriod: period === 'beyond30' ? prev.repaymentPeriod : '',
+      balance: '',
+      profit: '',
+      monthlyInstalment: '',
+      totalTransactionFee: period === 'beyond30' ? prev.totalTransactionFee : '',
+      totalBalancePayable: ''
     }));
   };
 
   const handleSubmit = () => {
     if (!isValid) return;
 
-    onSubmit({
+    const dataToSubmit = {
       revenue: depositData.revenue,
       prodCost: depositData.prodCost,
       prodCostBreakdown: depositData.prodCostBreakdown,
@@ -98,8 +205,16 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       balance: depositData.balance,
       profit: depositData.profit,
       lastPaymentDate: depositData.lastPaymentDate,
-      travelDate: depositData.travelDate
-    });
+      travelDate: depositData.travelDate,
+      totalSellingPrice: depositData.totalSellingPrice,
+      depositPaid: depositData.depositPaid,
+      repaymentPeriod: depositData.repaymentPeriod,
+      monthlyInstalment: depositData.monthlyInstalment,
+      totalTransactionFee: depositData.totalTransactionFee,
+      totalBalancePayable: depositData.totalBalancePayable
+    };
+
+    onSubmit(dataToSubmit);
   };
 
   const handleCancel = () => {
@@ -113,8 +228,15 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       balance: '',
       profit: '',
       lastPaymentDate: initialData.lastPaymentDate || '',
-      travelDate: initialData.travelDate || ''
+      travelDate: initialData.travelDate || '',
+      totalSellingPrice: initialData.totalSellingPrice || '',
+      depositPaid: initialData.depositPaid || '',
+      repaymentPeriod: '',
+      monthlyInstalment: '',
+      totalTransactionFee: initialData.totalTransactionFee || '',
+      totalBalancePayable: ''
     });
+    setShowCostBreakdown(false);
     onClose();
   };
 
@@ -145,7 +267,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
               checked={depositData.period === 'beyond30'}
               onChange={() => handlePeriodChange('beyond30')}
               className="mr-2"
-              disabled
             />
             Beyond 30 Days
           </label>
@@ -154,7 +275,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
         {depositData.period === 'within30' && (
           <div className="space-y-4">
             <div>
-              <label className="block text-gray-700 mb-1">Revenue (£)</label>
+              <label className="block text-gray-700 mb-1">Revenue (£)*</label>
               <input
                 name="revenue"
                 type="number"
@@ -162,11 +283,12 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                 value={depositData.revenue}
                 onChange={handleNumberChange}
                 className="w-full p-2 bg-gray-200 border rounded"
+                required
               />
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Production Cost (£)</label>
+              <label className="block text-gray-700 mb-1">Production Cost (£)*</label>
               <div className="flex">
                 <input
                   name="prodCost"
@@ -264,6 +386,178 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                 onChange={handleDateChange}
                 className="w-full p-2 bg-gray-200 border rounded"
                 required
+              />
+            </div>
+          </div>
+        )}
+
+        {depositData.period === 'beyond30' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-1">Total Selling Price (£)*</label>
+              <input
+                name="totalSellingPrice"
+                type="number"
+                step="0.01"
+                value={depositData.totalSellingPrice}
+                onChange={handleNumberChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Production Cost (£)*</label>
+              <div className="flex">
+                <input
+                  name="prodCost"
+                  type="number"
+                  step="0.01"
+                  value={depositData.prodCost}
+                  className="w-full p-2 bg-gray-200 border rounded"
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCostBreakdown(!showCostBreakdown)}
+                  className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  {showCostBreakdown ? 'Hide' : 'Breakdown'}
+                </button>
+              </div>
+              {depositData.prodCostBreakdown.length > 0 && (
+                <div className="mt-2 text-sm text-gray-600">
+                  {depositData.prodCostBreakdown.map(item => (
+                    <span key={item.id} className="mr-2">
+                      {item.category}: ${parseFloat(item.amount).toFixed(2)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Surcharge (£)</label>
+              <input
+                name="surcharge"
+                type="number"
+                step="0.01"
+                value={depositData.surcharge}
+                onChange={handleNumberChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Deposit Paid (£)</label>
+              <input
+                name="depositPaid"
+                type="number"
+                step="0.01"
+                value={depositData.depositPaid}
+                onChange={handleNumberChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Repayment Period (months)*</label>
+              <input
+                name="repaymentPeriod"
+                type="number"
+                value={depositData.repaymentPeriod}
+                onChange={handleIntegerChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Balance After Deposit (£)</label>
+              <input
+                name="balance"
+                type="number"
+                step="0.01"
+                value={depositData.balance}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Monthly Instalment (£)</label>
+              <input
+                name="monthlyInstalment"
+                type="number"
+                step="0.01"
+                value={depositData.monthlyInstalment}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Total Transaction Fee (£)</label>
+              <input
+                name="totalTransactionFee"
+                type="number"
+                step="0.01"
+                value={depositData.totalTransactionFee}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Total Balance Payable (£)</label>
+              <input
+                name="totalBalancePayable"
+                type="number"
+                step="0.01"
+                value={depositData.totalBalancePayable}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Last Payment Date*</label>
+              <input
+                type="date"
+                name="lastPaymentDate"
+                value={depositData.lastPaymentDate}
+                onChange={handleDateChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Travel Date*</label>
+              <input
+                type="date"
+                name="travelDate"
+                value={depositData.travelDate}
+                onChange={handleDateChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                required
+              />
+            </div>
+
+            <div className="text-center mt-4">
+              <label className="block text-gray-700 font-medium">Revenue (£)</label>
+              <span className="text-lg font-semibold">{depositData.revenue || '0.00'}</span>
+            </div>
+
+            <div>
+              <label className="block text-gray-700 mb-1">Profit (£)</label>
+              <input
+                name="profit"
+                type="number"
+                step="0.01"
+                value={depositData.profit}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
               />
             </div>
           </div>
