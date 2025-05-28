@@ -58,16 +58,58 @@ export default function BookingsPage() {
 
   const handleSaveClick = async (id) => {
     try {
+      const {
+        refNo,
+        paxName,
+        agentName,
+        teamName,
+        pnr,
+        airline,
+        fromTo,
+        bookingType,
+        bookingStatus,
+        pcDate,
+        issuedDate,
+        paymentMethod,
+        lastPaymentDate,
+        supplier,
+        revenue,
+        prodCost,
+        transFee,
+        surcharge,
+        received,
+        balance,
+        profit,
+        invoiced,
+        travelDate,
+      } = editFormData;
+
       const updatedData = {
-        ...editFormData,
-        revenue: editFormData.revenue ? parseFloat(editFormData.revenue) : null,
-        prodCost: editFormData.prodCost ? parseFloat(editFormData.prodCost) : null,
-        transFee: editFormData.transFee ? parseFloat(editFormData.transFee) : null,
-        surcharge: editFormData.surcharge ? parseFloat(editFormData.surcharge) : null,
-        received: editFormData.received ? parseFloat(editFormData.received) : null,
-        balance: editFormData.balance ? parseFloat(editFormData.balance) : null,
-        profit: editFormData.profit ? parseFloat(editFormData.profit) : null
+        refNo,
+        paxName,
+        agentName,
+        teamName,
+        pnr,
+        airline,
+        fromTo,
+        bookingType,
+        bookingStatus,
+        pcDate: pcDate || null,
+        issuedDate: issuedDate || null,
+        paymentMethod,
+        lastPaymentDate: lastPaymentDate || null,
+        supplier: supplier || null,
+        revenue: revenue ? parseFloat(revenue) : null,
+        prodCost: prodCost ? parseFloat(prodCost) : null,
+        transFee: transFee ? parseFloat(transFee) : null,
+        surcharge: surcharge ? parseFloat(surcharge) : null,
+        received: received ? parseFloat(received) : null,
+        balance: balance ? parseFloat(balance) : null,
+        profit: profit ? parseFloat(profit) : null,
+        invoiced: invoiced || null,
+        travelDate: travelDate || null,
       };
+
       await updateBooking(id, updatedData);
       setBookings(bookings.map(booking => 
         booking.id === id ? { ...booking, ...updatedData } : booking

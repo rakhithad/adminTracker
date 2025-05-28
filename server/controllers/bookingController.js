@@ -310,35 +310,78 @@ const getBookings = async (req, res) => {
 
 const updateBooking = async (req, res) => {
   try {
-    if (req.body.team_name && !['PH', 'TOURS'].includes(req.body.team_name)) {
-      return apiResponse.error(res, "Invalid team_name. Must be one of: PH, TOURS", 400);
-    }
+    const { id } = req.params;
+    const updates = req.body;
 
-    if (req.body.supplier && !['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'].includes(req.body.supplier)) {
-      return apiResponse.error(res, "Invalid supplier. Must be one of: BTRES, LYCA, CEBU, BTRES_LYCA, BA, TRAINLINE, EASYJET, FLYDUBAI", 400);
-    }
+    // Explicitly define allowed fields to prevent invalid fields like costItems
+    const {
+      refNo,
+      paxName,
+      agentName,
+      teamName,
+      pnr,
+      airline,
+      fromTo,
+      bookingType,
+      bookingStatus,
+      pcDate,
+      issuedDate,
+      paymentMethod,
+      lastPaymentDate,
+      supplier,
+      revenue,
+      prodCost,
+      transFee,
+      surcharge,
+      received,
+      balance,
+      profit,
+      invoiced,
+      travelDate,
+      costItems, // Extract but handle separately
+    } = updates;
 
-    const updated = await prisma.booking.update({
-      where: { id: parseInt(req.params.id) },
+    const booking = await prisma.booking.update({
+      where: { id: parseInt(id) },
       data: {
-        ...req.body,
-        teamName: req.body.team_name,
-        pcDate: req.body.pcDate ? new Date(req.body.pcDate) : undefined,
-        issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : undefined,
-        lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : undefined,
-        travelDate: req.body.travelDate ? new Date(req.body.travelDate) : undefined,
-        revenue: req.body.revenue ? parseFloat(req.body.revenue) : undefined,
-        prodCost: req.body.prodCost ? parseFloat(req.body.prodCost) : undefined,
-        transFee: req.body.transFee ? parseFloat(req.body.transFee) : undefined,
-        surcharge: req.body.surcharge ? parseFloat(req.body.surcharge) : undefined,
-        received: req.body.received ? parseFloat(req.body.received) : undefined,
-        balance: req.body.balance ? parseFloat(req.body.balance) : undefined,
-        profit: req.body.profit ? parseFloat(req.body.profit) : undefined
-      }
+        refNo,
+        paxName,
+        agentName,
+        teamName,
+        pnr,
+        airline,
+        fromTo,
+        bookingType,
+        bookingStatus,
+        pcDate: pcDate ? new Date(pcDate) : null,
+        issuedDate: issuedDate ? new Date(issuedDate) : null,
+        paymentMethod,
+        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : null,
+        supplier,
+        revenue,
+        prodCost,
+        transFee,
+        surcharge,
+        received,
+        balance,
+        profit,
+        invoiced,
+        travelDate: travelDate ? new Date(travelDate) : null,
+        costItems: Array.isArray(costItems) && costItems.length > 0
+          ? {
+              deleteMany: {},
+              create: costItems.map(item => ({
+                category: item.category,
+                amount: parseFloat(item.amount),
+              })),
+            }
+          : undefined,
+      },
     });
-    apiResponse.success(res, updated);
+    res.status(200).json({ success: true, data: booking });
   } catch (error) {
-    apiResponse.error(res, "Failed to update booking: " + error.message, 500);
+    console.error('Error updating booking:', error);
+    res.status(500).json({ success: false, error: `Failed to update booking: ${error.message}` });
   }
 };
 
