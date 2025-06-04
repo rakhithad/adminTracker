@@ -189,6 +189,16 @@ export default function PendingBookingsReview({ searchTerm = '' }) {
                       ))}
                     </p>
                   )}
+                  {selectedBooking.instalments?.length > 0 && (
+                    <p>
+                      <strong>Instalments:</strong>
+                      {selectedBooking.instalments.map((inst, index) => (
+                        <span key={index} className="mr-2 block">
+                          Due: {formatDate(inst.dueDate)} - £{parseFloat(inst.amount).toFixed(2)} ({inst.status})
+                        </span>
+                      ))}
+                    </p>
+                  )}
                   <p><strong>Transaction Fee (£):</strong> {selectedBooking.transFee ? parseFloat(selectedBooking.transFee).toFixed(2) : '0.00'}</p>
                   <p><strong>Surcharge (£):</strong> {selectedBooking.surcharge ? parseFloat(selectedBooking.surcharge).toFixed(2) : '0.00'}</p>
                   <p><strong>Amount Received (£):</strong> {selectedBooking.received ? parseFloat(selectedBooking.received).toFixed(2) : '0.00'}</p>

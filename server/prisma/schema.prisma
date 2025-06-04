@@ -35,7 +35,8 @@ model Booking {
   invoiced          String?         @map("invoice")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
-  costItems         CostItem[]      
+  costItems         CostItem[] 
+  instalments       Instalment[]    
   @@map("bookings")
 }
 
@@ -68,8 +69,41 @@ model PendingBooking {
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         PendingCostItem[]
+  instalments       PendingInstalment[]
   @@map("pending_bookings")
 }
+
+model Instalment {
+  id            Int       @id @default(autoincrement())
+  bookingId     Int
+  dueDate       DateTime  @map("due_date")
+  amount        Float
+  status        InstalmentStatus @default(PENDING)
+  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  @@map("instalments")
+}
+
+model PendingInstalment {
+  id                Int           @id @default(autoincrement())
+  pendingBookingId  Int
+  dueDate           DateTime      @map("due_date")
+  amount            Float
+  status            InstalmentStatus @default(PENDING)
+  pendingBooking    PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  @@map("pending_instalments")
+}
+
+enum InstalmentStatus {
+  PENDING
+  PAID
+  OVERDUE
+}
+
+
 
 model User {
   id          Int       @id @default(autoincrement())

@@ -28,7 +28,8 @@ export default function CreateBooking({ onBookingCreated }) {
     received: '',
     balance: '',
     profit: '',
-    invoiced: ''
+    invoiced: '',
+    instalments: [], // Add instalments field
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,6 +63,7 @@ export default function CreateBooking({ onBookingCreated }) {
     }));
     if (name === 'paymentMethod' && value !== 'INTERNAL') {
       setShowInternalDeposit(false);
+      setFormData(prev => ({ ...prev, instalments: [] }));
     }
   };
 
@@ -88,15 +90,16 @@ export default function CreateBooking({ onBookingCreated }) {
     setFormData(prev => ({
       ...prev,
       revenue: depositData.revenue || depositData.totalSellingPrice || '',
-      prodCost: depositData.prodCost || '',
-      prodCostBreakdown: depositData.prodCostBreakdown || [],
+      prodCost: depositData.prod_cost || '',
+      prodCostBreakdown: depositData.costItems || [],
       surcharge: depositData.surcharge || '',
       received: depositData.depositPaid || depositData.received || '',
-      transFee: depositData.totalTransactionFee || '',
+      transFee: depositData.trans_fee || '',
       balance: depositData.balance || '',
       profit: depositData.profit || '',
-      lastPaymentDate: depositData.lastPaymentDate || '',
-      travelDate: depositData.travelDate || ''
+      lastPaymentDate: depositData.last_payment_date || '',
+      travelDate: depositData.travel_date || '',
+      instalments: depositData.instalments || [], // Store instalments
     }));
     setShowInternalDeposit(false);
   };
@@ -113,6 +116,10 @@ export default function CreateBooking({ onBookingCreated }) {
 
       if (missingFields.length > 0) {
         throw new Error(`Please fill in all required fields: ${missingFields.join(', ')}`);
+      }
+
+      if (formData.paymentMethod === 'INTERNAL' && formData.instalments.length === 0) {
+        throw new Error('Instalments are required for INTERNAL payment method');
       }
 
       const bookingData = {
@@ -140,7 +147,8 @@ export default function CreateBooking({ onBookingCreated }) {
         balance: formData.balance ? parseFloat(formData.balance) : null,
         profit: formData.profit ? parseFloat(formData.profit) : null,
         invoiced: formData.invoiced,
-        status: 'PENDING'
+        status: 'PENDING',
+        instalments: formData.instalments, // Include instalments
       };
 
       const response = await createPendingBooking(bookingData);
@@ -175,7 +183,8 @@ export default function CreateBooking({ onBookingCreated }) {
         received: '',
         balance: '',
         profit: '',
-        invoiced: ''
+        invoiced: '',
+        instalments: [],
       });
 
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -507,6 +516,20 @@ export default function CreateBooking({ onBookingCreated }) {
                 className="w-full p-2 bg-gray-200 border rounded"
               />
             </div>
+            {formData.instalments.length > 0 && (
+              <div>
+                <label className="block text-gray-700 mb-1">Instalments</label>
+                <div className="mt-2 text-sm text-gray-600">
+                  {formData.instalments.map((inst, index) => (
+                    <div key={index} className="mb-1">
+                      <span>
+                        Due: {new Date(inst.dueDate).toLocaleDateString()} - £{parseFloat(inst.amount).toFixed(2)} ({inst.status})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="md:col-span-3 mt-4">
@@ -531,15 +554,15 @@ export default function CreateBooking({ onBookingCreated }) {
         <InternalDepositPopup
           initialData={{
             revenue: formData.revenue,
-            prodCost: formData.prodCost,
-            prodCostBreakdown: formData.prodCostBreakdown,
+            prod_cost: formData.prodCost,
+            costItems: formData.prodCostBreakdown,
             surcharge: formData.surcharge,
             received: formData.received,
-            lastPaymentDate: formData.lastPaymentDate,
-            travelDate: formData.travelDate,
+            last_payment_date: formData.lastPaymentDate,
+            travel_date: formData.travelDate,
             totalSellingPrice: formData.revenue,
             depositPaid: formData.received,
-            totalTransactionFee: formData.transFee
+            trans_fee: formData.transFee
           }}
           onClose={() => setShowInternalDeposit(false)}
           onSubmit={handleInternalDepositSubmit}
