@@ -37,6 +37,7 @@ model Booking {
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         CostItem[] 
   instalments       Instalment[]    
+  passengers        Passenger[]      // Add relation to Passenger
   @@map("bookings")
 }
 
@@ -70,6 +71,7 @@ model PendingBooking {
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         PendingCostItem[]
   instalments       PendingInstalment[]
+  passengers        PendingPassenger[]  // Add relation to PendingPassenger
   @@map("pending_bookings")
 }
 
@@ -102,8 +104,6 @@ enum InstalmentStatus {
   PAID
   OVERDUE
 }
-
-
 
 model User {
   id          Int       @id @default(autoincrement())
@@ -188,4 +188,58 @@ enum PendingStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+//pax information
+enum Title {
+  MR
+  MRS
+  MS
+  MASTER
+}
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+enum PassengerCategory {
+  ADULT
+  CHILD
+  INFANT
+}
+
+model Passenger {
+  id            Int               @id @default(autoincrement())
+  bookingId     Int
+  title         Title
+  firstName     String            @map("first_name")
+  middleName    String?           @map("middle_name")
+  lastName      String            @map("last_name")
+  gender        Gender
+  email         String?
+  contactNo     String?           @map("contact_no")
+  country       String?
+  category      PassengerCategory
+  booking       Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  @@map("passengers")
+}
+
+model PendingPassenger {
+  id                Int               @id @default(autoincrement())
+  pendingBookingId  Int
+  title             Title
+  firstName         String            @map("first_name")
+  middleName        String?           @map("middle_name")
+  lastName          String            @map("last_name")
+  gender            Gender
+  email             String?
+  contactNo         String?           @map("contact_no")
+  country           String?
+  category          PassengerCategory
+  pendingBooking    PendingBooking     @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  @@map("pending_passengers")
 }

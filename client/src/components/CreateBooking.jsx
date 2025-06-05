@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import { createPendingBooking } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
 import InternalDepositPopup from './InternalDepositPopup';
+import PaxDetailsPopup from './PaxDetailsPopup';
 
 export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
     refNo: '',
     paxName: '',
+    numPax: 1, // New field for number of passengers
+    passengers: [], // New field to store passenger details
     agentName: '',
     teamName: '',
     pnr: '',
@@ -29,7 +32,7 @@ export default function CreateBooking({ onBookingCreated }) {
     balance: '',
     profit: '',
     invoiced: '',
-    instalments: [], // Add instalments field
+    instalments: [],
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,6 +40,7 @@ export default function CreateBooking({ onBookingCreated }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
   const [showInternalDeposit, setShowInternalDeposit] = useState(false);
+  const [showPaxDetails, setShowPaxDetails] = useState(false);
 
   useEffect(() => {
     const revenue = parseFloat(formData.revenue) || 0;
@@ -48,46 +52,50 @@ export default function CreateBooking({ onBookingCreated }) {
     const profit = revenue - prodCost - transFee - surcharge;
     const balance = revenue - received;
 
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       profit: profit !== 0 ? profit.toFixed(2) : prev.profit,
-      balance: balance !== 0 ? balance.toFixed(2) : prev.balance
+      balance: balance !== 0 ? balance.toFixed(2) : prev.balance,
     }));
   }, [formData.revenue, formData.prodCost, formData.transFee, formData.surcharge, formData.received]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
     if (name === 'paymentMethod' && value !== 'INTERNAL') {
       setShowInternalDeposit(false);
-      setFormData(prev => ({ ...prev, instalments: [] }));
+      setFormData((prev) => ({ ...prev, instalments: [] }));
+    }
+    if (name === 'numPax') {
+      // Reset passengers when numPax changes
+      setFormData((prev) => ({ ...prev, passengers: [], paxName: '' }));
     }
   };
 
   const handleNumberChange = (e) => {
     const { name, value } = e.target;
     if (value === '' || !isNaN(parseFloat(value))) {
-      setFormData(prev => ({
+      setFormData((prev) => ({
         ...prev,
-        [name]: value
+        [name]: value,
       }));
     }
   };
 
   const handleBreakdownSubmit = (breakdown) => {
     const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       prodCost: total.toFixed(2),
-      prodCostBreakdown: breakdown
+      prodCostBreakdown: breakdown,
     }));
   };
 
   const handleInternalDepositSubmit = (depositData) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       revenue: depositData.revenue || depositData.totalSellingPrice || '',
       prodCost: depositData.prod_cost || '',
@@ -99,9 +107,18 @@ export default function CreateBooking({ onBookingCreated }) {
       profit: depositData.profit || '',
       lastPaymentDate: depositData.last_payment_date || '',
       travelDate: depositData.travel_date || '',
-      instalments: depositData.instalments || [], // Store instalments
+      instalments: depositData.instalments || [],
     }));
     setShowInternalDeposit(false);
+  };
+
+  const handlePaxDetailsSubmit = ({ passengers, paxName }) => {
+    setFormData((prev) => ({
+      ...prev,
+      passengers,
+      paxName,
+    }));
+    setShowPaxDetails(false);
   };
 
   const handleSubmit = async (e) => {
@@ -111,8 +128,23 @@ export default function CreateBooking({ onBookingCreated }) {
     setSuccessMessage('');
 
     try {
-      const requiredFields = ['refNo', 'paxName', 'agentName', 'teamName', 'pnr', 'airline', 'fromTo', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'supplier', 'travelDate'];
-      const missingFields = requiredFields.filter(field => !formData[field]);
+      const requiredFields = [
+        'refNo',
+        'paxName',
+        'numPax',
+        'agentName',
+        'teamName',
+        'pnr',
+        'airline',
+        'fromTo',
+        'bookingType',
+        'paymentMethod',
+        'pcDate',
+        'issuedDate',
+        'supplier',
+        'travelDate',
+      ];
+      const missingFields = requiredFields.filter((field) => !formData[field]);
 
       if (missingFields.length > 0) {
         throw new Error(`Please fill in all required fields: ${missingFields.join(', ')}`);
@@ -120,6 +152,10 @@ export default function CreateBooking({ onBookingCreated }) {
 
       if (formData.paymentMethod === 'INTERNAL' && formData.instalments.length === 0) {
         throw new Error('Instalments are required for INTERNAL payment method');
+      }
+
+      if (formData.passengers.length !== parseInt(formData.numPax)) {
+        throw new Error('Passenger details must be provided for all passengers');
       }
 
       const bookingData = {
@@ -148,7 +184,8 @@ export default function CreateBooking({ onBookingCreated }) {
         profit: formData.profit ? parseFloat(formData.profit) : null,
         invoiced: formData.invoiced,
         status: 'PENDING',
-        instalments: formData.instalments, // Include instalments
+        instalments: formData.instalments,
+        passengers: formData.passengers, // Include passenger details
       };
 
       const response = await createPendingBooking(bookingData);
@@ -162,6 +199,8 @@ export default function CreateBooking({ onBookingCreated }) {
       setFormData({
         refNo: '',
         paxName: '',
+        numPax: 1,
+        passengers: [],
         agentName: '',
         teamName: '',
         pnr: '',
@@ -200,14 +239,10 @@ export default function CreateBooking({ onBookingCreated }) {
     <div className="bg-gray-100 p-6 rounded-lg shadow h-full">
       <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">
-          {successMessage}
-        </div>
+        <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">{successMessage}</div>
       )}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-100 text-red-800 rounded">
-          {errorMessage}
-        </div>
+        <div className="mb-4 p-3 bg-red-100 text-red-800 rounded">{errorMessage}</div>
       )}
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="space-y-4">
@@ -223,15 +258,48 @@ export default function CreateBooking({ onBookingCreated }) {
             />
           </div>
           <div>
-            <label className="block text-gray-700 mb-1">Passenger Name*</label>
-            <input
-              name="paxName"
-              type="text"
-              value={formData.paxName}
+            <label className="block text-gray-700 mb-1">Number of Passengers*</label>
+            <select
+              name="numPax"
+              value={formData.numPax}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
               required
-            />
+            >
+              {[...Array(10).keys()].map((i) => (
+                <option key={i + 1} value={i + 1}>
+                  {i + 1}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-gray-700 mb-1">Passenger Name*</label>
+            <div className="flex">
+              <input
+                name="paxName"
+                type="text"
+                value={formData.paxName}
+                className="w-full p-2 bg-gray-200 border rounded"
+                readOnly
+              />
+              <button
+                type="button"
+                onClick={() => setShowPaxDetails(true)}
+                className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Details
+              </button>
+            </div>
+            {formData.passengers.length > 0 && (
+              <div className="mt-2 text-sm text-gray-600">
+                {formData.passengers.map((pax, index) => (
+                  <div key={index}>
+                    {pax.title} {pax.firstName} {pax.lastName} ({pax.category})
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-gray-700 mb-1">Agent Name*</label>
@@ -443,7 +511,7 @@ export default function CreateBooking({ onBookingCreated }) {
               </div>
               {formData.prodCostBreakdown.length > 0 && (
                 <div className="mt-2 text-sm text-gray-600">
-                  {formData.prodCostBreakdown.map(item => (
+                  {formData.prodCostBreakdown.map((item) => (
                     <span key={item.id} className="mr-2">
                       {item.category}: £{parseFloat(item.amount).toFixed(2)}
                     </span>
@@ -523,7 +591,8 @@ export default function CreateBooking({ onBookingCreated }) {
                   {formData.instalments.map((inst, index) => (
                     <div key={index} className="mb-1">
                       <span>
-                        Due: {new Date(inst.dueDate).toLocaleDateString()} - £{parseFloat(inst.amount).toFixed(2)} ({inst.status})
+                        Due: {new Date(inst.dueDate).toLocaleDateString()} - £
+                        {parseFloat(inst.amount).toFixed(2)} ({inst.status})
                       </span>
                     </div>
                   ))}
@@ -535,7 +604,9 @@ export default function CreateBooking({ onBookingCreated }) {
         <div className="md:col-span-3 mt-4">
           <button
             type="submit"
-            className={`py-2 px-6 rounded text-white ${isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+            className={`py-2 px-6 rounded text-white ${
+              isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
             disabled={isSubmitting}
           >
             {isSubmitting ? 'Submitting...' : 'Submit Booking'}
@@ -562,10 +633,18 @@ export default function CreateBooking({ onBookingCreated }) {
             travel_date: formData.travelDate,
             totalSellingPrice: formData.revenue,
             depositPaid: formData.received,
-            trans_fee: formData.transFee
+            trans_fee: formData.transFee,
           }}
           onClose={() => setShowInternalDeposit(false)}
           onSubmit={handleInternalDepositSubmit}
+        />
+      )}
+      {showPaxDetails && (
+        <PaxDetailsPopup
+          initialData={{ passengers: formData.passengers }}
+          numPax={parseInt(formData.numPax)}
+          onClose={() => setShowPaxDetails(false)}
+          onSubmit={handlePaxDetailsSubmit}
         />
       )}
     </div>

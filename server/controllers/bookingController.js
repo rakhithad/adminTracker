@@ -7,8 +7,22 @@ const createPendingBooking = async (req, res) => {
 
   try {
     // Validate required fields
-    const requiredFields = ['ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'supplier', 'travelDate'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
+    const requiredFields = [
+      'ref_no',
+      'pax_name',
+      'agent_name',
+      'team_name',
+      'pnr',
+      'airline',
+      'from_to',
+      'bookingType',
+      'paymentMethod',
+      'pcDate',
+      'issuedDate',
+      'supplier',
+      'travelDate',
+    ];
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
     }
@@ -43,13 +57,49 @@ const createPendingBooking = async (req, res) => {
     }
 
     for (const inst of instalments) {
-      if (!inst.dueDate || isNaN(parseFloat(inst.amount)) || parseFloat(inst.amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')) {
+      if (
+        !inst.dueDate ||
+        isNaN(parseFloat(inst.amount)) ||
+        parseFloat(inst.amount) <= 0 ||
+        !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')
+      ) {
         return apiResponse.error(res, "Each instalment must have a valid dueDate, positive amount, and valid status", 400);
       }
     }
 
+    // Validate passengers
+    const passengers = req.body.passengers || [];
+    if (!Array.isArray(passengers) || passengers.length === 0) {
+      return apiResponse.error(res, "passengers must be a non-empty array", 400);
+    }
+
+    const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
+    const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+    const validCategories = ['ADULT', 'CHILD', 'INFANT'];
+
+    for (const pax of passengers) {
+      if (
+        !pax.title ||
+        !validTitles.includes(pax.title) ||
+        !pax.firstName ||
+        !pax.lastName ||
+        !pax.gender ||
+        !validGenders.includes(pax.gender) ||
+        !pax.category ||
+        !validCategories.includes(pax.category) ||
+        (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
+        (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo))
+      ) {
+        return apiResponse.error(
+          res,
+          "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+          400
+        );
+      }
+    }
+
     // Calculate prodCost from prodCostBreakdown
-    const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+    const calculatedProdCost = prodCostBreakdown.reduce((sum, item) =>-sum + parseFloat(item.amount), 0);
 
     // Verify provided prodCost matches calculatedProdCost
     if (req.body.prodCost && Math.abs(parseFloat(req.body.prodCost) - calculatedProdCost) > 0.01) {
@@ -86,7 +136,7 @@ const createPendingBooking = async (req, res) => {
     financialData.profit = revenue - prodCost - transFee - surcharge;
     financialData.balance = revenue - received;
 
-    // Create pending booking with nested costItems and instalments
+    // Create pending booking with nested costItems, instalments, and passengers
     const pendingBooking = await prisma.pendingBooking.create({
       data: {
         refNo: req.body.ref_no,
@@ -107,22 +157,36 @@ const createPendingBooking = async (req, res) => {
         ...financialData,
         status: 'PENDING',
         costItems: {
-          create: prodCostBreakdown.map(item => ({
+          create: prodCostBreakdown.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
           })),
         },
         instalments: {
-          create: instalments.map(inst => ({
+          create: instalments.map((inst) => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
+          })),
+        },
+        passengers: {
+          create: passengers.map((pax) => ({
+            title: pax.title,
+            firstName: pax.firstName,
+            middleName: pax.middleName || null,
+            lastName: pax.lastName,
+            gender: pax.gender,
+            email: pax.email || null,
+            contactNo: pax.contactNo || null,
+            country: pax.country || null,
+            category: pax.category,
           })),
         },
       },
       include: {
         costItems: true,
         instalments: true,
+        passengers: true,
       },
     });
 
@@ -139,15 +203,14 @@ const createPendingBooking = async (req, res) => {
   }
 };
 
-
-
 const getPendingBookings = async (req, res) => {
   try {
     const pendingBookings = await prisma.pendingBooking.findMany({
       where: { status: 'PENDING' },
       include: {
         costItems: true,
-        instalments: true, // Include instalments
+        instalments: true,
+        passengers: true, // Include passengers
       },
     });
     return apiResponse.success(res, pendingBookings);
@@ -170,6 +233,7 @@ const approveBooking = async (req, res) => {
       include: {
         costItems: true,
         instalments: true,
+        passengers: true, // Include passengers
       },
     });
 
@@ -181,8 +245,9 @@ const approveBooking = async (req, res) => {
       return apiResponse.error(res, 'Pending booking already processed', 409);
     }
 
-    // Debug: Log instalments to verify data
+    // Debug: Log instalments and passengers to verify data
     console.log('Pending Instalments:', pendingBooking.instalments);
+    console.log('Pending Passengers:', pendingBooking.passengers);
 
     // Validate instalments
     if (pendingBooking.paymentMethod.includes('INTERNAL') && (!Array.isArray(pendingBooking.instalments) || pendingBooking.instalments.length === 0)) {
@@ -196,6 +261,11 @@ const approveBooking = async (req, res) => {
       if (Math.abs(totalInstalments - balance) > 0.01) {
         return apiResponse.error(res, `Sum of instalments (£${totalInstalments.toFixed(2)}) does not match balance (£${balance.toFixed(2)})`, 400);
       }
+    }
+
+    // Validate passengers
+    if (!Array.isArray(pendingBooking.passengers) || pendingBooking.passengers.length === 0) {
+      return apiResponse.error(res, 'At least one passenger is required', 400);
     }
 
     // Create booking in Bookings table
@@ -225,29 +295,44 @@ const approveBooking = async (req, res) => {
         profit: pendingBooking.profit,
         invoiced: pendingBooking.invoiced,
         costItems: {
-          create: pendingBooking.costItems.map(item => ({
+          create: pendingBooking.costItems.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
           })),
         },
         instalments: {
-          create: pendingBooking.instalments.map(inst => ({
-            dueDate: new Date(inst.dueDate), // Ensure dueDate is a Date object
+          create: pendingBooking.instalments.map((inst) => ({
+            dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
+          })),
+        },
+        passengers: {
+          create: pendingBooking.passengers.map((pax) => ({
+            title: pax.title,
+            firstName: pax.firstName,
+            middleName: pax.middleName || null,
+            lastName: pax.lastName,
+            gender: pax.gender,
+            email: pax.email || null,
+            contactNo: pax.contactNo || null,
+            country: pax.country || null,
+            category: pax.category,
           })),
         },
       },
       include: {
         costItems: true,
         instalments: true,
+        passengers: true,
       },
     });
 
-    // Debug: Log created booking instalments
+    // Debug: Log created booking instalments and passengers
     console.log('Created Booking Instalments:', booking.instalments);
+    console.log('Created Booking Passengers:', booking.passengers);
 
-    // Delete pending booking (cascades to PendingInstalment due to onDelete: Cascade)
+    // Delete pending booking (cascades to PendingInstalment and PendingPassenger due to onDelete: Cascade)
     await prisma.pendingBooking.delete({
       where: { id: bookingId },
     });
@@ -269,7 +354,7 @@ const rejectBooking = async (req, res) => {
       return apiResponse.error(res, "Pending booking not found or already processed", 404);
     }
 
-    // Delete pending booking (cascades to instalments and costItems due to onDelete: Cascade)
+    // Delete pending booking (cascades to instalments, costItems, and passengers due to onDelete: Cascade)
     await prisma.pendingBooking.delete({
       where: { id: parseInt(req.params.id) },
     });
@@ -283,8 +368,22 @@ const rejectBooking = async (req, res) => {
 
 const createBooking = async (req, res) => {
   try {
-    const requiredFields = ['ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'supplier', 'travelDate'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
+    const requiredFields = [
+      'ref_no',
+      'pax_name',
+      'agent_name',
+      'team_name',
+      'pnr',
+      'airline',
+      'from_to',
+      'bookingType',
+      'paymentMethod',
+      'pcDate',
+      'issuedDate',
+      'supplier',
+      'travelDate',
+    ];
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
     }
@@ -317,8 +416,44 @@ const createBooking = async (req, res) => {
     }
 
     for (const inst of instalments) {
-      if (!inst.dueDate || isNaN(parseFloat(inst.amount)) || parseFloat(inst.amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')) {
+      if (
+        !inst.dueDate ||
+        isNaN(parseFloat(inst.amount)) ||
+        parseFloat(inst.amount) <= 0 ||
+        !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')
+      ) {
         return apiResponse.error(res, "Each instalment must have a valid dueDate, positive amount, and valid status", 400);
+      }
+    }
+
+    // Validate passengers
+    const passengers = req.body.passengers || [];
+    if (!Array.isArray(passengers) || passengers.length === 0) {
+      return apiResponse.error(res, "passengers must be a non-empty array", 400);
+    }
+
+    const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
+    const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+    const validCategories = ['ADULT', 'CHILD', 'INFANT'];
+
+    for (const pax of passengers) {
+      if (
+        !pax.title ||
+        !validTitles.includes(pax.title) ||
+        !pax.firstName ||
+        !pax.lastName ||
+        !pax.gender ||
+        !validGenders.includes(pax.gender) ||
+        !pax.category ||
+        !validCategories.includes(pax.category) ||
+        (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
+        (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo))
+      ) {
+        return apiResponse.error(
+          res,
+          "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+          400
+        );
       }
     }
 
@@ -375,22 +510,36 @@ const createBooking = async (req, res) => {
         travelDate: new Date(req.body.travelDate),
         ...financialData,
         costItems: {
-          create: prodCostBreakdown.map(item => ({
+          create: prodCostBreakdown.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
           })),
         },
         instalments: {
-          create: instalments.map(inst => ({
+          create: instalments.map((inst) => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
+          })),
+        },
+        passengers: {
+          create: passengers.map((pax) => ({
+            title: pax.title,
+            firstName: pax.firstName,
+            middleName: pax.middleName || null,
+            lastName: pax.lastName,
+            gender: pax.gender,
+            email: pax.email || null,
+            contactNo: pax.contactNo || null,
+            country: pax.country || null,
+            category: pax.category,
           })),
         },
       },
       include: {
         costItems: true,
         instalments: true,
+        passengers: true,
       },
     });
 
@@ -412,12 +561,14 @@ const getBookings = async (req, res) => {
     const bookings = await prisma.booking.findMany({
       include: {
         costItems: true,
-        instalments: true, // Include instalments
+        instalments: true,
+        passengers: true, // Include passengers
       },
     });
-    apiResponse.success(res, bookings);
+    return apiResponse.success(res, bookings);
   } catch (error) {
-    apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
+    console.error("Error fetching bookings:", error);
+    return apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
   }
 };
 
@@ -453,6 +604,7 @@ const updateBooking = async (req, res) => {
       travelDate,
       costItems,
       instalments,
+      passengers,
     } = updates;
 
     // Validate instalments if provided
@@ -461,7 +613,12 @@ const updateBooking = async (req, res) => {
         return apiResponse.error(res, "instalments must be an array", 400);
       }
       for (const inst of instalments) {
-        if (!inst.dueDate || isNaN(parseFloat(inst.amount)) || parseFloat(inst.amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status)) {
+        if (
+          !inst.dueDate ||
+          isNaN(parseFloat(inst.amount)) ||
+          parseFloat(inst.amount) <= 0 ||
+          !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status)
+        ) {
           return apiResponse.error(res, "Each instalment must have a valid dueDate, positive amount, and valid status", 400);
         }
       }
@@ -470,6 +627,36 @@ const updateBooking = async (req, res) => {
         const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
         if (Math.abs(totalInstalments - parseFloat(balance)) > 0.01) {
           return apiResponse.error(res, "Sum of instalments must equal the balance", 400);
+        }
+      }
+    }
+
+    // Validate passengers if provided
+    if (passengers) {
+      if (!Array.isArray(passengers) || passengers.length === 0) {
+        return apiResponse.error(res, "passengers must be a non-empty array", 400);
+      }
+      const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
+      const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+      const validCategories = ['ADULT', 'CHILD', 'INFANT'];
+      for (const pax of passengers) {
+        if (
+          !pax.title ||
+          !validTitles.includes(pax.title) ||
+          !pax.firstName ||
+          !pax.lastName ||
+          !pax.gender ||
+          !validGenders.includes(pax.gender) ||
+          !pax.category ||
+          !validCategories.includes(pax.category) ||
+          (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
+          (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo))
+        ) {
+          return apiResponse.error(
+            res,
+            "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+            400
+          );
         }
       }
     }
@@ -503,7 +690,7 @@ const updateBooking = async (req, res) => {
         costItems: Array.isArray(costItems) && costItems.length > 0
           ? {
               deleteMany: {},
-              create: costItems.map(item => ({
+              create: costItems.map((item) => ({
                 category: item.category,
                 amount: parseFloat(item.amount),
               })),
@@ -512,10 +699,26 @@ const updateBooking = async (req, res) => {
         instalments: Array.isArray(instalments) && instalments.length > 0
           ? {
               deleteMany: {},
-              create: instalments.map(inst => ({
+              create: instalments.map((inst) => ({
                 dueDate: new Date(inst.dueDate),
                 amount: parseFloat(inst.amount),
                 status: inst.status,
+              })),
+            }
+          : undefined,
+        passengers: Array.isArray(passengers) && passengers.length > 0
+          ? {
+              deleteMany: {},
+              create: passengers.map((pax) => ({
+                title: pax.title,
+                firstName: pax.firstName,
+                middleName: pax.middleName || null,
+                lastName: pax.lastName,
+                gender: pax.gender,
+                email: pax.email || null,
+                contactNo: pax.contactNo || null,
+                country: pax.country || null,
+                category: pax.category,
               })),
             }
           : undefined,
@@ -523,17 +726,15 @@ const updateBooking = async (req, res) => {
       include: {
         costItems: true,
         instalments: true,
+        passengers: true,
       },
     });
-    res.status(200).json({ success: true, data: booking });
+    return apiResponse.success(res, booking, 200);
   } catch (error) {
     console.error('Error updating booking:', error);
-    res.status(500).json({ success: false, error: `Failed to update booking: ${error.message}` });
+    return apiResponse.error(res, `Failed to update booking: ${error.message}`, 500);
   }
 };
-
-
-
 
 const getDashboardStats = async (req, res) => {
   try {
@@ -548,19 +749,16 @@ const getDashboardStats = async (req, res) => {
       }),
     ]);
 
-    res.status(200).json({
-      success: true,
-      data: {
-        totalBookings,
-        pendingBookings,
-        confirmedBookings,
-        completedBookings,
-        totalRevenue: totalRevenue._sum.revenue || 0,
-      },
+    return apiResponse.success(res, {
+      totalBookings,
+      pendingBookings,
+      confirmedBookings,
+      completedBookings,
+      totalRevenue: totalRevenue._sum.revenue || 0,
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch dashboard stats' });
+    return apiResponse.error(res, 'Failed to fetch dashboard stats: ' + error.message, 500);
   }
 };
 
@@ -575,6 +773,14 @@ const getRecentBookings = async (req, res) => {
         paxName: true,
         bookingStatus: true,
         createdAt: true,
+        passengers: {
+          select: {
+            title: true,
+            firstName: true,
+            lastName: true,
+            category: true,
+          },
+        },
       },
     });
     const recentPendingBookings = await prisma.pendingBooking.findMany({
@@ -586,19 +792,24 @@ const getRecentBookings = async (req, res) => {
         paxName: true,
         status: true,
         createdAt: true,
+        passengers: {
+          select: {
+            title: true,
+            firstName: true,
+            lastName: true,
+            category: true,
+          },
+        },
       },
     });
 
-    res.status(200).json({
-      success: true,
-      data: {
-        bookings: recentBookings,
-        pendingBookings: recentPendingBookings,
-      },
+    return apiResponse.success(res, {
+      bookings: recentBookings,
+      pendingBookings: recentPendingBookings,
     });
   } catch (error) {
     console.error('Error fetching recent bookings:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch recent bookings' });
+    return apiResponse.error(res, 'Failed to fetch recent bookings: ' + error.message, 500);
   }
 };
 
@@ -615,9 +826,17 @@ const getCustomerDeposits = async (req, res) => {
         travelDate: true,
         received: true,
         instalments: { select: { id: true, dueDate: true, amount: true, status: true } },
+        passengers: {
+          select: {
+            title: true,
+            firstName: true,
+            lastName: true,
+            category: true,
+          },
+        },
       },
     });
-    const formattedBookings = bookings.map(booking => ({
+    const formattedBookings = bookings.map((booking) => ({
       ...booking,
       totalInstalments: booking.instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0).toFixed(2),
     }));
@@ -653,7 +872,7 @@ const updateInstalment = async (req, res) => {
       where: { bookingId: instalment.bookingId },
     });
     const totalReceivedFromInstalments = instalments
-      .filter(inst => inst.status === 'PAID')
+      .filter((inst) => inst.status === 'PAID')
       .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
     const initialReceived = instalment.booking.received || 0;
     const totalReceived = initialReceived + totalReceivedFromInstalments;
@@ -670,7 +889,6 @@ const updateInstalment = async (req, res) => {
   }
 };
 
-
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -684,4 +902,3 @@ module.exports = {
   getCustomerDeposits,
   updateInstalment,
 };
-
