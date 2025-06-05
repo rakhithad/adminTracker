@@ -47,3 +47,13 @@ export const getDashboardStats = async () => {
 export const getRecentBookings = async () => {
   return await api.get('/bookings/dashboard/recent');
 };
+
+
+// New endpoints for CustomerDeposits
+export const getCustomerDeposits = async () => {
+  return await api.get('/bookings/customer-deposits');
+};
+
+export const updateInstalment = async (id, data) => {
+  return await api.patch(`/bookings/instalments/${id}`, data);
+};

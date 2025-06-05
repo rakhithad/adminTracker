@@ -31,8 +31,14 @@ export default function AdminPage() {
             >
               View Confirmed Bookings
             </button>
+            <button
+              onClick={() => navigate('/customer-deposits')}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              View Customer deposits
+            </button>
           </div>
-          {/* Right half - CreateBooking form */}
+          
           <div className="md:w-1/2">
             <CreateBooking onBookingCreated={handleNewBooking} />
           </div>

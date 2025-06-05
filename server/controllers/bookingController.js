@@ -602,6 +602,75 @@ const getRecentBookings = async (req, res) => {
   }
 };
 
+const getCustomerDeposits = async (req, res) => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: { paymentMethod: { in: ['INTERNAL', 'INTERNAL_HUMM'] } },
+      select: {
+        id: true,
+        refNo: true,
+        paxName: true,
+        agentName: true,
+        pcDate: true,
+        travelDate: true,
+        received: true,
+        instalments: { select: { id: true, dueDate: true, amount: true, status: true } },
+      },
+    });
+    const formattedBookings = bookings.map(booking => ({
+      ...booking,
+      totalInstalments: booking.instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0).toFixed(2),
+    }));
+    return apiResponse.success(res, formattedBookings);
+  } catch (error) {
+    console.error('Error fetching customer deposits:', error);
+    return apiResponse.error(res, `Failed to fetch customer deposits: ${error.message}`, 500);
+  }
+};
+
+const updateInstalment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, status } = req.body;
+    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return apiResponse.error(res, 'Amount must be a positive number', 400);
+    }
+    if (!['PENDING', 'PAID', 'OVERDUE'].includes(status)) {
+      return apiResponse.error(res, `Invalid status. Must be one of: PENDING, PAID, OVERDUE`, 400);
+    }
+    const instalment = await prisma.instalment.findUnique({
+      where: { id: parseInt(id) },
+      include: { booking: true },
+    });
+    if (!instalment) {
+      return apiResponse.error(res, 'Instalment not found', 404);
+    }
+    const updatedInstalment = await prisma.instalment.update({
+      where: { id: parseInt(id) },
+      data: { amount: parseFloat(amount), status },
+    });
+    const instalments = await prisma.instalment.findMany({
+      where: { bookingId: instalment.bookingId },
+    });
+    const totalReceivedFromInstalments = instalments
+      .filter(inst => inst.status === 'PAID')
+      .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+    const initialReceived = instalment.booking.received || 0;
+    const totalReceived = initialReceived + totalReceivedFromInstalments;
+    const revenue = instalment.booking.revenue || 0;
+    const balance = revenue - totalReceived;
+    await prisma.booking.update({
+      where: { id: instalment.bookingId },
+      data: { received: totalReceived, balance: balance >= 0 ? balance : 0 },
+    });
+    return apiResponse.success(res, updatedInstalment);
+  } catch (error) {
+    console.error('Error updating instalment:', error);
+    return apiResponse.error(res, `Failed to update instalment: ${error.message}`, 500);
+  }
+};
+
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -612,5 +681,7 @@ module.exports = {
   updateBooking,
   getDashboardStats,
   getRecentBookings,
+  getCustomerDeposits,
+  updateInstalment,
 };
 
