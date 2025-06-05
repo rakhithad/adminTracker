@@ -6,6 +6,8 @@ export default function CustomerDeposits() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [editingInstalment, setEditingInstalment] = useState(null);
+  const [expandedRows, setExpandedRows] = useState({});
+  const [filter, setFilter] = useState('all'); // Filter state: 'all', 'ongoing', 'completed'
 
   useEffect(() => {
     fetchBookings();
@@ -86,12 +88,41 @@ export default function CustomerDeposits() {
     return new Date(dateStr).toLocaleDateString('en-GB');
   };
 
+  const toggleExpand = (bookingId) => {
+    setExpandedRows((prev) => ({
+      ...prev,
+      [bookingId]: !prev[bookingId],
+    }));
+  };
+
+  const getNextUnpaidInstalment = (instalments) => {
+    return instalments.find((inst) => inst.status === 'PENDING' || inst.status === 'OVERDUE') || null;
+  };
+
+  // Calculate days left from today to travel date
+  const calculateDaysLeft = (travelDate) => {
+    if (!travelDate) return null;
+    const today = new Date('2025-06-05'); // Hardcoded as per current date
+    const travel = new Date(travelDate);
+    const diffTime = travel - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays >= 0 ? diffDays : null; // Return null for past dates
+  };
+
+  // Filter bookings based on status
+  const filteredBookings = bookings.filter((booking) => {
+    const allPaid = booking.instalments.every((inst) => inst.status === 'PAID');
+    if (filter === 'ongoing') return !allPaid;
+    if (filter === 'completed') return allPaid;
+    return true; // 'all'
+  });
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8 bg-white rounded-xl shadow-md">
+      <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-lg font-medium text-gray-700">Loading customer deposits...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-lg font-semibold text-gray-700">Loading customer deposits...</p>
         </div>
       </div>
     );
@@ -99,8 +130,8 @@ export default function CustomerDeposits() {
 
   if (errorMessage) {
     return (
-      <div className="flex items-center justify-center py-8 bg-white rounded-xl shadow-md">
-        <div className="text-center max-w-md">
+      <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
+        <div className="text-center max-w-md p-6">
           <div className="text-red-500 mb-4">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -118,10 +149,10 @@ export default function CustomerDeposits() {
             </svg>
           </div>
           <h3 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Data</h3>
-          <p className="text-gray-600 mb-4">{errorMessage}</p>
+          <p className="text-gray-600 mb-6">{errorMessage}</p>
           <button
             onClick={fetchBookings}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
           >
             Retry
           </button>
@@ -131,106 +162,173 @@ export default function CustomerDeposits() {
   }
 
   return (
-    <div className="bg-white shadow-xl rounded-xl overflow-hidden p-6">
-      <h2 className="text-xl font-semibold mb-4 text-gray-700">Customer Deposits</h2>
-      {bookings.length > 0 ? (
+    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
+        <div className="relative">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8"
+          >
+            <option value="all">All Bookings</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="completed">Completed</option>
+          </select>
+          <svg
+            className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+      {filteredBookings.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="min-w-full bg-white rounded-lg">
-            <thead>
-              <tr className="bg-gray-200 text-gray-700">
-                <th className="py-2 px-4 text-left">PC Date</th>
-                <th className="py-2 px-4 text-left">Folder Number</th>
-                <th className="py-2 px-4 text-left">Passenger Name</th>
-                <th className="py-2 px-4 text-left">Agent</th>
-                <th className="py-2 px-4 text-left">Travel Date</th>
-                <th className="py-2 px-4 text-left">Total Instalments (£)</th>
-                <th className="py-2 px-4 text-left">Initial Payment (£)</th>
-                <th className="py-2 px-4 text-left">Instalments</th>
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Folder Number</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger Name</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Instalments (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Initial Payment (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Instalments</th>
               </tr>
             </thead>
-            <tbody>
-              {bookings.map((booking) => (
-                <tr key={booking.id} className="border-b hover:bg-gray-50">
-                  <td className="py-2 px-4">{formatDate(booking.pcDate)}</td>
-                  <td className="py-2 px-4">{booking.refNo}</td>
-                  <td className="py-2 px-4">{booking.paxName}</td>
-                  <td className="py-2 px-4">{booking.agentName}</td>
-                  <td className="py-2 px-4">{formatDate(booking.travelDate)}</td>
-                  <td className="py-2 px-4">{booking.totalInstalments}</td>
-                  <td className="py-2 px-4">{booking.received ? parseFloat(booking.received).toFixed(2) : '0.00'}</td>
-                  <td className="py-2 px-4">
-                    <div className="space-y-2">
-                      {booking.instalments.map((instalment) => (
-                        <div key={instalment.id} className="flex items-center space-x-2">
-                          {editingInstalment && editingInstalment.id === instalment.id ? (
-                            <>
-                              <input
-                                type="number"
-                                step="0.01"
-                                value={editingInstalment.amount}
-                                onChange={handleAmountChange}
-                                className="w-24 p-1 border rounded"
-                                placeholder="Amount"
-                              />
-                              <input
-                                type="checkbox"
-                                checked={editingInstalment.status === 'PAID'}
-                                onChange={() => handleTogglePaid(instalment.id, editingInstalment.status)}
-                                className="h-4 w-4"
-                              />
-                              <button
-                                onClick={() => handleSaveInstalment(instalment.id)}
-                                className="px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingInstalment(null)}
-                                className="px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-                              >
-                                Cancel
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <span>
-                                Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)}
-                              </span>
-                              <input
-                                type="checkbox"
-                                checked={instalment.status === 'PAID'}
-                                onChange={() => handleTogglePaid(instalment.id, instalment.status)}
-                                disabled={instalment.status === 'OVERDUE'}
-                                className="h-4 w-4"
-                              />
-                              <button
-                                onClick={() => handleEditInstalment(instalment)}
-                                className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                              >
-                                Edit
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-gray-200">
+              {filteredBookings.map((booking) => {
+                const nextUnpaidInstalment = getNextUnpaidInstalment(booking.instalments);
+                const isExpanded = expandedRows[booking.id] || false;
+                const daysLeft = calculateDaysLeft(booking.travelDate);
+
+                return (
+                  <tr key={booking.id} className="hover:bg-gray-50 transition-colors duration-150">
+                    <td className="py-4 px-6 text-sm text-gray-600">{formatDate(booking.pcDate)}</td>
+                    <td className="py-4 px-6 text-sm text-gray-600">{booking.refNo}</td>
+                    <td className="py-4 px-6 text-sm text-gray-600">{booking.paxName}</td>
+                    <td className="py-4 px-6 text-sm text-gray-600">{booking.agentName}</td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {formatDate(booking.travelDate)}
+                      <br></br>
+                      {daysLeft !== null && (
+                        <span
+                          className={`text-xs font-medium ${
+                            daysLeft <= 7 ? ' text-red-700' : 'text-blue-700'
+                          }`}
+                        >
+                          {daysLeft} days left
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {booking.totalInstalments ? parseFloat(booking.totalInstalments).toFixed(2) : '0.00'}
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      {booking.received ? parseFloat(booking.received).toFixed(2) : '0.00'}
+                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-600">
+                      <div className="space-y-2">
+                        {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
+                          (instalment) => (
+                            <div key={instalment.id} className="flex items-center space-x-3">
+                              {editingInstalment && editingInstalment.id === instalment.id ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    value={editingInstalment.amount}
+                                    onChange={handleAmountChange}
+                                    className="w-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Amount"
+                                  />
+                                  <input
+                                    type="checkbox"
+                                    checked={editingInstalment.status === 'PAID'}
+                                    onChange={() => handleTogglePaid(instalment.id, editingInstalment.status)}
+                                    className="h-4 w-4 text-blue-600 rounded"
+                                  />
+                                  <button
+                                    onClick={() => handleSaveInstalment(instalment.id)}
+                                    className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingInstalment(null)}
+                                    className="px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span
+                                    className={`${
+                                      instalment.status === 'OVERDUE'
+                                        ? 'text-red-500'
+                                        : instalment.status === 'PAID'
+                                        ? 'text-green-500'
+                                        : 'text-gray-600'
+                                    }`}
+                                  >
+                                    Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} (
+                                    {instalment.status})
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={instalment.status === 'PAID'}
+                                    onChange={() => handleTogglePaid(instalment.id, instalment.status)}
+                                    disabled={instalment.status === 'OVERDUE'}
+                                    className="h-4 w-4 text-blue-600 rounded"
+                                  />
+                                  <button
+                                    onClick={() => handleEditInstalment(instalment)}
+                                    className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
+                                  >
+                                    Edit
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )
+                        )}
+                        {booking.instalments.length > 1 && (
+                          <button
+                            onClick={() => toggleExpand(booking.id)}
+                            className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          >
+                            {isExpanded ? 'Collapse' : 'Show All Instalments'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       ) : (
-        <div className="text-center py-8">
-          <svg className="h-12 w-12 text-gray-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="text-center py-12">
+          <svg
+            className="h-16 w-16 text-gray-400 mx-auto mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeWidth={1}
+              strokeWidth={1.5}
               d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          <h3 className="text-lg font-medium text-gray-700 mb-1">No customer deposits found</h3>
+          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Customer Deposits Found</h3>
           <p className="text-gray-500">Create a booking with INTERNAL payment method to get started.</p>
         </div>
       )}

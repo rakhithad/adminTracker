@@ -6,6 +6,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     period: 'within30days',
     instalmentType: 'weekly',
     numWeeks: 1,
+    numWeeksBeyond30: 1,
     customInstalments: [],
     revenue: initialData.revenue || '',
     prod_cost: initialData.prod_cost || '',
@@ -31,6 +32,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   const FIXED_INTEREST_RATE = 11;
   const MONTHLY_INTEREST_RATE = FIXED_INTEREST_RATE / 100 / 12;
 
+  // Generate weekly instalments for within 30 days
   const generateWeeklyInstalments = (numWeeks, balance) => {
     const instalments = [];
     const today = new Date();
@@ -51,34 +53,57 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     return instalments;
   };
 
-  const generateMonthlyInstalments = () => {
+  // Generate weekly instalments for beyond 30 days
+  const generateWeeklyInstalmentsBeyond30 = (numWeeks, totalBalancePayable) => {
     const instalments = [];
     const today = new Date();
-    const amountPerMonth = parseFloat(depositData.monthlyInstalment) || 0;
-    const repaymentPeriod = parseInt(depositData.repaymentPeriod) || 0;
+    const amountPerWeek = (parseFloat(totalBalancePayable) / numWeeks).toFixed(2);
 
-    for (let i = 0; i < repaymentPeriod; i++) {
+    for (let i = 0; i < numWeeks; i++) {
       const dueDate = new Date(today);
-      dueDate.setMonth(today.getMonth() + i + 1);
+      dueDate.setDate(today.getDate() + (i + 1) * 7);
       instalments.push({
         dueDate: dueDate.toISOString().split('T')[0],
-        amount: amountPerMonth.toFixed(2),
+        amount: amountPerWeek,
         status: 'PENDING',
       });
     }
     return instalments;
   };
 
-  const validateInstalments = (instalments, balance) => {
+  // Generate monthly instalments (30 days apart) for beyond 30 days
+  const generateMonthlyInstalments = (repaymentPeriod, totalBalancePayable) => {
+    const instalments = [];
+    const today = new Date();
+    const amountPerMonth = (parseFloat(totalBalancePayable) / repaymentPeriod).toFixed(2);
+
+    for (let i = 0; i < repaymentPeriod; i++) {
+      const dueDate = new Date(today);
+      dueDate.setDate(today.getDate() + (i + 1) * 30);
+      instalments.push({
+        dueDate: dueDate.toISOString().split('T')[0],
+        amount: amountPerMonth,
+        status: 'PENDING',
+      });
+    }
+    return instalments;
+  };
+
+  // Validate instalments
+  const validateInstalments = (instalments, expectedTotal, isWithin30Days = true) => {
     const today = new Date();
     const totalAmount = instalments.reduce((sum, inst) => sum + (parseFloat(inst.amount) || 0), 0);
     const within30Days = instalments.every(inst => {
       const dueDate = new Date(inst.dueDate);
       return dueDate.getTime() <= today.getTime() + 30 * 24 * 60 * 60 * 1000;
     });
-    return totalAmount.toFixed(2) === parseFloat(balance).toFixed(2) && within30Days;
+    const allValid = instalments.every(inst => inst.dueDate && parseFloat(inst.amount) > 0);
+    return totalAmount.toFixed(2) === parseFloat(expectedTotal).toFixed(2) &&
+           (!isWithin30Days || within30Days) &&
+           allValid;
   };
 
+  // Weekly instalments for within 30 days
   const weeklyInstalments = useMemo(() => {
     if (depositData.period === 'within30days' && depositData.instalmentType === 'weekly') {
       const balance = (parseFloat(depositData.revenue) || 0) - (parseFloat(depositData.received) || 0);
@@ -86,6 +111,22 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     }
     return [];
   }, [depositData.numWeeks, depositData.revenue, depositData.received]);
+
+  // Weekly instalments for beyond 30 days
+  const weeklyInstalmentsBeyond30 = useMemo(() => {
+    if (depositData.period === 'beyond30' && depositData.instalmentType === 'weekly') {
+      return generateWeeklyInstalmentsBeyond30(depositData.numWeeksBeyond30, depositData.totalBalancePayable);
+    }
+    return [];
+  }, [depositData.numWeeksBeyond30, depositData.totalBalancePayable]);
+
+  // Monthly instalments for beyond 30 days
+  const monthlyInstalments = useMemo(() => {
+    if (depositData.period === 'beyond30' && depositData.instalmentType === 'monthly') {
+      return generateMonthlyInstalments(depositData.repaymentPeriod, depositData.totalBalancePayable);
+    }
+    return [];
+  }, [depositData.repaymentPeriod, depositData.totalBalancePayable]);
 
   useEffect(() => {
     let profit = '';
@@ -145,9 +186,13 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       revenue = (depositPaid + parseFloat(totalBalancePayable)).toFixed(2);
       profit = (parseFloat(revenue) - prod_cost - surcharge).toFixed(2);
 
-      const monthlyInstalments = generateMonthlyInstalments();
-      instalmentsValid = monthlyInstalments.length === repaymentPeriod && 
-        monthlyInstalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0).toFixed(2) === parseFloat(totalBalancePayable).toFixed(2);
+      if (depositData.instalmentType === 'weekly') {
+        instalmentsValid = validateInstalments(weeklyInstalmentsBeyond30, totalBalancePayable, false);
+      } else if (depositData.instalmentType === 'monthly') {
+        instalmentsValid = validateInstalments(monthlyInstalments, totalBalancePayable, false);
+      } else {
+        instalmentsValid = validateInstalments(depositData.customInstalments, totalBalancePayable, false);
+      }
 
       const isTotalSellingPriceValid = totalSellingPrice > 0;
       const isDepositPaidValid = depositPaid >= 0;
@@ -178,7 +223,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           : !isProdCostValid
           ? 'Production Cost must be non-negative'
           : !instalmentsValid
-          ? 'Monthly instalments must sum to total balance payable'
+          ? 'Instalments must sum to total balance payable'
           : ''
       );
     }
@@ -195,6 +240,10 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       };
       if (depositData.period === 'within30days' && depositData.instalmentType === 'weekly') {
         newState.customInstalments = weeklyInstalments;
+      } else if (depositData.period === 'beyond30' && depositData.instalmentType === 'weekly') {
+        newState.customInstalments = weeklyInstalmentsBeyond30;
+      } else if (depositData.period === 'beyond30' && depositData.instalmentType === 'monthly') {
+        newState.customInstalments = monthlyInstalments;
       }
       if (
         newState.profit === prev.profit &&
@@ -213,6 +262,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     depositData.period,
     depositData.instalmentType,
     depositData.numWeeks,
+    depositData.numWeeksBeyond30,
     depositData.revenue,
     depositData.prod_cost,
     depositData.surcharge,
@@ -223,6 +273,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     depositData.depositPaid,
     depositData.repaymentPeriod,
     weeklyInstalments,
+    weeklyInstalmentsBeyond30,
+    monthlyInstalments,
   ]);
 
   const handleNumberChange = (e) => {
@@ -258,6 +310,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     setDepositData(prev => ({
       ...prev,
       period,
+      instalmentType: period === 'within30days' ? 'weekly' : 'monthly',
       revenue: period === 'within30days' ? prev.revenue : '',
       prod_cost: prev.prod_cost,
       costItems: prev.costItems,
@@ -272,11 +325,13 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       trans_fee: period === 'beyond30' ? prev.trans_fee : '',
       totalBalancePayable: '',
       customInstalments: [],
+      numWeeks: 1,
+      numWeeksBeyond30: 1,
     }));
   };
 
   const handleInstalmentTypeChange = (type) => {
-    setDepositData(prev => ({ ...prev, instalmentType: type, customInstalments: [], numWeeks: 1 }));
+    setDepositData(prev => ({ ...prev, instalmentType: type, customInstalments: [], numWeeks: 1, numWeeksBeyond30: 1 }));
   };
 
   const handleCustomInstalmentChange = (index, field, value) => {
@@ -323,9 +378,11 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           ? depositData.instalmentType === 'weekly'
             ? weeklyInstalments
             : depositData.customInstalments
-          : depositData.period === 'beyond30'
-          ? generateMonthlyInstalments()
-          : [],
+          : depositData.instalmentType === 'weekly'
+            ? weeklyInstalmentsBeyond30
+            : depositData.instalmentType === 'monthly'
+              ? monthlyInstalments
+              : depositData.customInstalments,
     };
 
     onSubmit(dataToSubmit);
@@ -336,6 +393,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       period: 'within30days',
       instalmentType: 'weekly',
       numWeeks: 1,
+      numWeeksBeyond30: 1,
       customInstalments: [],
       revenue: initialData.revenue || '',
       prod_cost: initialData.prod_cost || '',
@@ -551,7 +609,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                 type="number"
                 step="0.01"
                 value={depositData.balance}
-                className="w-full p-2 bg-gray-100 border rounded-lg"
+                className="w-full p-2 bg-gray-100 border-gray-300 rounded-lg"
                 readOnly
               />
             </div>
@@ -581,7 +639,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Travel Date*</label>
+              <label className="text-gray-700">Travel Date*</label>
               <input
                 type="date"
                 name="travel_date"
@@ -596,6 +654,113 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
         {depositData.period === 'beyond30' && (
           <div className="space-y-4">
+            <div>
+              <label className="block text-gray-700 mb-1">Instalment Type*</label>
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="instalmentType"
+                    value="weekly"
+                    checked={depositData.instalmentType === 'weekly'}
+                    onChange={() => handleInstalmentTypeChange('weekly')}
+                    className="mr-1"
+                  />
+                  Weekly
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="instalmentType"
+                    value="monthly"
+                    checked={depositData.instalmentType === 'monthly'}
+                    onChange={() => handleInstalmentTypeChange('monthly')}
+                    className="mr-1"
+                  />
+                  Monthly (30 days)
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="instalmentType"
+                    value="custom"
+                    checked={depositData.instalmentType === 'custom'}
+                    onChange={() => handleInstalmentTypeChange('custom')}
+                    className="mr-1"
+                  />
+                  Custom
+                </label>
+              </div>
+            </div>
+
+            {depositData.instalmentType === 'weekly' && (
+              <div>
+                <label className="block text-gray-700 mb-1">Number of Payments*</label>
+                <input
+                  name="numWeeksBeyond30"
+                  type="number"
+                  min="1"
+                  value={depositData.numWeeksBeyond30}
+                  onChange={handleIntegerChange}
+                  className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+
+            {depositData.instalmentType === 'monthly' && (
+              <div>
+                <label className="block text-gray-700 mb-1">Number of Payments*</label>
+                <input
+                  name="repaymentPeriod"
+                  type="number"
+                  value={depositData.repaymentPeriod}
+                  onChange={handleIntegerChange}
+                  className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+            )}
+
+            {depositData.instalmentType === 'custom' && (
+              <div>
+                <label className="block text-gray-700 mb-1">Custom Payments*</label>
+                {depositData.customInstalments.map((inst, index) => (
+                  <div key={index} className="flex space-x-2 mb-2">
+                    <input
+                      type="date"
+                      value={inst.dueDate}
+                      onChange={(e) => handleCustomInstalmentChange(index, 'dueDate', e.target.value)}
+                      className="p-2 bg-gray-100 border rounded-lg"
+                      required
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={inst.amount}
+                      onChange={(e) => handleCustomInstalmentChange(index, 'amount', e.target.value)}
+                      placeholder="Amount (£)"
+                      className="p-2 bg-gray-100 border rounded-lg"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeCustomInstalment(index)}
+                      className="px-3 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addCustomInstalment}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Add Payment
+                </button>
+              </div>
+            )}
+
             <div>
               <label className="block text-gray-700 mb-1">Total Selling Price (£)*</label>
               <input
@@ -664,18 +829,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Repayment Period (Months)*</label>
-              <input
-                name="repaymentPeriod"
-                type="number"
-                value={depositData.repaymentPeriod}
-                onChange={handleIntegerChange}
-                className="w-full p-2 bg-gray-100 border rounded-lg"
-                required
-              />
-            </div>
-
-            <div>
               <label className="block text-gray-700 mb-1">Balance After Deposit (£)</label>
               <input
                 name="balance"
@@ -688,7 +841,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Monthly Instalment (£)</label>
+              <label className="block text-gray-700 mb-1">Instalment Amount (£)</label>
               <input
                 name="monthlyInstalment"
                 type="number"
