@@ -6,7 +6,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     period: 'within30days',
     instalmentType: 'weekly',
     numWeeks: 1,
-    numWeeksBeyond30: 1,
     customInstalments: [],
     revenue: initialData.revenue || '',
     prod_cost: initialData.prod_cost || '',
@@ -20,7 +19,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     totalSellingPrice: initialData.totalSellingPrice || '',
     depositPaid: initialData.depositPaid || '',
     repaymentPeriod: '',
-    monthlyInstalment: '',
     trans_fee: initialData.trans_fee || '',
     totalBalancePayable: '',
   });
@@ -53,24 +51,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     return instalments;
   };
 
-  // Generate weekly instalments for beyond 30 days
-  const generateWeeklyInstalmentsBeyond30 = (numWeeks, totalBalancePayable) => {
-    const instalments = [];
-    const today = new Date();
-    const amountPerWeek = (parseFloat(totalBalancePayable) / numWeeks).toFixed(2);
-
-    for (let i = 0; i < numWeeks; i++) {
-      const dueDate = new Date(today);
-      dueDate.setDate(today.getDate() + (i + 1) * 7);
-      instalments.push({
-        dueDate: dueDate.toISOString().split('T')[0],
-        amount: amountPerWeek,
-        status: 'PENDING',
-      });
-    }
-    return instalments;
-  };
-
   // Generate monthly instalments (30 days apart) for beyond 30 days
   const generateMonthlyInstalments = (repaymentPeriod, totalBalancePayable) => {
     const instalments = [];
@@ -89,6 +69,20 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     return instalments;
   };
 
+  // Calculate repayment period from custom instalments
+  const calculateRepaymentPeriod = (instalments) => {
+    if (!instalments.length) return 0;
+    const today = new Date();
+    const lastInstalmentDate = new Date(
+      instalments.reduce((latest, inst) => {
+        const instDate = new Date(inst.dueDate);
+        return instDate > new Date(latest) ? inst.dueDate : latest;
+      }, instalments[0].dueDate)
+    );
+    const diffDays = Math.ceil((lastInstalmentDate - today) / (1000 * 60 * 60 * 24));
+    return Math.ceil(diffDays / 30); // Count 30-day periods
+  };
+
   // Validate instalments
   const validateInstalments = (instalments, expectedTotal, isWithin30Days = true) => {
     const today = new Date();
@@ -97,10 +91,12 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       const dueDate = new Date(inst.dueDate);
       return dueDate.getTime() <= today.getTime() + 30 * 24 * 60 * 60 * 1000;
     });
-    const allValid = instalments.every(inst => inst.dueDate && parseFloat(inst.amount) > 0);
-    return totalAmount.toFixed(2) === parseFloat(expectedTotal).toFixed(2) &&
-           (!isWithin30Days || within30Days) &&
-           allValid;
+    const allValid = instalments.every(inst => inst.dueDate && parseFloat(inst.amount) > 0 && new Date(inst.dueDate) >= today);
+    return (
+      Math.abs(totalAmount - parseFloat(expectedTotal)) < 0.01 &&
+      (!isWithin30Days || within30Days) &&
+      allValid
+    );
   };
 
   // Weekly instalments for within 30 days
@@ -111,14 +107,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     }
     return [];
   }, [depositData.numWeeks, depositData.revenue, depositData.received]);
-
-  // Weekly instalments for beyond 30 days
-  const weeklyInstalmentsBeyond30 = useMemo(() => {
-    if (depositData.period === 'beyond30' && depositData.instalmentType === 'weekly') {
-      return generateWeeklyInstalmentsBeyond30(depositData.numWeeksBeyond30, depositData.totalBalancePayable);
-    }
-    return [];
-  }, [depositData.numWeeksBeyond30, depositData.totalBalancePayable]);
 
   // Monthly instalments for beyond 30 days
   const monthlyInstalments = useMemo(() => {
@@ -131,10 +119,11 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   useEffect(() => {
     let profit = '';
     let balance = '';
-    let monthlyInstalment = '';
     let trans_fee = '';
     let totalBalancePayable = '';
     let revenue = '';
+    let repaymentPeriod = depositData.repaymentPeriod;
+    let last_payment_date = depositData.last_payment_date;
     let instalmentsValid = true;
 
     if (depositData.period === 'within30days') {
@@ -172,23 +161,30 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     } else if (depositData.period === 'beyond30') {
       const totalSellingPrice = parseFloat(depositData.totalSellingPrice) || 0;
       const depositPaid = parseFloat(depositData.depositPaid) || 0;
-      const repaymentPeriod = parseInt(depositData.repaymentPeriod) || 0;
       const prod_cost = parseFloat(depositData.prod_cost) || 0;
       const surcharge = parseFloat(depositData.surcharge) || 0;
 
       balance = (totalSellingPrice - depositPaid).toFixed(2);
+
+      if (depositData.instalmentType === 'custom') {
+        repaymentPeriod = calculateRepaymentPeriod(depositData.customInstalments);
+        if (depositData.customInstalments.length > 0) {
+          last_payment_date = depositData.customInstalments.reduce((latest, inst) => {
+            const instDate = new Date(inst.dueDate);
+            return instDate > new Date(latest) ? inst.dueDate : latest;
+          }, depositData.customInstalments[0].dueDate);
+        }
+      }
+
       totalBalancePayable = (
         parseFloat(balance) +
-        parseFloat(balance) * MONTHLY_INTEREST_RATE * repaymentPeriod
+        parseFloat(balance) * MONTHLY_INTEREST_RATE * (parseInt(repaymentPeriod) || 0)
       ).toFixed(2);
-      monthlyInstalment = (parseFloat(totalBalancePayable) / repaymentPeriod).toFixed(2);
       trans_fee = (parseFloat(totalBalancePayable) - parseFloat(balance)).toFixed(2);
       revenue = (depositPaid + parseFloat(totalBalancePayable)).toFixed(2);
       profit = (parseFloat(revenue) - prod_cost - surcharge).toFixed(2);
 
-      if (depositData.instalmentType === 'weekly') {
-        instalmentsValid = validateInstalments(weeklyInstalmentsBeyond30, totalBalancePayable, false);
-      } else if (depositData.instalmentType === 'monthly') {
+      if (depositData.instalmentType === 'monthly') {
         instalmentsValid = validateInstalments(monthlyInstalments, totalBalancePayable, false);
       } else {
         instalmentsValid = validateInstalments(depositData.customInstalments, totalBalancePayable, false);
@@ -196,13 +192,13 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
       const isTotalSellingPriceValid = totalSellingPrice > 0;
       const isDepositPaidValid = depositPaid >= 0;
-      const isRepaymentPeriodValid = repaymentPeriod > 0;
+      const isRepaymentPeriodValid = parseInt(repaymentPeriod) > 0;
       const isProdCostValid = prod_cost >= 0;
       const isSurchargeValid = surcharge >= 0;
       const areDatesValid =
-        depositData.last_payment_date &&
+        last_payment_date &&
         depositData.travel_date &&
-        new Date(depositData.last_payment_date) < new Date(depositData.travel_date);
+        new Date(last_payment_date) < new Date(depositData.travel_date);
 
       setIsValid(
         isTotalSellingPriceValid &&
@@ -214,7 +210,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
         instalmentsValid
       );
       setErrorMessage(
-        !areDatesValid && depositData.last_payment_date && depositData.travel_date
+        !areDatesValid && last_payment_date && depositData.travel_date
           ? 'Last Payment Date must be before Travel Date'
           : !isTotalSellingPriceValid
           ? 'Total Selling Price must be positive'
@@ -228,41 +224,20 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       );
     }
 
-    setDepositData(prev => {
-      const newState = {
-        ...prev,
-        profit: profit !== '' && !isNaN(profit) ? profit : prev.profit,
-        balance: balance !== '' && !isNaN(balance) ? balance : prev.balance,
-        monthlyInstalment: monthlyInstalment !== '' && !isNaN(monthlyInstalment) ? monthlyInstalment : prev.monthlyInstalment,
-        trans_fee: trans_fee !== '' && !isNaN(trans_fee) ? trans_fee : prev.trans_fee,
-        totalBalancePayable: totalBalancePayable !== '' && !isNaN(totalBalancePayable) ? totalBalancePayable : prev.totalBalancePayable,
-        revenue: revenue !== '' && !isNaN(revenue) ? revenue : prev.revenue,
-      };
-      if (depositData.period === 'within30days' && depositData.instalmentType === 'weekly') {
-        newState.customInstalments = weeklyInstalments;
-      } else if (depositData.period === 'beyond30' && depositData.instalmentType === 'weekly') {
-        newState.customInstalments = weeklyInstalmentsBeyond30;
-      } else if (depositData.period === 'beyond30' && depositData.instalmentType === 'monthly') {
-        newState.customInstalments = monthlyInstalments;
-      }
-      if (
-        newState.profit === prev.profit &&
-        newState.balance === prev.balance &&
-        newState.monthlyInstalment === prev.monthlyInstalment &&
-        newState.trans_fee === prev.trans_fee &&
-        newState.totalBalancePayable === prev.totalBalancePayable &&
-        newState.revenue === prev.revenue &&
-        JSON.stringify(newState.customInstalments) === JSON.stringify(prev.customInstalments)
-      ) {
-        return prev;
-      }
-      return newState;
-    });
+    setDepositData(prev => ({
+      ...prev,
+      profit: profit !== '' && !isNaN(profit) ? profit : prev.profit,
+      balance: balance !== '' && !isNaN(balance) ? balance : prev.balance,
+      trans_fee: trans_fee !== '' && !isNaN(trans_fee) ? trans_fee : prev.trans_fee,
+      totalBalancePayable: totalBalancePayable !== '' && !isNaN(totalBalancePayable) ? totalBalancePayable : prev.totalBalancePayable,
+      revenue: revenue !== '' && !isNaN(revenue) ? revenue : prev.revenue,
+      repaymentPeriod: repaymentPeriod !== '' && !isNaN(repaymentPeriod) ? repaymentPeriod : prev.repaymentPeriod,
+      last_payment_date: last_payment_date || prev.last_payment_date,
+    }));
   }, [
     depositData.period,
     depositData.instalmentType,
     depositData.numWeeks,
-    depositData.numWeeksBeyond30,
     depositData.revenue,
     depositData.prod_cost,
     depositData.surcharge,
@@ -272,8 +247,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     depositData.totalSellingPrice,
     depositData.depositPaid,
     depositData.repaymentPeriod,
+    depositData.customInstalments,
     weeklyInstalments,
-    weeklyInstalmentsBeyond30,
     monthlyInstalments,
   ]);
 
@@ -318,20 +293,18 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       received: period === 'within30days' ? prev.received : '',
       totalSellingPrice: period === 'beyond30' ? prev.totalSellingPrice : '',
       depositPaid: period === 'beyond30' ? prev.depositPaid : '',
-      repaymentPeriod: period === 'beyond30' ? prev.repaymentPeriod : '',
+      repaymentPeriod: '',
       balance: '',
       profit: '',
-      monthlyInstalment: '',
       trans_fee: period === 'beyond30' ? prev.trans_fee : '',
       totalBalancePayable: '',
       customInstalments: [],
       numWeeks: 1,
-      numWeeksBeyond30: 1,
     }));
   };
 
   const handleInstalmentTypeChange = (type) => {
-    setDepositData(prev => ({ ...prev, instalmentType: type, customInstalments: [], numWeeks: 1, numWeeksBeyond30: 1 }));
+    setDepositData(prev => ({ ...prev, instalmentType: type, customInstalments: [], repaymentPeriod: '' }));
   };
 
   const handleCustomInstalmentChange = (index, field, value) => {
@@ -341,9 +314,16 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   };
 
   const addCustomInstalment = () => {
+    const today = new Date();
+    const lastInstalment = depositData.customInstalments[depositData.customInstalments.length - 1];
+    const defaultDueDate = lastInstalment
+      ? new Date(new Date(lastInstalment.dueDate).setDate(new Date(lastInstalment.dueDate).getDate() + 30))
+          .toISOString()
+          .split('T')[0]
+      : new Date(today.setDate(today.getDate() + 30)).toISOString().split('T')[0];
     setDepositData(prev => ({
       ...prev,
-      customInstalments: [...prev.customInstalments, { dueDate: '', amount: '', status: 'PENDING' }],
+      customInstalments: [...prev.customInstalments, { dueDate: defaultDueDate, amount: '', status: 'PENDING' }],
     }));
   };
 
@@ -370,7 +350,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       totalSellingPrice: depositData.totalSellingPrice,
       depositPaid: depositData.depositPaid,
       repaymentPeriod: depositData.repaymentPeriod,
-      monthlyInstalment: depositData.monthlyInstalment,
       trans_fee: depositData.trans_fee,
       totalBalancePayable: depositData.totalBalancePayable,
       instalments:
@@ -378,22 +357,18 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           ? depositData.instalmentType === 'weekly'
             ? weeklyInstalments
             : depositData.customInstalments
-          : depositData.instalmentType === 'weekly'
-            ? weeklyInstalmentsBeyond30
-            : depositData.instalmentType === 'monthly'
-              ? monthlyInstalments
-              : depositData.customInstalments,
+          : depositData.instalmentType === 'monthly'
+          ? monthlyInstalments
+          : depositData.customInstalments,
     };
 
     onSubmit(dataToSubmit);
   };
-
   const handleCancel = () => {
     setDepositData({
       period: 'within30days',
       instalmentType: 'weekly',
       numWeeks: 1,
-      numWeeksBeyond30: 1,
       customInstalments: [],
       revenue: initialData.revenue || '',
       prod_cost: initialData.prod_cost || '',
@@ -402,13 +377,12 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       received: initialData.received || '',
       balance: '',
       profit: '',
-      last_payment_date: initialData.last_payment_date || '',
+      last_payment_date: '',
       travel_date: initialData.travel_date || '',
       totalSellingPrice: initialData.totalSellingPrice || '',
       depositPaid: initialData.depositPaid || '',
       repaymentPeriod: '',
-      monthlyInstalment: '',
-      trans_fee: initialData.trans_fee || '',
+      trans_fee: '',
       totalBalancePayable: '',
     });
     setShowCostBreakdown(false);
@@ -429,7 +403,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             <input
               type="radio"
               name="period"
-              value="within30days"
+              value="within30daysdays"
               checked={depositData.period === 'within30days'}
               onChange={() => handlePeriodChange('within30days')}
               className="mr-2"
@@ -661,17 +635,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                   <input
                     type="radio"
                     name="instalmentType"
-                    value="weekly"
-                    checked={depositData.instalmentType === 'weekly'}
-                    onChange={() => handleInstalmentTypeChange('weekly')}
-                    className="mr-1"
-                  />
-                  Weekly
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="instalmentType"
                     value="monthly"
                     checked={depositData.instalmentType === 'monthly'}
                     onChange={() => handleInstalmentTypeChange('monthly')}
@@ -692,20 +655,6 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                 </label>
               </div>
             </div>
-
-            {depositData.instalmentType === 'weekly' && (
-              <div>
-                <label className="block text-gray-700 mb-1">Number of Payments*</label>
-                <input
-                  name="numWeeksBeyond30"
-                  type="number"
-                  min="1"
-                  value={depositData.numWeeksBeyond30}
-                  onChange={handleIntegerChange}
-                  className="w-full p-3 bg-gray-50 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            )}
 
             {depositData.instalmentType === 'monthly' && (
               <div>
@@ -841,12 +790,11 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Instalment Amount (£)</label>
+              <label className="block text-gray-700 mb-1">Number of Payments</label>
               <input
-                name="monthlyInstalment"
+                name="repaymentPeriod"
                 type="number"
-                step="0.01"
-                value={depositData.monthlyInstalment}
+                value={depositData.repaymentPeriod}
                 className="w-full p-2 bg-gray-100 border rounded-lg"
                 readOnly
               />
@@ -882,9 +830,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
                 type="date"
                 name="last_payment_date"
                 value={depositData.last_payment_date}
-                onChange={handleDateChange}
                 className="w-full p-2 bg-gray-100 border rounded-lg"
-                required
+                readOnly
               />
             </div>
 
