@@ -1,3 +1,4 @@
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
@@ -47,6 +48,18 @@ const createPendingBooking = async (req, res) => {
     for (const item of prodCostBreakdown) {
       if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
         return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
+      }
+      if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+        return apiResponse.error(res, "Each cost item must have at least one supplier allocation", 400);
+      }
+      const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+        return apiResponse.error(res, "Supplier amounts must sum to the cost item amount", 400);
+      }
+      for (const s of item.suppliers) {
+        if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
+          return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
+        }
       }
     }
 
@@ -99,7 +112,7 @@ const createPendingBooking = async (req, res) => {
     }
 
     // Calculate prodCost from prodCostBreakdown
-    const calculatedProdCost = prodCostBreakdown.reduce((sum, item) =>-sum + parseFloat(item.amount), 0);
+    const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
     // Verify provided prodCost matches calculatedProdCost
     if (req.body.prodCost && Math.abs(parseFloat(req.body.prodCost) - calculatedProdCost) > 0.01) {
@@ -136,7 +149,7 @@ const createPendingBooking = async (req, res) => {
     financialData.profit = revenue - prodCost - transFee - surcharge;
     financialData.balance = revenue - received;
 
-    // Create pending booking with nested costItems, instalments, and passengers
+    // Create pending booking with nested costItems, instalments, passengers, and suppliers
     const pendingBooking = await prisma.pendingBooking.create({
       data: {
         refNo: req.body.ref_no,
@@ -157,20 +170,26 @@ const createPendingBooking = async (req, res) => {
         ...financialData,
         status: 'PENDING',
         costItems: {
-          create: prodCostBreakdown.map((item) => ({
+          create: prodCostBreakdown.map(item => ({
             category: item.category,
             amount: parseFloat(item.amount),
+            suppliers: {
+              create: item.suppliers.map(s => ({
+                supplier: s.supplier,
+                amount: parseFloat(s.amount),
+              })),
+            },
           })),
         },
         instalments: {
-          create: instalments.map((inst) => ({
+          create: instalments.map(inst => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
           })),
         },
         passengers: {
-          create: passengers.map((pax) => ({
+          create: passengers.map(pax => ({
             title: pax.title,
             firstName: pax.firstName,
             middleName: pax.middleName || null,
@@ -184,7 +203,7 @@ const createPendingBooking = async (req, res) => {
         },
       },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
         passengers: true,
       },
@@ -208,9 +227,9 @@ const getPendingBookings = async (req, res) => {
     const pendingBookings = await prisma.pendingBooking.findMany({
       where: { status: 'PENDING' },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
-        passengers: true, // Include passengers
+        passengers: true,
       },
     });
     return apiResponse.success(res, pendingBookings);
@@ -227,13 +246,12 @@ const approveBooking = async (req, res) => {
       return apiResponse.error(res, 'Invalid booking ID', 400);
     }
 
-    // Fetch pending booking with related data
     const pendingBooking = await prisma.pendingBooking.findUnique({
       where: { id: bookingId },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
-        passengers: true, // Include passengers
+        passengers: true,
       },
     });
 
@@ -245,16 +263,14 @@ const approveBooking = async (req, res) => {
       return apiResponse.error(res, 'Pending booking already processed', 409);
     }
 
-    // Debug: Log instalments and passengers to verify data
     console.log('Pending Instalments:', pendingBooking.instalments);
     console.log('Pending Passengers:', pendingBooking.passengers);
+    console.log('Pending Cost Items Suppliers:', pendingBooking.costItems.map(item => item.suppliers));
 
-    // Validate instalments
     if (pendingBooking.paymentMethod.includes('INTERNAL') && (!Array.isArray(pendingBooking.instalments) || pendingBooking.instalments.length === 0)) {
       return apiResponse.error(res, 'Instalments are required for INTERNAL payment method', 400);
     }
 
-    // Verify instalments sum matches balance
     if (pendingBooking.instalments.length > 0) {
       const totalInstalments = pendingBooking.instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
       const balance = parseFloat(pendingBooking.balance) || 0;
@@ -263,12 +279,10 @@ const approveBooking = async (req, res) => {
       }
     }
 
-    // Validate passengers
     if (!Array.isArray(pendingBooking.passengers) || pendingBooking.passengers.length === 0) {
       return apiResponse.error(res, 'At least one passenger is required', 400);
     }
 
-    // Create booking in Bookings table
     const booking = await prisma.booking.create({
       data: {
         refNo: pendingBooking.refNo,
@@ -295,20 +309,26 @@ const approveBooking = async (req, res) => {
         profit: pendingBooking.profit,
         invoiced: pendingBooking.invoiced,
         costItems: {
-          create: pendingBooking.costItems.map((item) => ({
+          create: pendingBooking.costItems.map(item => ({
             category: item.category,
             amount: parseFloat(item.amount),
+            suppliers: {
+              create: item.suppliers.map(s => ({
+                supplier: s.supplier,
+                amount: parseFloat(s.amount),
+              })),
+            },
           })),
         },
         instalments: {
-          create: pendingBooking.instalments.map((inst) => ({
+          create: pendingBooking.instalments.map(inst => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
           })),
         },
         passengers: {
-          create: pendingBooking.passengers.map((pax) => ({
+          create: pendingBooking.passengers.map(pax => ({
             title: pax.title,
             firstName: pax.firstName,
             middleName: pax.middleName || null,
@@ -322,17 +342,16 @@ const approveBooking = async (req, res) => {
         },
       },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
         passengers: true,
       },
     });
 
-    // Debug: Log created booking instalments and passengers
     console.log('Created Booking Instalments:', booking.instalments);
     console.log('Created Booking Passengers:', booking.passengers);
+    console.log('Created Booking Cost Items Suppliers:', booking.costItems.map(item => item.suppliers));
 
-    // Delete pending booking (cascades to PendingInstalment and PendingPassenger due to onDelete: Cascade)
     await prisma.pendingBooking.delete({
       where: { id: bookingId },
     });
@@ -354,7 +373,6 @@ const rejectBooking = async (req, res) => {
       return apiResponse.error(res, "Pending booking not found or already processed", 404);
     }
 
-    // Delete pending booking (cascades to instalments, costItems, and passengers due to onDelete: Cascade)
     await prisma.pendingBooking.delete({
       where: { id: parseInt(req.params.id) },
     });
@@ -383,7 +401,7 @@ const createBooking = async (req, res) => {
       'supplier',
       'travelDate',
     ];
-    const missingFields = requiredFields.filter((field) => !req.body[field]);
+    const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
     }
@@ -407,9 +425,20 @@ const createBooking = async (req, res) => {
       if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
         return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
       }
+      if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+        return apiResponse.error(res, "Each cost item must have at least one supplier allocation", 400);
+      }
+      const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+        return apiResponse.error(res, "Supplier amounts must sum to the cost item amount", 400);
+      }
+      for (const s of item.suppliers) {
+        if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
+          return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
+        }
+      }
     }
 
-    // Validate instalments
     const instalments = req.body.instalments || [];
     if (req.body.paymentMethod === 'INTERNAL' && !Array.isArray(instalments)) {
       return apiResponse.error(res, "instalments must be an array for INTERNAL payment method", 400);
@@ -426,7 +455,6 @@ const createBooking = async (req, res) => {
       }
     }
 
-    // Validate passengers
     const passengers = req.body.passengers || [];
     if (!Array.isArray(passengers) || passengers.length === 0) {
       return apiResponse.error(res, "passengers must be a non-empty array", 400);
@@ -463,7 +491,6 @@ const createBooking = async (req, res) => {
       return apiResponse.error(res, "Provided prodCost does not match the sum of prodCostBreakdown", 400);
     }
 
-    // Verify instalments sum matches balance
     if (instalments.length > 0) {
       const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
       const balance = parseFloat(req.body.balance) || 0;
@@ -510,20 +537,26 @@ const createBooking = async (req, res) => {
         travelDate: new Date(req.body.travelDate),
         ...financialData,
         costItems: {
-          create: prodCostBreakdown.map((item) => ({
+          create: prodCostBreakdown.map(item => ({
             category: item.category,
             amount: parseFloat(item.amount),
+            suppliers: {
+              create: item.suppliers.map(s => ({
+                supplier: s.supplier,
+                amount: parseFloat(s.amount),
+              })),
+            },
           })),
         },
         instalments: {
-          create: instalments.map((inst) => ({
+          create: instalments.map(inst => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
           })),
         },
         passengers: {
-          create: passengers.map((pax) => ({
+          create: passengers.map(pax => ({
             title: pax.title,
             firstName: pax.firstName,
             middleName: pax.middleName || null,
@@ -537,7 +570,7 @@ const createBooking = async (req, res) => {
         },
       },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
         passengers: true,
       },
@@ -560,9 +593,9 @@ const getBookings = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
-        passengers: true, // Include passengers
+        passengers: true,
       },
     });
     return apiResponse.success(res, bookings);
@@ -577,7 +610,6 @@ const updateBooking = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    // Extract fields
     const {
       refNo,
       paxName,
@@ -607,7 +639,6 @@ const updateBooking = async (req, res) => {
       passengers,
     } = updates;
 
-    // Validate instalments if provided
     if (instalments) {
       if (!Array.isArray(instalments)) {
         return apiResponse.error(res, "instalments must be an array", 400);
@@ -622,7 +653,6 @@ const updateBooking = async (req, res) => {
           return apiResponse.error(res, "Each instalment must have a valid dueDate, positive amount, and valid status", 400);
         }
       }
-      // Verify instalments sum matches balance
       if (balance) {
         const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
         if (Math.abs(totalInstalments - parseFloat(balance)) > 0.01) {
@@ -631,7 +661,6 @@ const updateBooking = async (req, res) => {
       }
     }
 
-    // Validate passengers if provided
     if (passengers) {
       if (!Array.isArray(passengers) || passengers.length === 0) {
         return apiResponse.error(res, "passengers must be a non-empty array", 400);
@@ -657,6 +686,29 @@ const updateBooking = async (req, res) => {
             "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
             400
           );
+        }
+      }
+    }
+
+    if (costItems) {
+      if (!Array.isArray(costItems)) {
+        return apiResponse.error(res, "costItems must be an array", 400);
+      }
+      for (const item of costItems) {
+        if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
+          return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
+        }
+        if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+          return apiResponse.error(res, "Each cost item must have at least one supplier allocation", 400);
+        }
+        const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+          return apiResponse.error(res, "Supplier amounts must sum to the cost item amount", 400);
+        }
+        for (const s of item.suppliers) {
+          if (!s.supplier || !['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'].includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
+            return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
+          }
         }
       }
     }
@@ -690,16 +742,22 @@ const updateBooking = async (req, res) => {
         costItems: Array.isArray(costItems) && costItems.length > 0
           ? {
               deleteMany: {},
-              create: costItems.map((item) => ({
+              create: costItems.map(item => ({
                 category: item.category,
                 amount: parseFloat(item.amount),
+                suppliers: {
+                  create: item.suppliers.map(s => ({
+                    supplier: s.supplier,
+                    amount: parseFloat(s.amount),
+                  })),
+                },
               })),
             }
           : undefined,
         instalments: Array.isArray(instalments) && instalments.length > 0
           ? {
               deleteMany: {},
-              create: instalments.map((inst) => ({
+              create: instalments.map(inst => ({
                 dueDate: new Date(inst.dueDate),
                 amount: parseFloat(inst.amount),
                 status: inst.status,
@@ -709,7 +767,7 @@ const updateBooking = async (req, res) => {
         passengers: Array.isArray(passengers) && passengers.length > 0
           ? {
               deleteMany: {},
-              create: passengers.map((pax) => ({
+              create: passengers.map(pax => ({
                 title: pax.title,
                 firstName: pax.firstName,
                 middleName: pax.middleName || null,
@@ -724,7 +782,7 @@ const updateBooking = async (req, res) => {
           : undefined,
       },
       include: {
-        costItems: true,
+        costItems: { include: { suppliers: true } },
         instalments: true,
         passengers: true,
       },
@@ -836,7 +894,7 @@ const getCustomerDeposits = async (req, res) => {
         },
       },
     });
-    const formattedBookings = bookings.map((booking) => ({
+    const formattedBookings = bookings.map(booking => ({
       ...booking,
       totalInstalments: booking.instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0).toFixed(2),
     }));
@@ -872,7 +930,7 @@ const updateInstalment = async (req, res) => {
       where: { bookingId: instalment.bookingId },
     });
     const totalReceivedFromInstalments = instalments
-      .filter((inst) => inst.status === 'PAID')
+      .filter(inst => inst.status === 'PAID')
       .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
     const initialReceived = instalment.booking.received || 0;
     const totalReceived = initialReceived + totalReceivedFromInstalments;
@@ -889,6 +947,55 @@ const updateInstalment = async (req, res) => {
   }
 };
 
+// New endpoint for Suppliers Info
+const getSuppliersInfo = async (req, res) => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      select: {
+        id: true,
+        refNo: true,
+        paxName: true,
+        agentName: true,
+        createdAt: true,
+        costItems: {
+          include: {
+            suppliers: true,
+          },
+        },
+      },
+    });
+
+    const supplierSummary = bookings.reduce((acc, booking) => {
+      booking.costItems.forEach(item => {
+        item.suppliers.forEach(s => {
+          if (!acc[s.supplier]) {
+            acc[s.supplier] = {
+              totalPaid: 0,
+              bookings: [],
+            };
+          }
+          acc[s.supplier].totalPaid += parseFloat(s.amount);
+          acc[s.supplier].bookings.push({
+            bookingId: booking.id,
+            refNo: booking.refNo,
+            paxName: booking.paxName,
+            agentName: booking.agentName,
+            category: item.category,
+            amount: parseFloat(s.amount),
+            createdAt: booking.createdAt,
+          });
+        });
+      });
+      return acc;
+    }, {});
+
+    return apiResponse.success(res, supplierSummary);
+  } catch (error) {
+    console.error('Error fetching suppliers info:', error);
+    return apiResponse.error(res, `Failed to fetch suppliers info: ${error.message}`, 500);
+  }
+};
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -901,4 +1008,5 @@ module.exports = {
   getRecentBookings,
   getCustomerDeposits,
   updateInstalment,
+  getSuppliersInfo,
 };

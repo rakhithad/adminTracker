@@ -37,7 +37,7 @@ model Booking {
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         CostItem[] 
   instalments       Instalment[]    
-  passengers        Passenger[]      // Add relation to Passenger
+  passengers        Passenger[]
   @@map("bookings")
 }
 
@@ -71,7 +71,7 @@ model PendingBooking {
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         PendingCostItem[]
   instalments       PendingInstalment[]
-  passengers        PendingPassenger[]  // Add relation to PendingPassenger
+  passengers        PendingPassenger[]
   @@map("pending_bookings")
 }
 
@@ -80,7 +80,7 @@ model Instalment {
   bookingId     Int
   dueDate       DateTime  @map("due_date")
   amount        Float
-  status        InstalmentStatus @default(PENDING)
+  status        String    @default("PENDING")
   booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -88,14 +88,14 @@ model Instalment {
 }
 
 model PendingInstalment {
-  id                Int           @id @default(autoincrement())
+  id                Int            @id @default(autoincrement())
   pendingBookingId  Int
-  dueDate           DateTime      @map("due_date")
+  dueDate           DateTime       @map("due_date")
   amount            Float
-  status            InstalmentStatus @default(PENDING)
+  status            String         @default("PENDING")
   pendingBooking    PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
-  createdAt         DateTime      @default(now()) @map("created_at")
-  updatedAt         DateTime      @updatedAt @map("updated_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
   @@map("pending_instalments")
 }
 
@@ -118,20 +118,26 @@ model User {
 }
 
 model CostItem {
-  id        Int     @id @default(autoincrement())
-  bookingId Int
-  category  String
-  amount    Float
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id            Int            @id @default(autoincrement())
+  bookingId     Int
+  category      String
+  amount        Float
+  booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  suppliers     CostItemSupplier[] // Link to supplier allocations
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
   @@map("cost_items")
 }
 
 model PendingCostItem {
-  id            Int           @id @default(autoincrement())
-  pendingBookingId Int
-  category      String
-  amount        Float
-  pendingBooking PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+  id                Int            @id @default(autoincrement())
+  pendingBookingId  Int
+  category          String
+  amount            Float
+  pendingBooking    PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+  suppliers         CostItemSupplier[] // Link to supplier allocations
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
   @@map("pending_cost_items")
 }
 
@@ -226,6 +232,7 @@ model Passenger {
   @@map("passengers")
 }
 
+
 model PendingPassenger {
   id                Int               @id @default(autoincrement())
   pendingBookingId  Int
@@ -242,4 +249,18 @@ model PendingPassenger {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
   @@map("pending_passengers")
+}
+
+
+model CostItemSupplier {
+  id            Int       @id @default(autoincrement())
+  costItemId    Int?
+  pendingCostItemId Int?
+  supplier      Suppliers
+  amount        Float
+  costItem      CostItem? @relation(fields: [costItemId], references: [id], onDelete: Cascade)
+  pendingCostItem PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  @@map("cost_item_suppliers")
 }

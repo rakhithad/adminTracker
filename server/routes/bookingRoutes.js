@@ -12,6 +12,7 @@ const {
   getRecentBookings,
   getCustomerDeposits,
   updateInstalment,
+  getSuppliersInfo,
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -25,5 +26,6 @@ router.get('/dashboard/stats', getDashboardStats);
 router.get('/dashboard/recent', getRecentBookings);
 router.get('/customer-deposits', getCustomerDeposits);
 router.patch('/instalments/:id', updateInstalment);
+router.get('/suppliers-info', getSuppliersInfo);
 
 module.exports = router;

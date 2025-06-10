@@ -288,7 +288,7 @@ export default function CreateBooking({ onBookingCreated }) {
                 onClick={() => setShowPaxDetails(true)}
                 className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
-                Details
+                Input
               </button>
             </div>
             {formData.passengers.length > 0 && (
@@ -491,7 +491,7 @@ export default function CreateBooking({ onBookingCreated }) {
               />
             </div>
             <div>
-              <label className="block text-gray-700 mb-1">Production Cost (£)</label>
+              <label className="block text-gray-700 mb-1">Product Cost (£)</label>
               <div className="flex">
                 <input
                   name="prodCost"
