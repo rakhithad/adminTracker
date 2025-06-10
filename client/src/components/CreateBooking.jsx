@@ -8,15 +8,14 @@ export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
     refNo: '',
     paxName: '',
-    numPax: 1,
     passengers: [],
+    numPax: 1,
     agentName: '',
     teamName: '',
     pnr: '',
     airline: '',
     fromTo: '',
     bookingType: 'FRESH',
-    bookingStatus: 'PENDING',
     pcDate: new Date().toISOString().split('T')[0],
     issuedDate: '',
     paymentMethod: 'FULL',
@@ -25,7 +24,7 @@ export default function CreateBooking({ onBookingCreated }) {
     travelDate: '',
     revenue: '',
     prodCost: '',
-    prodCostBreakdown: [], // Will include suppliers with paymentMethod, paidAmount, pendingAmount
+    prodCostBreakdown: [],
     transFee: '',
     surcharge: '',
     received: '',
@@ -69,9 +68,6 @@ export default function CreateBooking({ onBookingCreated }) {
       setShowInternalDeposit(false);
       setFormData((prev) => ({ ...prev, instalments: [] }));
     }
-    if (name === 'numPax') {
-      setFormData((prev) => ({ ...prev, passengers: [], paxName: '' }));
-    }
   };
 
   const handleNumberChange = (e) => {
@@ -112,13 +108,16 @@ export default function CreateBooking({ onBookingCreated }) {
     setShowInternalDeposit(false);
   };
 
-  const handlePaxDetailsSubmit = ({ passengers, paxName }) => {
+  const handlePaxDetailsSubmit = ({ passenger, paxName, numPax }) => {
     setFormData((prev) => ({
       ...prev,
-      passengers,
+      passengers: [passenger],
       paxName,
+      numPax,
     }));
     setShowPaxDetails(false);
+    setSuccessMessage('Lead passenger details saved successfully! Please complete the remaining fields.');
+    setTimeout(() => setSuccessMessage(''), 3000);
   };
 
   const handleSubmit = async (e) => {
@@ -131,7 +130,6 @@ export default function CreateBooking({ onBookingCreated }) {
       const requiredFields = [
         'refNo',
         'paxName',
-        'numPax',
         'agentName',
         'teamName',
         'pnr',
@@ -154,8 +152,8 @@ export default function CreateBooking({ onBookingCreated }) {
         throw new Error('Instalments are required for INTERNAL payment method');
       }
 
-      if (formData.passengers.length !== parseInt(formData.numPax)) {
-        throw new Error('Passenger details must be provided for all passengers');
+      if (formData.passengers.length === 0) {
+        throw new Error('At least one passenger detail (lead passenger) must be provided');
       }
 
       // Validate prodCostBreakdown
@@ -214,7 +212,6 @@ export default function CreateBooking({ onBookingCreated }) {
         airline: formData.airline,
         from_to: formData.fromTo,
         bookingType: formData.bookingType,
-        bookingStatus: formData.bookingStatus,
         pcDate: formData.pcDate,
         issuedDate: formData.issuedDate || null,
         paymentMethod: formData.paymentMethod,
@@ -233,6 +230,7 @@ export default function CreateBooking({ onBookingCreated }) {
         status: 'PENDING',
         instalments: formData.instalments,
         passengers: formData.passengers,
+        numPax: formData.numPax,
       };
 
       const response = await createPendingBooking(bookingData);
@@ -246,15 +244,14 @@ export default function CreateBooking({ onBookingCreated }) {
       setFormData({
         refNo: '',
         paxName: '',
-        numPax: 1,
         passengers: [],
+        numPax: 1,
         agentName: '',
         teamName: '',
         pnr: '',
         airline: '',
         fromTo: '',
         bookingType: 'FRESH',
-        bookingStatus: 'PENDING',
         pcDate: new Date().toISOString().split('T')[0],
         issuedDate: '',
         paymentMethod: 'FULL',
@@ -298,28 +295,12 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="refNo"
               type="text"
-              placeholder='e.g., IBE13260992'
+              placeholder="e.g., IBE13260992"
               value={formData.refNo}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
               required
             />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Number of Passengers*</label>
-            <select
-              name="numPax"
-              value={formData.numPax}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            >
-              {[...Array(10).keys()].map((i) => (
-                <option key={i + 1} value={i + 1}>
-                  {i + 1}
-                </option>
-              ))}
-            </select>
           </div>
           <div>
             <label className="block text-gray-700 mb-1">Passenger Name*</label>
@@ -343,9 +324,10 @@ export default function CreateBooking({ onBookingCreated }) {
               <div className="mt-2 text-sm text-gray-600">
                 {formData.passengers.map((pax, index) => (
                   <div key={index}>
-                    {pax.title} {pax.firstName} {pax.lastName} ({pax.category})
+                    {pax.title}. {pax.lastName}/{pax.middleName ? pax.middleName + ' ' : ''}{pax.firstName} ({pax.category})
                   </div>
                 ))}
+                <div>Total Passengers: {formData.numPax}</div>
               </div>
             )}
           </div>
@@ -381,7 +363,7 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="pnr"
               type="text"
-              placeholder='e.g., JJ55WW'
+              placeholder="e.g., JJ55WW"
               value={formData.pnr}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
@@ -393,7 +375,7 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="airline"
               type="text"
-              placeholder='e.g., QR'
+              placeholder="e.g., QR"
               value={formData.airline}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
@@ -458,19 +440,6 @@ export default function CreateBooking({ onBookingCreated }) {
               <option value="REFUND">REFUND</option>
               <option value="FULL_HUMM">FULL_HUMM</option>
               <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Booking Status</label>
-            <select
-              name="bookingStatus"
-              value={formData.bookingStatus}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-            >
-              <option value="PENDING">Pending</option>
-              <option value="CONFIRMED">Confirmed</option>
-              <option value="COMPLETED">Completed</option>
             </select>
           </div>
           <div>
@@ -705,8 +674,7 @@ export default function CreateBooking({ onBookingCreated }) {
       )}
       {showPaxDetails && (
         <PaxDetailsPopup
-          initialData={{ passengers: formData.passengers }}
-          numPax={parseInt(formData.numPax)}
+          initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }}
           onClose={() => setShowPaxDetails(false)}
           onSubmit={handlePaxDetailsSubmit}
         />
