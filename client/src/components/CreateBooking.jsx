@@ -298,6 +298,7 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="refNo"
               type="text"
+              placeholder='e.g., IBE13260992'
               value={formData.refNo}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
@@ -380,6 +381,7 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="pnr"
               type="text"
+              placeholder='e.g., JJ55WW'
               value={formData.pnr}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"
@@ -391,6 +393,7 @@ export default function CreateBooking({ onBookingCreated }) {
             <input
               name="airline"
               type="text"
+              placeholder='e.g., QR'
               value={formData.airline}
               onChange={handleChange}
               className="w-full p-2 bg-gray-200 border rounded"

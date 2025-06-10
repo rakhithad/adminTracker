@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import logo from '../assets/logo.png'; // Adjust path to your logo file
 
 export default function NavigationBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -19,10 +20,13 @@ export default function NavigationBar() {
   return (
     <nav className="bg-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          {/* Logo */}
+        <div className="flex justify-between h-24">
           <div className="flex items-center">
-            <span className="text-xl font-bold text-gray-800">11th Street Travel</span>
+            <img
+              src={logo}
+              alt="11th Street Travel Logo"
+              className="h-24 w-auto"
+            />
           </div>
 
           {/* Desktop Menu */}
