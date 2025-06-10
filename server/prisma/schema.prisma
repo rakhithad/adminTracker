@@ -253,14 +253,17 @@ model PendingPassenger {
 
 
 model CostItemSupplier {
-  id            Int       @id @default(autoincrement())
-  costItemId    Int?
+  id                Int              @id @default(autoincrement())
+  costItemId        Int?
   pendingCostItemId Int?
-  supplier      Suppliers
-  amount        Float
-  costItem      CostItem? @relation(fields: [costItemId], references: [id], onDelete: Cascade)
-  pendingCostItem PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  supplier          Suppliers
+  amount            Float
+  paymentMethod     String           @default("full") // "credit", "full", "custom"
+  paidAmount        Float            @default(0.0)    // Amount paid to supplier
+  pendingAmount     Float            @default(0.0)    // Amount to be paid
+  costItem          CostItem?        @relation(fields: [costItemId], references: [id], onDelete: Cascade)
+  pendingCostItem   PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
   @@map("cost_item_suppliers")
 }

@@ -5,111 +5,164 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
 
   const [breakdown, setBreakdown] = useState(
     initialBreakdown.length > 0
-      ? initialBreakdown.map(item => ({
+      ? initialBreakdown.map((item) => ({
           ...item,
-          suppliers: item.suppliers || [{ supplier: '', amount: '' }],
+          suppliers: item.suppliers.map((supplier) => ({
+            ...supplier,
+            paymentMethod: supplier.paymentMethod || 'full', // Default to "full"
+            paidAmount: supplier.paidAmount || '', // Initialize paidAmount
+            pendingAmount: supplier.pendingAmount || '', // Initialize pendingAmount
+          })),
         }))
       : [
-          { id: 1, category: 'Flight', amount: '', suppliers: [{ supplier: '', amount: '' }] },
-          { id: 2, category: 'Hotels', amount: '', suppliers: [{ supplier: '', amount: '' }] },
-          { id: 3, category: 'Cruise', amount: '', suppliers: [{ supplier: '', amount: '' }] },
+          {
+            id: 1,
+            category: 'Flight',
+            amount: '',
+            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+          },
+          {
+            id: 2,
+            category: 'Hotels',
+            amount: '',
+            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+          },
+          {
+            id: 3,
+            category: 'Cruise',
+            amount: '',
+            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+          },
         ]
   );
 
-  const [nextId, setNextId] = useState(Math.max(...initialBreakdown.map(item => item.id || 0), 3) + 1);
+  const [nextId, setNextId] = useState(Math.max(...initialBreakdown.map((item) => item.id || 0), 3) + 1);
   const [isValid, setIsValid] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    const isValidBreakdown = breakdown.every(item => {
+    const isValidBreakdown = breakdown.every((item) => {
       const amount = parseFloat(item.amount) || 0;
       if (amount <= 0) return false;
       const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-      return Math.abs(amount - supplierTotal) < 0.01 && item.suppliers.every(s => s.supplier && parseFloat(s.amount) > 0);
+      return (
+        Math.abs(amount - supplierTotal) < 0.01 &&
+        item.suppliers.every(
+          (s) =>
+            s.supplier &&
+            parseFloat(s.amount) > 0 &&
+            ['credit', 'full', 'custom'].includes(s.paymentMethod) &&
+            (s.paymentMethod !== 'custom' || (s.paidAmount && parseFloat(s.paidAmount) < parseFloat(s.amount)))
+        )
+      );
     });
     setIsValid(isValidBreakdown);
     setErrorMessage(
       isValidBreakdown
         ? ''
-        : 'Each category must have a positive amount, and supplier amounts must sum to the category total.'
+        : 'Each category must have a positive amount, supplier amounts must sum to the category total, and custom payments must have a valid paid amount.'
     );
   }, [breakdown]);
 
   const handleAmountChange = (id, value) => {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
-      setBreakdown(prev =>
-        prev.map(item =>
-          item.id === id ? { ...item, amount: value, suppliers: [{ supplier: '', amount: '' }] } : item
+      setBreakdown((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? { ...item, amount: value, suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }] }
+            : item
         )
       );
     }
   };
 
   const handleCategoryChange = (id, value) => {
-    setBreakdown(prev =>
-      prev.map(item => (item.id === id ? { ...item, category: value } : item))
-    );
+    setBreakdown((prev) => prev.map((item) => (item.id === id ? { ...item, category: value } : item)));
   };
 
   const handleSupplierChange = (itemId, supplierIndex, field, value) => {
-    setBreakdown(prev =>
-      prev.map(item => {
+    setBreakdown((prev) =>
+      prev.map((item) => {
         if (item.id !== itemId) return item;
         const newSuppliers = [...item.suppliers];
         newSuppliers[supplierIndex] = { ...newSuppliers[supplierIndex], [field]: value };
+        // Update pendingAmount based on paymentMethod
+        if (field === 'amount' || field === 'paidAmount' || field === 'paymentMethod') {
+          const supplier = newSuppliers[supplierIndex];
+          const amount = parseFloat(supplier.amount) || 0;
+          const paidAmount = parseFloat(supplier.paidAmount) || 0;
+          if (supplier.paymentMethod === 'credit') {
+            supplier.paidAmount = '';
+            supplier.pendingAmount = amount.toFixed(2);
+          } else if (supplier.paymentMethod === 'full') {
+            supplier.paidAmount = amount.toFixed(2);
+            supplier.pendingAmount = '0.00';
+          } else if (supplier.paymentMethod === 'custom') {
+            supplier.pendingAmount = paidAmount < amount ? (amount - paidAmount).toFixed(2) : '0.00';
+          }
+        }
         return { ...item, suppliers: newSuppliers };
       })
     );
   };
 
   const addSupplier = (itemId) => {
-    setBreakdown(prev =>
-      prev.map(item =>
+    setBreakdown((prev) =>
+      prev.map((item) =>
         item.id === itemId
-          ? { ...item, suppliers: [...item.suppliers, { supplier: '', amount: '' }] }
+          ? {
+              ...item,
+              suppliers: [...item.suppliers, { supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+            }
           : item
       )
     );
   };
 
   const removeSupplier = (itemId, supplierIndex) => {
-    setBreakdown(prev =>
-      prev.map(item => {
+    setBreakdown((prev) =>
+      prev.map((item) => {
         if (item.id !== itemId) return item;
         const newSuppliers = item.suppliers.filter((_, index) => index !== supplierIndex);
-        return { ...item, suppliers: newSuppliers.length > 0 ? newSuppliers : [{ supplier: '', amount: '' }] };
+        return {
+          ...item,
+          suppliers: newSuppliers.length > 0 ? newSuppliers : [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+        };
       })
     );
   };
 
   const addNewCategory = () => {
     const newId = nextId;
-    setBreakdown(prev => [
+    setBreakdown((prev) => [
       ...prev,
-      { id: newId, category: '', amount: '', suppliers: [{ supplier: '', amount: '' }] },
+      { id: newId, category: '', amount: '', suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }] },
     ]);
     setNextId(newId + 1);
   };
 
   const removeCategory = (id) => {
     if (breakdown.length <= 1) return;
-    setBreakdown(prev => prev.filter(item => item.id !== id));
+    setBreakdown((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleSubmit = () => {
     if (!isValid) return;
 
     const validBreakdown = breakdown
-      .filter(item => item.amount && parseFloat(item.amount) > 0)
-      .map(item => ({
+      .filter((item) => item.amount && parseFloat(item.amount) > 0)
+      .map((item) => ({
         id: item.id,
         category: item.category || 'Other',
         amount: parseFloat(item.amount),
         suppliers: item.suppliers
-          .filter(s => s.supplier && parseFloat(s.amount) > 0)
-          .map(s => ({
+          .filter((s) => s.supplier && parseFloat(s.amount) > 0)
+          .map((s) => ({
             supplier: s.supplier,
             amount: parseFloat(s.amount),
+            paymentMethod: s.paymentMethod,
+            paidAmount: parseFloat(s.paidAmount) || 0,
+            pendingAmount: parseFloat(s.pendingAmount) || 0,
           })),
       }));
 
@@ -135,13 +188,13 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
         )}
 
         <div className="space-y-4 mb-4">
-          {breakdown.map(item => (
+          {breakdown.map((item) => (
             <div key={item.id} className="border p-4 rounded-lg bg-gray-50">
               <div className="flex items-center space-x-2 mb-2">
                 <input
                   type="text"
                   value={item.category}
-                  onChange={e => handleCategoryChange(item.id, e.target.value)}
+                  onChange={(e) => handleCategoryChange(item.id, e.target.value)}
                   placeholder="Category name"
                   className="flex-1 p-2 border rounded-lg bg-gray-100"
                 />
@@ -149,7 +202,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                   type="text"
                   inputMode="decimal"
                   value={item.amount}
-                  onChange={e => handleAmountChange(item.id, e.target.value)}
+                  onChange={(e) => handleAmountChange(item.id, e.target.value)}
                   placeholder="0.00"
                   className="w-24 p-2 border rounded-lg bg-gray-100"
                 />
@@ -169,11 +222,11 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                   <div key={index} className="flex items-center space-x-2">
                     <select
                       value={s.supplier}
-                      onChange={e => handleSupplierChange(item.id, index, 'supplier', e.target.value)}
+                      onChange={(e) => handleSupplierChange(item.id, index, 'supplier', e.target.value)}
                       className="flex-1 p-2 border rounded-lg bg-gray-100"
                     >
                       <option value="">Select Supplier</option>
-                      {suppliersList.map(supplier => (
+                      {suppliersList.map((supplier) => (
                         <option key={supplier} value={supplier}>
                           {supplier}
                         </option>
@@ -183,10 +236,29 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                       type="text"
                       inputMode="decimal"
                       value={s.amount}
-                      onChange={e => handleSupplierChange(item.id, index, 'amount', e.target.value)}
+                      onChange={(e) => handleSupplierChange(item.id, index, 'amount', e.target.value)}
                       placeholder="0.00"
                       className="w-24 p-2 border rounded-lg bg-gray-100"
                     />
+                    <select
+                      value={s.paymentMethod}
+                      onChange={(e) => handleSupplierChange(item.id, index, 'paymentMethod', e.target.value)}
+                      className="w-32 p-2 border rounded-lg bg-gray-100"
+                    >
+                      <option value="full">Full</option>
+                      <option value="credit">Credit</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                    {s.paymentMethod === 'custom' && (
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={s.paidAmount}
+                        onChange={(e) => handleSupplierChange(item.id, index, 'paidAmount', e.target.value)}
+                        placeholder="Paid Amount"
+                        className="w-24 p-2 border rounded-lg bg-gray-100"
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={() => removeSupplier(item.id, index)}

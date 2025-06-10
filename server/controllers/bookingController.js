@@ -45,6 +45,7 @@ const createPendingBooking = async (req, res) => {
       return apiResponse.error(res, "prodCostBreakdown must be an array", 400);
     }
 
+    const validPaymentMethods = ['credit', 'full', 'custom'];
     for (const item of prodCostBreakdown) {
       if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
         return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
@@ -57,8 +58,21 @@ const createPendingBooking = async (req, res) => {
         return apiResponse.error(res, "Supplier amounts must sum to the cost item amount", 400);
       }
       for (const s of item.suppliers) {
-        if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
+        if (
+          !s.supplier ||
+          !validSuppliers.includes(s.supplier) ||
+          isNaN(parseFloat(s.amount)) ||
+          parseFloat(s.amount) <= 0
+        ) {
           return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
+        }
+        if (!validPaymentMethods.includes(s.paymentMethod)) {
+          return apiResponse.error(res, `Invalid payment method for supplier ${s.supplier}. Must be one of: ${validPaymentMethods.join(', ')}`, 400);
+        }
+        if (s.paymentMethod === 'custom') {
+          if (isNaN(parseFloat(s.paidAmount)) || parseFloat(s.paidAmount) <= 0 || parseFloat(s.paidAmount) >= parseFloat(s.amount)) {
+            return apiResponse.error(res, `Custom payment for supplier ${s.supplier} must have a valid paidAmount (0 < paidAmount < amount)`, 400);
+          }
         }
       }
     }
@@ -170,26 +184,29 @@ const createPendingBooking = async (req, res) => {
         ...financialData,
         status: 'PENDING',
         costItems: {
-          create: prodCostBreakdown.map(item => ({
+          create: prodCostBreakdown.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
             suppliers: {
-              create: item.suppliers.map(s => ({
+              create: item.suppliers.map((s) => ({
                 supplier: s.supplier,
                 amount: parseFloat(s.amount),
+                paymentMethod: s.paymentMethod || 'full',
+                paidAmount: s.paymentMethod === 'credit' ? 0 : s.paymentMethod === 'full' ? parseFloat(s.amount) : parseFloat(s.paidAmount) || 0,
+                pendingAmount: s.paymentMethod === 'credit' ? parseFloat(s.amount) : s.paymentMethod === 'full' ? 0 : (parseFloat(s.amount) - parseFloat(s.paidAmount)) || 0,
               })),
             },
           })),
         },
         instalments: {
-          create: instalments.map(inst => ({
+          create: instalments.map((inst) => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
           })),
         },
         passengers: {
-          create: passengers.map(pax => ({
+          create: passengers.map((pax) => ({
             title: pax.title,
             firstName: pax.firstName,
             middleName: pax.middleName || null,
@@ -263,10 +280,6 @@ const approveBooking = async (req, res) => {
       return apiResponse.error(res, 'Pending booking already processed', 409);
     }
 
-    console.log('Pending Instalments:', pendingBooking.instalments);
-    console.log('Pending Passengers:', pendingBooking.passengers);
-    console.log('Pending Cost Items Suppliers:', pendingBooking.costItems.map(item => item.suppliers));
-
     if (pendingBooking.paymentMethod.includes('INTERNAL') && (!Array.isArray(pendingBooking.instalments) || pendingBooking.instalments.length === 0)) {
       return apiResponse.error(res, 'Instalments are required for INTERNAL payment method', 400);
     }
@@ -309,26 +322,29 @@ const approveBooking = async (req, res) => {
         profit: pendingBooking.profit,
         invoiced: pendingBooking.invoiced,
         costItems: {
-          create: pendingBooking.costItems.map(item => ({
+          create: pendingBooking.costItems.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
             suppliers: {
-              create: item.suppliers.map(s => ({
+              create: item.suppliers.map((s) => ({
                 supplier: s.supplier,
                 amount: parseFloat(s.amount),
+                paymentMethod: s.paymentMethod || 'full',
+                paidAmount: parseFloat(s.paidAmount) || (s.paymentMethod === 'credit' ? 0 : s.paymentMethod === 'full' ? parseFloat(s.amount) : 0),
+                pendingAmount: parseFloat(s.pendingAmount) || (s.paymentMethod === 'credit' ? parseFloat(s.amount) : s.paymentMethod === 'full' ? 0 : 0),
               })),
             },
           })),
         },
         instalments: {
-          create: pendingBooking.instalments.map(inst => ({
+          create: pendingBooking.instalments.map((inst) => ({
             dueDate: new Date(inst.dueDate),
             amount: parseFloat(inst.amount),
             status: inst.status || 'PENDING',
           })),
         },
         passengers: {
-          create: pendingBooking.passengers.map(pax => ({
+          create: pendingBooking.passengers.map((pax) => ({
             title: pax.title,
             firstName: pax.firstName,
             middleName: pax.middleName || null,
@@ -347,10 +363,6 @@ const approveBooking = async (req, res) => {
         passengers: true,
       },
     });
-
-    console.log('Created Booking Instalments:', booking.instalments);
-    console.log('Created Booking Passengers:', booking.passengers);
-    console.log('Created Booking Cost Items Suppliers:', booking.costItems.map(item => item.suppliers));
 
     await prisma.pendingBooking.delete({
       where: { id: bookingId },
@@ -966,15 +978,19 @@ const getSuppliersInfo = async (req, res) => {
     });
 
     const supplierSummary = bookings.reduce((acc, booking) => {
-      booking.costItems.forEach(item => {
-        item.suppliers.forEach(s => {
+      booking.costItems.forEach((item) => {
+        item.suppliers.forEach((s) => {
           if (!acc[s.supplier]) {
             acc[s.supplier] = {
+              totalAmount: 0,
               totalPaid: 0,
+              totalPending: 0,
               bookings: [],
             };
           }
-          acc[s.supplier].totalPaid += parseFloat(s.amount);
+          acc[s.supplier].totalAmount += parseFloat(s.amount);
+          acc[s.supplier].totalPaid += parseFloat(s.paidAmount) || (s.paymentMethod === 'full' ? parseFloat(s.amount) : 0);
+          acc[s.supplier].totalPending += parseFloat(s.pendingAmount) || (s.paymentMethod === 'credit' ? parseFloat(s.amount) : 0);
           acc[s.supplier].bookings.push({
             bookingId: booking.id,
             refNo: booking.refNo,
@@ -982,6 +998,9 @@ const getSuppliersInfo = async (req, res) => {
             agentName: booking.agentName,
             category: item.category,
             amount: parseFloat(s.amount),
+            paymentMethod: s.paymentMethod,
+            paidAmount: parseFloat(s.paidAmount) || (s.paymentMethod === 'full' ? parseFloat(s.amount) : 0),
+            pendingAmount: parseFloat(s.pendingAmount) || (s.paymentMethod === 'credit' ? parseFloat(s.amount) : 0),
             createdAt: booking.createdAt,
           });
         });

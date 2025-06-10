@@ -8,8 +8,8 @@ export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
     refNo: '',
     paxName: '',
-    numPax: 1, // New field for number of passengers
-    passengers: [], // New field to store passenger details
+    numPax: 1,
+    passengers: [],
     agentName: '',
     teamName: '',
     pnr: '',
@@ -25,7 +25,7 @@ export default function CreateBooking({ onBookingCreated }) {
     travelDate: '',
     revenue: '',
     prodCost: '',
-    prodCostBreakdown: [],
+    prodCostBreakdown: [], // Will include suppliers with paymentMethod, paidAmount, pendingAmount
     transFee: '',
     surcharge: '',
     received: '',
@@ -70,7 +70,6 @@ export default function CreateBooking({ onBookingCreated }) {
       setFormData((prev) => ({ ...prev, instalments: [] }));
     }
     if (name === 'numPax') {
-      // Reset passengers when numPax changes
       setFormData((prev) => ({ ...prev, passengers: [], paxName: '' }));
     }
   };
@@ -92,6 +91,7 @@ export default function CreateBooking({ onBookingCreated }) {
       prodCost: total.toFixed(2),
       prodCostBreakdown: breakdown,
     }));
+    setShowCostBreakdown(false);
   };
 
   const handleInternalDepositSubmit = (depositData) => {
@@ -158,6 +158,53 @@ export default function CreateBooking({ onBookingCreated }) {
         throw new Error('Passenger details must be provided for all passengers');
       }
 
+      // Validate prodCostBreakdown
+      if (formData.prodCostBreakdown.length > 0) {
+        const validPaymentMethods = ['credit', 'full', 'custom'];
+        for (const item of formData.prodCostBreakdown) {
+          if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
+            throw new Error('Each cost item must have a valid category and positive amount');
+          }
+          if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+            throw new Error('Each cost item must have at least one supplier allocation');
+          }
+          const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+          if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+            throw new Error('Supplier amounts must sum to the cost item amount');
+          }
+          for (const s of item.suppliers) {
+            if (
+              !s.supplier ||
+              isNaN(parseFloat(s.amount)) ||
+              parseFloat(s.amount) <= 0 ||
+              !validPaymentMethods.includes(s.paymentMethod)
+            ) {
+              throw new Error('Each supplier must have a valid supplier, positive amount, and valid payment method');
+            }
+            if (s.paymentMethod === 'custom') {
+              if (
+                isNaN(parseFloat(s.paidAmount)) ||
+                parseFloat(s.paidAmount) <= 0 ||
+                parseFloat(s.paidAmount) >= parseFloat(s.amount)
+              ) {
+                throw new Error(`Custom payment for supplier ${s.supplier} must have a valid paid amount (0 < paidAmount < amount)`);
+              }
+              if (isNaN(parseFloat(s.pendingAmount)) || parseFloat(s.pendingAmount) !== parseFloat(s.amount) - parseFloat(s.paidAmount)) {
+                throw new Error(`Pending amount for supplier ${s.supplier} must equal amount - paidAmount`);
+              }
+            } else if (s.paymentMethod === 'credit') {
+              if (parseFloat(s.paidAmount) !== 0 || parseFloat(s.pendingAmount) !== parseFloat(s.amount)) {
+                throw new Error(`Credit payment for supplier ${s.supplier} must have paidAmount = 0 and pendingAmount = amount`);
+              }
+            } else if (s.paymentMethod === 'full') {
+              if (parseFloat(s.paidAmount) !== parseFloat(s.amount) || parseFloat(s.pendingAmount) !== 0) {
+                throw new Error(`Full payment for supplier ${s.supplier} must have paidAmount = amount and pendingAmount = 0`);
+              }
+            }
+          }
+        }
+      }
+
       const bookingData = {
         ref_no: formData.refNo,
         pax_name: formData.paxName,
@@ -185,7 +232,7 @@ export default function CreateBooking({ onBookingCreated }) {
         invoiced: formData.invoiced,
         status: 'PENDING',
         instalments: formData.instalments,
-        passengers: formData.passengers, // Include passenger details
+        passengers: formData.passengers,
       };
 
       const response = await createPendingBooking(bookingData);
@@ -512,9 +559,23 @@ export default function CreateBooking({ onBookingCreated }) {
               {formData.prodCostBreakdown.length > 0 && (
                 <div className="mt-2 text-sm text-gray-600">
                   {formData.prodCostBreakdown.map((item) => (
-                    <span key={item.id} className="mr-2">
-                      {item.category}: £{parseFloat(item.amount).toFixed(2)}
-                    </span>
+                    <div key={item.id} className="mb-2">
+                      <span className="font-medium">{item.category}: £{parseFloat(item.amount).toFixed(2)}</span>
+                      <div className="ml-4">
+                        {item.suppliers.map((supplier, index) => (
+                          <div key={index}>
+                            {supplier.supplier}: £{parseFloat(supplier.amount).toFixed(2)} (
+                            {supplier.paymentMethod === 'full'
+                              ? 'Paid in Full'
+                              : supplier.paymentMethod === 'credit'
+                              ? 'On Credit'
+                              : `Custom - Paid: £${parseFloat(supplier.paidAmount).toFixed(2)}, Pending: £${parseFloat(
+                                  supplier.pendingAmount
+                                ).toFixed(2)}`})
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
