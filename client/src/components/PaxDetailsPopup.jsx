@@ -10,7 +10,8 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
     gender: initialData.passenger?.gender || '',
     email: initialData.passenger?.email || '',
     contactNo: initialData.passenger?.contactNo || '',
-    country: initialData.passenger?.country || '',
+    nationality: initialData.passenger?.nationality || '',
+    birthday: initialData.passenger?.birthday || '',
     category: initialData.passenger?.category || '',
   });
   const [errorMessage, setErrorMessage] = useState('');
@@ -23,12 +24,13 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
       passenger.firstName &&
       passenger.lastName &&
       passenger.gender &&
+      passenger.birthday &&
       passenger.category &&
       (!passenger.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(passenger.email)) &&
       (!passenger.contactNo || /^\+?\d{10,15}$/.test(passenger.contactNo));
     setIsValid(isValid);
     setErrorMessage(
-      isValid ? '' : 'Please fill in all required fields correctly.'
+      isValid ? '' : 'Please fill in all required fields correctly, including birthday.'
     );
   }, [passenger]);
 
@@ -59,7 +61,8 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
       gender: '',
       email: '',
       contactNo: '',
-      country: '',
+      nationality: '',
+      birthday: '',
       category: '',
     });
     setNumPax(1);
@@ -165,6 +168,16 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
             </select>
           </div>
           <div>
+            <label className="block text-gray-700 mb-1">Birthday*</label>
+            <input
+              type="date"
+              value={passenger.birthday}
+              onChange={(e) => handleChange('birthday', e.target.value)}
+              className="w-full p-2 bg-gray-100 border rounded-lg"
+              required
+            />
+          </div>
+          <div>
             <label className="block text-gray-700 mb-1">Email</label>
             <input
               type="email"
@@ -184,11 +197,11 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-gray-700 mb-1">Country</label>
+            <label className="block text-gray-700 mb-1">Nationality</label>
             <input
               type="text"
-              value={passenger.country}
-              onChange={(e) => handleChange('country', e.target.value)}
+              value={passenger.nationality}
+              onChange={(e) => handleChange('nationality', e.target.value)}
               className="w-full p-2 bg-gray-100 border rounded-lg"
             />
           </div>

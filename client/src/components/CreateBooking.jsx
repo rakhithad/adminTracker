@@ -3,6 +3,7 @@ import { createPendingBooking } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
 import InternalDepositPopup from './InternalDepositPopup';
 import PaxDetailsPopup from './PaxDetailsPopup';
+import ReceivedAmountPopup from './ReceivedAmountPopup';
 
 export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
@@ -28,9 +29,12 @@ export default function CreateBooking({ onBookingCreated }) {
     transFee: '',
     surcharge: '',
     received: '',
+    transactionMethod: '',
+    receivedDate: new Date().toISOString().split('T')[0],
     balance: '',
     profit: '',
     invoiced: '',
+    description: '',
     instalments: [],
   });
 
@@ -40,6 +44,7 @@ export default function CreateBooking({ onBookingCreated }) {
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
   const [showInternalDeposit, setShowInternalDeposit] = useState(false);
   const [showPaxDetails, setShowPaxDetails] = useState(false);
+  const [showReceivedAmount, setShowReceivedAmount] = useState(false);
 
   useEffect(() => {
     const revenue = parseFloat(formData.revenue) || 0;
@@ -118,6 +123,16 @@ export default function CreateBooking({ onBookingCreated }) {
     setShowPaxDetails(false);
     setSuccessMessage('Lead passenger details saved successfully! Please complete the remaining fields.');
     setTimeout(() => setSuccessMessage(''), 3000);
+  };
+
+  const handleReceivedAmountSubmit = ({ amount, transactionMethod, receivedDate }) => {
+    setFormData((prev) => ({
+      ...prev,
+      received: amount,
+      transactionMethod,
+      receivedDate,
+    }));
+    setShowReceivedAmount(false);
   };
 
   const handleSubmit = async (e) => {
@@ -224,9 +239,12 @@ export default function CreateBooking({ onBookingCreated }) {
         transFee: formData.transFee ? parseFloat(formData.transFee) : null,
         surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
         received: formData.received ? parseFloat(formData.received) : null,
+        transactionMethod: formData.transactionMethod || null,
+        receivedDate: formData.receivedDate || null,
         balance: formData.balance ? parseFloat(formData.balance) : null,
         profit: formData.profit ? parseFloat(formData.profit) : null,
         invoiced: formData.invoiced,
+        description: formData.description || null,
         status: 'PENDING',
         instalments: formData.instalments,
         passengers: formData.passengers,
@@ -264,9 +282,12 @@ export default function CreateBooking({ onBookingCreated }) {
         transFee: '',
         surcharge: '',
         received: '',
+        transactionMethod: '',
+        receivedDate: new Date().toISOString().split('T')[0],
         balance: '',
         profit: '',
         invoiced: '',
+        description: '',
         instalments: [],
       });
 
@@ -576,14 +597,28 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
             <div>
               <label className="block text-gray-700 mb-1">Amount Received (£)</label>
-              <input
-                name="received"
-                type="number"
-                step="0.01"
-                value={formData.received}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-              />
+              <div className="flex">
+                <input
+                  name="received"
+                  type="number"
+                  step="0.01"
+                  value={formData.received}
+                  className="w-full p-2 bg-gray-200 border rounded"
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowReceivedAmount(true)}
+                  className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Input
+                </button>
+              </div>
+              {formData.transactionMethod && formData.receivedDate && (
+                <div className="mt-2 text-sm text-gray-600">
+                  Transaction Method: {formData.transactionMethod}, Date: {new Date(formData.receivedDate).toLocaleDateString()}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-gray-700 mb-1">Balance (£)</label>
@@ -615,6 +650,17 @@ export default function CreateBooking({ onBookingCreated }) {
                 value={formData.invoiced}
                 onChange={handleChange}
                 className="w-full p-2 bg-gray-200 border rounded"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-gray-700 mb-1">Description</label>
+              <textarea
+                name="description"
+                value={formData.description}
+                onChange={handleChange}
+                className="w-full p-2 bg-gray-200 border rounded"
+                rows="4"
+                placeholder="Optional notes about the booking"
               />
             </div>
             {formData.instalments.length > 0 && (
@@ -677,6 +723,17 @@ export default function CreateBooking({ onBookingCreated }) {
           initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }}
           onClose={() => setShowPaxDetails(false)}
           onSubmit={handlePaxDetailsSubmit}
+        />
+      )}
+      {showReceivedAmount && (
+        <ReceivedAmountPopup
+          initialData={{
+            amount: formData.received,
+            transactionMethod: formData.transactionMethod,
+            receivedDate: formData.receivedDate,
+          }}
+          onClose={() => setShowReceivedAmount(false)}
+          onSubmit={handleReceivedAmountSubmit}
         />
       )}
     </div>

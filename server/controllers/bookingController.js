@@ -1,10 +1,9 @@
-
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
 
 const createPendingBooking = async (req, res) => {
-  console.log("Received body:", req.body);
+  console.log("Received body:", JSON.stringify(req.body, null, 2));
 
   try {
     // Validate required fields
@@ -37,6 +36,12 @@ const createPendingBooking = async (req, res) => {
     const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
     if (!validSuppliers.includes(req.body.supplier)) {
       return apiResponse.error(res, `Invalid supplier. Must be one of: ${validSuppliers.join(', ')}`, 400);
+    }
+
+    // Validate transactionMethod
+    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES'];
+    if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
+      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
     }
 
     // Validate prodCostBreakdown
@@ -94,7 +99,7 @@ const createPendingBooking = async (req, res) => {
       }
     }
 
-    // Validate passengers
+    // Validate passenger data
     const passengers = req.body.passengers || [];
     if (!Array.isArray(passengers) || passengers.length === 0) {
       return apiResponse.error(res, "passengers must be a non-empty array", 400);
@@ -105,21 +110,26 @@ const createPendingBooking = async (req, res) => {
     const validCategories = ['ADULT', 'CHILD', 'INFANT'];
 
     for (const pax of passengers) {
-      if (
-        !pax.title ||
-        !validTitles.includes(pax.title) ||
-        !pax.firstName ||
-        !pax.lastName ||
-        !pax.gender ||
-        !validGenders.includes(pax.gender) ||
-        !pax.category ||
-        !validCategories.includes(pax.category) ||
-        (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
-        (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo))
-      ) {
+      console.log("Validating passenger:", JSON.stringify(pax, null, 2));
+      const validationErrors = [];
+      if (!pax.title) validationErrors.push("Missing title");
+      if (pax.title && !validTitles.includes(pax.title)) validationErrors.push(`Invalid title: ${pax.title}`);
+      if (!pax.firstName) validationErrors.push("Missing firstName");
+      if (!pax.lastName) validationErrors.push("Missing lastName");
+      if (!pax.gender) validationErrors.push("Missing gender");
+      if (pax.gender && !validGenders.includes(pax.gender)) validationErrors.push(`Invalid gender: ${pax.gender}`);
+      if (!pax.birthday) validationErrors.push("Missing birthday");
+      if (pax.birthday && isNaN(new Date(pax.birthday))) validationErrors.push(`Invalid birthday: ${pax.birthday}`);
+      if (!pax.category) validationErrors.push("Missing category");
+      if (pax.category && !validCategories.includes(pax.category)) validationErrors.push(`Invalid category: ${pax.category}`);
+      if (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) validationErrors.push(`Invalid email: ${pax.email}`);
+      if (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo)) validationErrors.push(`Invalid contactNo: ${pax.contactNo}`);
+
+      if (validationErrors.length > 0) {
+        console.error("Passenger validation failed:", validationErrors);
         return apiResponse.error(
           res,
-          "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+          "Each passenger must have a valid title, firstName, lastName, gender, birthday, and category. Email and contactNo must be valid if provided.",
           400
         );
       }
@@ -181,6 +191,9 @@ const createPendingBooking = async (req, res) => {
         lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
         supplier: req.body.supplier,
         travelDate: req.body.travelDate ? new Date(req.body.travelDate) : null,
+        transactionMethod: req.body.transactionMethod || null,
+        receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
+        description: req.body.description || null,
         ...financialData,
         status: 'PENDING',
         costItems: {
@@ -214,7 +227,8 @@ const createPendingBooking = async (req, res) => {
             gender: pax.gender,
             email: pax.email || null,
             contactNo: pax.contactNo || null,
-            country: pax.country || null,
+            nationality: pax.nationality || null,
+            birthday: pax.birthday ? new Date(pax.birthday) : null,
             category: pax.category,
           })),
         },
@@ -318,9 +332,12 @@ const approveBooking = async (req, res) => {
         transFee: pendingBooking.transFee,
         surcharge: pendingBooking.surcharge,
         received: pendingBooking.received,
+        transactionMethod: pendingBooking.transactionMethod,
+        receivedDate: pendingBooking.receivedDate,
         balance: pendingBooking.balance,
         profit: pendingBooking.profit,
         invoiced: pendingBooking.invoiced,
+        description: pendingBooking.description,
         costItems: {
           create: pendingBooking.costItems.map((item) => ({
             category: item.category,
@@ -352,7 +369,8 @@ const approveBooking = async (req, res) => {
             gender: pax.gender,
             email: pax.email || null,
             contactNo: pax.contactNo || null,
-            country: pax.country || null,
+            nationality: pax.nationality || null,
+            birthday: pax.birthday,
             category: pax.category,
           })),
         },
@@ -428,11 +446,17 @@ const createBooking = async (req, res) => {
       return apiResponse.error(res, `Invalid supplier. Must be one of: ${validSuppliers.join(', ')}`, 400);
     }
 
+    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES'];
+    if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
+      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
+    }
+
     const prodCostBreakdown = req.body.prodCostBreakdown || [];
     if (!Array.isArray(prodCostBreakdown)) {
       return apiResponse.error(res, "prodCostBreakdown must be an array", 400);
     }
 
+    const validPaymentMethods = ['credit', 'full', 'custom'];
     for (const item of prodCostBreakdown) {
       if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
         return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
@@ -447,6 +471,14 @@ const createBooking = async (req, res) => {
       for (const s of item.suppliers) {
         if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
           return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
+        }
+        if (!validPaymentMethods.includes(s.paymentMethod)) {
+          return apiResponse.error(res, `Invalid payment method for supplier ${s.supplier}. Must be one of: ${validPaymentMethods.join(', ')}`, 400);
+        }
+        if (s.paymentMethod === 'custom') {
+          if (isNaN(parseFloat(s.paidAmount)) || parseFloat(s.paidAmount) <= 0 || parseFloat(s.paidAmount) >= parseFloat(s.amount)) {
+            return apiResponse.error(res, `Custom payment for supplier ${s.supplier} must have a valid paidAmount (0 < paidAmount < amount)`, 400);
+          }
         }
       }
     }
@@ -484,6 +516,8 @@ const createBooking = async (req, res) => {
         !pax.lastName ||
         !pax.gender ||
         !validGenders.includes(pax.gender) ||
+        !pax.birthday ||
+        isNaN(new Date(pax.birthday)) ||
         !pax.category ||
         !validCategories.includes(pax.category) ||
         (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
@@ -491,7 +525,7 @@ const createBooking = async (req, res) => {
       ) {
         return apiResponse.error(
           res,
-          "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+          "Each passenger must have a valid title, firstName, lastName, gender, birthday, and category. Email and contactNo must be valid if provided.",
           400
         );
       }
@@ -547,6 +581,9 @@ const createBooking = async (req, res) => {
         lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
         supplier: req.body.supplier,
         travelDate: new Date(req.body.travelDate),
+        transactionMethod: req.body.transactionMethod || null,
+        receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
+        description: req.body.description || null,
         ...financialData,
         costItems: {
           create: prodCostBreakdown.map(item => ({
@@ -556,6 +593,9 @@ const createBooking = async (req, res) => {
               create: item.suppliers.map(s => ({
                 supplier: s.supplier,
                 amount: parseFloat(s.amount),
+                paymentMethod: s.paymentMethod || 'full',
+                paidAmount: s.paymentMethod === 'credit' ? 0 : s.paymentMethod === 'full' ? parseFloat(s.amount) : parseFloat(s.paidAmount) || 0,
+                pendingAmount: s.paymentMethod === 'credit' ? parseFloat(s.amount) : s.paymentMethod === 'full' ? 0 : (parseFloat(s.amount) - parseFloat(s.paidAmount)) || 0,
               })),
             },
           })),
@@ -576,7 +616,8 @@ const createBooking = async (req, res) => {
             gender: pax.gender,
             email: pax.email || null,
             contactNo: pax.contactNo || null,
-            country: pax.country || null,
+            nationality: pax.nationality || null,
+            birthday: pax.birthday ? new Date(pax.birthday) : null,
             category: pax.category,
           })),
         },
@@ -642,14 +683,22 @@ const updateBooking = async (req, res) => {
       transFee,
       surcharge,
       received,
+      transactionMethod,
+      receivedDate,
       balance,
       profit,
       invoiced,
+      description,
       travelDate,
       costItems,
       instalments,
       passengers,
     } = updates;
+
+    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES'];
+    if (transactionMethod && !validTransactionMethods.includes(transactionMethod)) {
+      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
+    }
 
     if (instalments) {
       if (!Array.isArray(instalments)) {
@@ -688,6 +737,8 @@ const updateBooking = async (req, res) => {
           !pax.lastName ||
           !pax.gender ||
           !validGenders.includes(pax.gender) ||
+          !pax.birthday ||
+          isNaN(new Date(pax.birthday)) ||
           !pax.category ||
           !validCategories.includes(pax.category) ||
           (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) ||
@@ -695,7 +746,7 @@ const updateBooking = async (req, res) => {
         ) {
           return apiResponse.error(
             res,
-            "Each passenger must have a valid title, firstName, lastName, gender, and category. Email and contactNo must be valid if provided.",
+            "Each passenger must have a valid title, firstName, lastName, gender, birthday, and category. Email and contactNo must be valid if provided.",
             400
           );
         }
@@ -706,6 +757,7 @@ const updateBooking = async (req, res) => {
       if (!Array.isArray(costItems)) {
         return apiResponse.error(res, "costItems must be an array", 400);
       }
+      const validPaymentMethods = ['credit', 'full', 'custom'];
       for (const item of costItems) {
         if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
           return apiResponse.error(res, "Each cost item must have a category and a positive amount", 400);
@@ -721,8 +773,37 @@ const updateBooking = async (req, res) => {
           if (!s.supplier || !['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'].includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0) {
             return apiResponse.error(res, "Each supplier allocation must have a valid supplier and positive amount", 400);
           }
+          if (!validPaymentMethods.includes(s.paymentMethod)) {
+            return apiResponse.error(res, `Invalid payment method for supplier ${s.supplier}. Must be one of: ${validPaymentMethods.join(', ')}`, 400);
+          }
+          if (s.paymentMethod === 'custom') {
+            if (isNaN(parseFloat(s.paidAmount)) || parseFloat(s.paidAmount) <= 0 || parseFloat(s.paidAmount) >= parseFloat(s.amount)) {
+              return apiResponse.error(res, `Custom payment for supplier ${s.supplier} must have a valid paidAmount (0 < paidAmount < amount)`, 400);
+            }
+          }
         }
       }
+    }
+
+    const financialData = {
+      revenue: revenue ? parseFloat(revenue) : undefined,
+      prodCost: prodCost ? parseFloat(prodCost) : undefined,
+      transFee: transFee ? parseFloat(transFee) : undefined,
+      surcharge: surcharge ? parseFloat(surcharge) : undefined,
+      received: received ? parseFloat(received) : undefined,
+      balance: balance ? parseFloat(balance) : undefined,
+      profit: profit ? parseFloat(profit) : undefined,
+      invoiced: invoiced || undefined,
+    };
+
+    if (Object.values(financialData).some(val => val !== undefined)) {
+      const revenueVal = financialData.revenue || 0;
+      const prodCostVal = financialData.prodCost || 0;
+      const transFeeVal = financialData.transFee || 0;
+      const surchargeVal = financialData.surcharge || 0;
+      const receivedVal = financialData.received || 0;
+      financialData.profit = revenueVal - prodCostVal - transFeeVal - surchargeVal;
+      financialData.balance = revenueVal - receivedVal;
     }
 
     const booking = await prisma.booking.update({
@@ -737,20 +818,16 @@ const updateBooking = async (req, res) => {
         fromTo,
         bookingType,
         bookingStatus,
-        pcDate: pcDate ? new Date(pcDate) : null,
-        issuedDate: issuedDate ? new Date(issuedDate) : null,
+        pcDate: pcDate ? new Date(pcDate) : undefined,
+        issuedDate: issuedDate ? new Date(issuedDate) : undefined,
         paymentMethod,
-        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : null,
+        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : undefined,
         supplier,
-        revenue: revenue ? parseFloat(revenue) : null,
-        prodCost: prodCost ? parseFloat(prodCost) : null,
-        transFee: transFee ? parseFloat(transFee) : null,
-        surcharge: surcharge ? parseFloat(surcharge) : null,
-        received: received ? parseFloat(received) : null,
-        balance: balance ? parseFloat(balance) : null,
-        profit: profit ? parseFloat(profit) : null,
-        invoiced,
-        travelDate: travelDate ? new Date(travelDate) : null,
+        travelDate: travelDate ? new Date(travelDate) : undefined,
+        transactionMethod: transactionMethod || undefined,
+        receivedDate: receivedDate ? new Date(receivedDate) : undefined,
+        description: description || undefined,
+        ...financialData,
         costItems: Array.isArray(costItems) && costItems.length > 0
           ? {
               deleteMany: {},
@@ -761,6 +838,9 @@ const updateBooking = async (req, res) => {
                   create: item.suppliers.map(s => ({
                     supplier: s.supplier,
                     amount: parseFloat(s.amount),
+                    paymentMethod: s.paymentMethod || 'full',
+                    paidAmount: s.paymentMethod === 'credit' ? 0 : s.paymentMethod === 'full' ? parseFloat(s.amount) : parseFloat(s.paidAmount) || 0,
+                    pendingAmount: s.paymentMethod === 'credit' ? parseFloat(s.amount) : s.paymentMethod === 'full' ? 0 : (parseFloat(s.amount) - parseFloat(s.paidAmount)) || 0,
                   })),
                 },
               })),
@@ -787,7 +867,8 @@ const updateBooking = async (req, res) => {
                 gender: pax.gender,
                 email: pax.email || null,
                 contactNo: pax.contactNo || null,
-                country: pax.country || null,
+                nationality: pax.nationality || null,
+                birthday: pax.birthday ? new Date(pax.birthday) : null,
                 category: pax.category,
               })),
             }
@@ -959,7 +1040,6 @@ const updateInstalment = async (req, res) => {
   }
 };
 
-// New endpoint for Suppliers Info
 const getSuppliersInfo = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({

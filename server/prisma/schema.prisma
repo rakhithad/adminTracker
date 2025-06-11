@@ -30,9 +30,12 @@ model Booking {
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
   received          Float?          @map("received")
+  transactionMethod  String?         @map("transaction_method")
+  receivedDate      DateTime?       @map("received_date")
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
   invoiced          String?         @map("invoice")
+  description       String?         @map("description")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   costItems         CostItem[] 
@@ -63,9 +66,12 @@ model PendingBooking {
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
   received          Float?          @map("received")
+  transactionMethod  String?         @map("transaction_method")
+  receivedDate      DateTime?       @map("received_date")
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
   invoiced          String?         @map("invoice")
+  description       String?         @map("description")
   status            PendingStatus   @default(PENDING) @map("status")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -123,7 +129,7 @@ model CostItem {
   category      String
   amount        Float
   booking       Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  suppliers     CostItemSupplier[] // Link to supplier allocations
+  suppliers     CostItemSupplier[]
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
   @@map("cost_items")
@@ -135,7 +141,7 @@ model PendingCostItem {
   category          String
   amount            Float
   pendingBooking    PendingBooking @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
-  suppliers         CostItemSupplier[] // Link to supplier allocations
+  suppliers         CostItemSupplier[]
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
   @@map("pending_cost_items")
@@ -196,18 +202,19 @@ enum PendingStatus {
   REJECTED
 }
 
-//pax information
 enum Title {
   MR
   MRS
   MS
   MASTER
 }
+
 enum Gender {
   MALE
   FEMALE
   OTHER
 }
+
 enum PassengerCategory {
   ADULT
   CHILD
@@ -224,14 +231,14 @@ model Passenger {
   gender        Gender
   email         String?
   contactNo     String?           @map("contact_no")
-  country       String?
+  nationality   String?           @map("nationality")
+  birthday      DateTime?         @map("birthday")
   category      PassengerCategory
   booking       Booking           @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
   @@map("passengers")
 }
-
 
 model PendingPassenger {
   id                Int               @id @default(autoincrement())
@@ -243,7 +250,8 @@ model PendingPassenger {
   gender            Gender
   email             String?
   contactNo         String?           @map("contact_no")
-  country           String?
+  nationality       String?           @map("nationality")
+  birthday          DateTime?         @map("birthday")
   category          PassengerCategory
   pendingBooking    PendingBooking     @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
   createdAt         DateTime          @default(now()) @map("created_at")
@@ -251,16 +259,15 @@ model PendingPassenger {
   @@map("pending_passengers")
 }
 
-
 model CostItemSupplier {
   id                Int              @id @default(autoincrement())
   costItemId        Int?
   pendingCostItemId Int?
   supplier          Suppliers
   amount            Float
-  paymentMethod     String           @default("full") // "credit", "full", "custom"
-  paidAmount        Float            @default(0.0)    // Amount paid to supplier
-  pendingAmount     Float            @default(0.0)    // Amount to be paid
+  paymentMethod     String           @default("full")
+  paidAmount        Float            @default(0.0)
+  pendingAmount     Float            @default(0.0)
   costItem          CostItem?        @relation(fields: [costItemId], references: [id], onDelete: Cascade)
   pendingCostItem   PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
   createdAt         DateTime         @default(now()) @map("created_at")
