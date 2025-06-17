@@ -21,7 +21,6 @@ export default function CreateBooking({ onBookingCreated }) {
     issuedDate: '',
     paymentMethod: 'FULL',
     lastPaymentDate: '',
-    supplier: '',
     travelDate: '',
     revenue: '',
     prodCost: '',
@@ -86,6 +85,7 @@ export default function CreateBooking({ onBookingCreated }) {
   };
 
   const handleBreakdownSubmit = (breakdown) => {
+    console.log('Received breakdown:', JSON.stringify(breakdown, null, 2));
     const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
     setFormData((prev) => ({
       ...prev,
@@ -154,7 +154,6 @@ export default function CreateBooking({ onBookingCreated }) {
         'paymentMethod',
         'pcDate',
         'issuedDate',
-        'supplier',
         'travelDate',
       ];
       const missingFields = requiredFields.filter((field) => !formData[field]);
@@ -171,9 +170,23 @@ export default function CreateBooking({ onBookingCreated }) {
         throw new Error('At least one passenger detail (lead passenger) must be provided');
       }
 
+      // Fix balance calculation
+      const revenue = parseFloat(formData.revenue) || 0;
+      const received = parseFloat(formData.received) || 0;
+      formData.balance = (revenue - received).toFixed(2);
+
       // Validate prodCostBreakdown
       if (formData.prodCostBreakdown.length > 0) {
-        const validPaymentMethods = ['credit', 'full', 'custom'];
+        const validPaymentMethods = [
+          'BANK_TRANSFER',
+          'CREDIT',
+          'CREDIT_NOTES',
+          'BANK_TRANSFER_AND_CREDIT',
+          'BANK_TRANSFER_AND_CREDIT_NOTES',
+          'CREDIT_AND_CREDIT_NOTES',
+        ];
+        const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+        const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
         for (const item of formData.prodCostBreakdown) {
           if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
             throw new Error('Each cost item must have a valid category and positive amount');
@@ -188,30 +201,43 @@ export default function CreateBooking({ onBookingCreated }) {
           for (const s of item.suppliers) {
             if (
               !s.supplier ||
+              !validSuppliers.includes(s.supplier) ||
               isNaN(parseFloat(s.amount)) ||
               parseFloat(s.amount) <= 0 ||
-              !validPaymentMethods.includes(s.paymentMethod)
+              !validPaymentMethods.includes(s.paymentMethod) ||
+              !validTransactionMethods.includes(s.transactionMethod)
             ) {
-              throw new Error('Each supplier must have a valid supplier, positive amount, and valid payment method');
+              throw new Error('Each supplier must have a valid supplier, positive amount, payment method, and transaction method');
             }
-            if (s.paymentMethod === 'custom') {
+            if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(s.paymentMethod)) {
+              const firstAmount = parseFloat(s.firstMethodAmount) || 0;
+              const secondAmount = parseFloat(s.secondMethodAmount) || 0;
               if (
-                isNaN(parseFloat(s.paidAmount)) ||
-                parseFloat(s.paidAmount) <= 0 ||
-                parseFloat(s.paidAmount) >= parseFloat(s.amount)
+                firstAmount <= 0 ||
+                secondAmount <= 0 ||
+                Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01
               ) {
-                throw new Error(`Custom payment for supplier ${s.supplier} must have a valid paid amount (0 < paidAmount < amount)`);
+                throw new Error(`For supplier ${s.supplier}, combined payment method amounts must be positive and sum to the supplier amount`);
               }
-              if (isNaN(parseFloat(s.pendingAmount)) || parseFloat(s.pendingAmount) !== parseFloat(s.amount) - parseFloat(s.paidAmount)) {
-                throw new Error(`Pending amount for supplier ${s.supplier} must equal amount - paidAmount`);
+              const firstMethod = s.paymentMethod.split('_AND_')[0].toUpperCase();
+              const secondMethod = s.paymentMethod.split('_AND_')[1].toUpperCase();
+              const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
+              const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
+              if (
+                Math.abs(parseFloat(s.paidAmount) - ((isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0))) > 0.01 ||
+                Math.abs(parseFloat(s.pendingAmount) - ((isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount))) > 0.01
+              ) {
+                throw new Error(`Paid and pending amounts for supplier ${s.supplier} must match payment method logic`);
               }
-            } else if (s.paymentMethod === 'credit') {
-              if (parseFloat(s.paidAmount) !== 0 || parseFloat(s.pendingAmount) !== parseFloat(s.amount)) {
-                throw new Error(`Credit payment for supplier ${s.supplier} must have paidAmount = 0 and pendingAmount = amount`);
-              }
-            } else if (s.paymentMethod === 'full') {
-              if (parseFloat(s.paidAmount) !== parseFloat(s.amount) || parseFloat(s.pendingAmount) !== 0) {
-                throw new Error(`Full payment for supplier ${s.supplier} must have paidAmount = amount and pendingAmount = 0`);
+            } else {
+              const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(s.paymentMethod);
+              if (
+                Math.abs(parseFloat(s.paidAmount) - (isPaid ? parseFloat(s.amount) : 0)) > 0.01 ||
+                Math.abs(parseFloat(s.pendingAmount) - (isPaid ? 0 : parseFloat(s.amount))) > 0.01 ||
+                Math.abs(parseFloat(s.firstMethodAmount) - parseFloat(s.amount)) > 0.01 ||
+                parseFloat(s.secondMethodAmount) > 0
+              ) {
+                throw new Error(`Payment amounts for supplier ${s.supplier} must match payment method logic`);
               }
             }
           }
@@ -231,25 +257,26 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: formData.issuedDate || null,
         paymentMethod: formData.paymentMethod,
         lastPaymentDate: formData.lastPaymentDate || null,
-        supplier: formData.supplier || null,
         travelDate: formData.travelDate || null,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
         prodCostBreakdown: formData.prodCostBreakdown,
-        transFee: formData.transFee ? parseFloat(formData.transFee) : null,
+        transFee: formData.transFee ? parseFloat(formData.transFee) : 0, // Fix: Ensure number
         surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
         received: formData.received ? parseFloat(formData.received) : null,
         transactionMethod: formData.transactionMethod || null,
         receivedDate: formData.receivedDate || null,
-        balance: formData.balance ? parseFloat(formData.balance) : null,
+        balance: parseFloat(formData.balance) || null, // Use fixed balance
         profit: formData.profit ? parseFloat(formData.profit) : null,
-        invoiced: formData.invoiced,
+        invoiced: formData.invoiced || null,
         description: formData.description || null,
         status: 'PENDING',
         instalments: formData.instalments,
         passengers: formData.passengers,
         numPax: formData.numPax,
       };
+
+      console.log('Full bookingData:', JSON.stringify(bookingData, null, 2));
 
       const response = await createPendingBooking(bookingData);
       const newPendingBooking = response.data.data;
@@ -274,7 +301,6 @@ export default function CreateBooking({ onBookingCreated }) {
         issuedDate: '',
         paymentMethod: 'FULL',
         lastPaymentDate: '',
-        supplier: '',
         travelDate: '',
         revenue: '',
         prodCost: '',
@@ -489,26 +515,6 @@ export default function CreateBooking({ onBookingCreated }) {
           <h4 className="text-lg font-semibold mb-3">Financial Information</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-gray-700 mb-1">Supplier*</label>
-              <select
-                name="supplier"
-                value={formData.supplier}
-                onChange={handleChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-                required
-              >
-                <option value="">SELECT SUPPLIER</option>
-                <option value="BTRES">BTRES</option>
-                <option value="LYCA">LYCA</option>
-                <option value="CEBU">CEBU</option>
-                <option value="BTRES_LYCA">BTRES_LYCA</option>
-                <option value="BA">BA</option>
-                <option value="TRAINLINE">TRAINLINE</option>
-                <option value="EASYJET">EASYJET</option>
-                <option value="FLYDUBAI">FLYDUBAI</option>
-              </select>
-            </div>
-            <div>
               <label className="block text-gray-700 mb-1">Issued Date*</label>
               <input
                 type="date"
@@ -558,13 +564,9 @@ export default function CreateBooking({ onBookingCreated }) {
                         {item.suppliers.map((supplier, index) => (
                           <div key={index}>
                             {supplier.supplier}: £{parseFloat(supplier.amount).toFixed(2)} (
-                            {supplier.paymentMethod === 'full'
-                              ? 'Paid in Full'
-                              : supplier.paymentMethod === 'credit'
-                              ? 'On Credit'
-                              : `Custom - Paid: £${parseFloat(supplier.paidAmount).toFixed(2)}, Pending: £${parseFloat(
-                                  supplier.pendingAmount
-                                ).toFixed(2)}`})
+                            {supplier.paymentMethod.replace('_AND_', ' + ').replace('_', ' ')} - 
+                            Paid: £{parseFloat(supplier.paidAmount).toFixed(2)}, 
+                            Pending: £{parseFloat(supplier.pendingAmount).toFixed(2)})
                           </div>
                         ))}
                       </div>

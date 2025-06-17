@@ -1,7 +1,17 @@
+
 import { useState, useEffect } from 'react';
 
 export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubmit, totalCost }) {
   const suppliersList = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
+  const transactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  const paymentMethods = [
+    'BANK_TRANSFER',
+    'CREDIT',
+    'CREDIT_NOTES',
+    'BANK_TRANSFER_AND_CREDIT',
+    'BANK_TRANSFER_AND_CREDIT_NOTES',
+    'CREDIT_AND_CREDIT_NOTES',
+  ];
 
   const [breakdown, setBreakdown] = useState(
     initialBreakdown.length > 0
@@ -9,97 +19,156 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
           ...item,
           suppliers: item.suppliers.map((supplier) => ({
             ...supplier,
-            paymentMethod: supplier.paymentMethod || 'full', // Default to "full"
-            paidAmount: supplier.paidAmount || '', // Initialize paidAmount
-            pendingAmount: supplier.pendingAmount || '', // Initialize pendingAmount
+            transactionMethod: supplier.transactionMethod || 'BANK_TRANSFER',
+            paymentMethod: supplier.paymentMethod || 'BANK_TRANSFER',
+            firstMethodAmount: supplier.firstMethodAmount || '',
+            secondMethodAmount: supplier.secondMethodAmount || '',
+            paidAmount: supplier.paidAmount || 0,
+            pendingAmount: supplier.pendingAmount || 0,
           })),
         }))
       : [
           {
             id: 1,
             category: 'Flight',
-            amount: '',
-            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
-          },
-          {
-            id: 2,
-            category: 'Hotels',
-            amount: '',
-            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
-          },
-          {
-            id: 3,
-            category: 'Cruise',
-            amount: '',
-            suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+            amount: totalCost || 0,
+            suppliers: [
+              {
+                supplier: '',
+                amount: totalCost || 0,
+                transactionMethod: 'BANK_TRANSFER',
+                paymentMethod: 'BANK_TRANSFER',
+                firstMethodAmount: totalCost || '',
+                secondMethodAmount: '',
+                paidAmount: totalCost || 0,
+                pendingAmount: 0,
+              },
+            ],
           },
         ]
   );
 
-  const [nextId, setNextId] = useState(Math.max(...initialBreakdown.map((item) => item.id || 0), 3) + 1);
+  const [nextId, setNextId] = useState(Math.max(...initialBreakdown.map((item) => item.id || 0), 1) + 1);
   const [isValid, setIsValid] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     const isValidBreakdown = breakdown.every((item) => {
-      const amount = parseFloat(item.amount) || 0;
-      if (amount <= 0) return false;
+      const itemAmount = parseFloat(item.amount) || 0;
+      if (itemAmount <= 0) return false;
       const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
       return (
-        Math.abs(amount - supplierTotal) < 0.01 &&
-        item.suppliers.every(
-          (s) =>
-            s.supplier &&
-            parseFloat(s.amount) > 0 &&
-            ['credit', 'full', 'custom'].includes(s.paymentMethod) &&
-            (s.paymentMethod !== 'custom' || (s.paidAmount && parseFloat(s.paidAmount) < parseFloat(s.amount)))
-        )
+        Math.abs(itemAmount - supplierTotal) < 0.01 &&
+        item.suppliers.every((s) => {
+          const supplierAmount = parseFloat(s.amount) || 0;
+          if (!s.supplier || supplierAmount <= 0 || !transactionMethods.includes(s.transactionMethod)) return false;
+          if (!paymentMethods.includes(s.paymentMethod)) return false;
+          if (
+            ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+              s.paymentMethod
+            )
+          ) {
+            const firstAmount = parseFloat(s.firstMethodAmount) || 0;
+            const secondAmount = parseFloat(s.secondMethodAmount) || 0;
+            return firstAmount >= 0 && secondAmount >= 0 && Math.abs(firstAmount + secondAmount - supplierAmount) < 0.01;
+          }
+          return (parseFloat(s.firstMethodAmount) || 0) === supplierAmount;
+        })
       );
     });
     setIsValid(isValidBreakdown);
     setErrorMessage(
       isValidBreakdown
         ? ''
-        : 'Each category must have a positive amount, supplier amounts must sum to the category total, and custom payments must have a valid paid amount.'
+        : 'Each category must have a positive amount, supplier amounts must sum to the category total, and payment amounts must match supplier totals.'
     );
   }, [breakdown]);
-
-  const handleAmountChange = (id, value) => {
-    if (value === '' || /^\d*\.?\d*$/.test(value)) {
-      setBreakdown((prev) =>
-        prev.map((item) =>
-          item.id === id
-            ? { ...item, amount: value, suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }] }
-            : item
-        )
-      );
-    }
-  };
 
   const handleCategoryChange = (id, value) => {
     setBreakdown((prev) => prev.map((item) => (item.id === id ? { ...item, category: value } : item)));
   };
 
   const handleSupplierChange = (itemId, supplierIndex, field, value) => {
+    // Allow decimal inputs for amount fields
+    if (['firstMethodAmount', 'secondMethodAmount'].includes(field)) {
+      if (value === '' || /^\d*\.?\d*$/.test(value)) {
+        setBreakdown((prev) =>
+          prev.map((item) => {
+            if (item.id !== itemId) return item;
+            const newSuppliers = [...item.suppliers];
+            newSuppliers[supplierIndex] = { ...newSuppliers[supplierIndex], [field]: value };
+            const supplier = newSuppliers[supplierIndex];
+            const firstAmount = parseFloat(supplier.firstMethodAmount) || 0;
+            const secondAmount = parseFloat(supplier.secondMethodAmount) || 0;
+            // Update supplier amount
+            supplier.amount = ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+              supplier.paymentMethod
+            )
+              ? (firstAmount + secondAmount).toFixed(2)
+              : firstAmount.toFixed(2);
+            // Update paid/pending amounts
+            if (
+              ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+                supplier.paymentMethod
+              )
+            ) {
+              const firstMethod = supplier.paymentMethod.split('_AND_')[0].toUpperCase();
+              const secondMethod = supplier.paymentMethod.split('_AND_')[1].toUpperCase();
+              const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
+              const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
+              supplier.paidAmount = (
+                (isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0)
+              ).toFixed(2);
+              supplier.pendingAmount = (
+                (isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount)
+              ).toFixed(2);
+            } else {
+              const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(supplier.paymentMethod);
+              supplier.paidAmount = (isPaid ? firstAmount : 0).toFixed(2);
+              supplier.pendingAmount = (isPaid ? 0 : firstAmount).toFixed(2);
+            }
+            // Update category amount
+            const newItemAmount = newSuppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+            return { ...item, amount: newItemAmount.toFixed(2), suppliers: newSuppliers };
+          })
+        );
+      }
+      return;
+    }
+
     setBreakdown((prev) =>
       prev.map((item) => {
         if (item.id !== itemId) return item;
         const newSuppliers = [...item.suppliers];
         newSuppliers[supplierIndex] = { ...newSuppliers[supplierIndex], [field]: value };
-        // Update pendingAmount based on paymentMethod
-        if (field === 'amount' || field === 'paidAmount' || field === 'paymentMethod') {
+        // Update paid/pending amounts when paymentMethod changes
+        if (field === 'paymentMethod') {
           const supplier = newSuppliers[supplierIndex];
-          const amount = parseFloat(supplier.amount) || 0;
-          const paidAmount = parseFloat(supplier.paidAmount) || 0;
-          if (supplier.paymentMethod === 'credit') {
-            supplier.paidAmount = '';
-            supplier.pendingAmount = amount.toFixed(2);
-          } else if (supplier.paymentMethod === 'full') {
-            supplier.paidAmount = amount.toFixed(2);
+          const supplierAmount = parseFloat(supplier.amount) || 0;
+          if (['BANK_TRANSFER', 'CREDIT_NOTES'].includes(supplier.paymentMethod)) {
+            supplier.firstMethodAmount = supplierAmount.toFixed(2);
+            supplier.secondMethodAmount = '';
+            supplier.paidAmount = supplierAmount.toFixed(2);
             supplier.pendingAmount = '0.00';
-          } else if (supplier.paymentMethod === 'custom') {
-            supplier.pendingAmount = paidAmount < amount ? (amount - paidAmount).toFixed(2) : '0.00';
+          } else if (supplier.paymentMethod === 'CREDIT') {
+            supplier.firstMethodAmount = supplierAmount.toFixed(2);
+            supplier.secondMethodAmount = '';
+            supplier.paidAmount = '0.00';
+            supplier.pendingAmount = supplierAmount.toFixed(2);
+          } else if (
+            ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+              supplier.paymentMethod
+            )
+          ) {
+            supplier.firstMethodAmount = '';
+            supplier.secondMethodAmount = '';
+            supplier.amount = '0.00';
+            supplier.paidAmount = '0.00';
+            supplier.pendingAmount = '0.00';
           }
+          // Update category amount
+          const newItemAmount = newSuppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+          return { ...item, amount: newItemAmount.toFixed(2), suppliers: newSuppliers };
         }
         return { ...item, suppliers: newSuppliers };
       })
@@ -112,7 +181,19 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
         item.id === itemId
           ? {
               ...item,
-              suppliers: [...item.suppliers, { supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+              suppliers: [
+                ...item.suppliers,
+                {
+                  supplier: '',
+                  amount: 0,
+                  transactionMethod: 'BANK_TRANSFER',
+                  paymentMethod: 'BANK_TRANSFER',
+                  firstMethodAmount: '',
+                  secondMethodAmount: '',
+                  paidAmount: 0,
+                  pendingAmount: 0,
+                },
+              ],
             }
           : item
       )
@@ -124,9 +205,24 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
       prev.map((item) => {
         if (item.id !== itemId) return item;
         const newSuppliers = item.suppliers.filter((_, index) => index !== supplierIndex);
+        const newItemAmount = newSuppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
         return {
           ...item,
-          suppliers: newSuppliers.length > 0 ? newSuppliers : [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }],
+          amount: newItemAmount.toFixed(2),
+          suppliers: newSuppliers.length > 0
+            ? newSuppliers
+            : [
+                {
+                  supplier: '',
+                  amount: 0,
+                  transactionMethod: 'BANK_TRANSFER',
+                  paymentMethod: 'BANK_TRANSFER',
+                  firstMethodAmount: '',
+                  secondMethodAmount: '',
+                  paidAmount: 0,
+                  pendingAmount: 0,
+                },
+              ],
         };
       })
     );
@@ -136,7 +232,23 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
     const newId = nextId;
     setBreakdown((prev) => [
       ...prev,
-      { id: newId, category: '', amount: '', suppliers: [{ supplier: '', amount: '', paymentMethod: 'full', paidAmount: '', pendingAmount: '' }] },
+      {
+        id: newId,
+        category: '',
+        amount: 0,
+        suppliers: [
+          {
+            supplier: '',
+            amount: 0,
+            transactionMethod: 'BANK_TRANSFER',
+            paymentMethod: 'BANK_TRANSFER',
+            firstMethodAmount: '',
+            secondMethodAmount: '',
+            paidAmount: 0,
+            pendingAmount: 0,
+          },
+        ],
+      },
     ]);
     setNextId(newId + 1);
   };
@@ -147,7 +259,52 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
   };
 
   const handleSubmit = () => {
-    if (!isValid) return;
+    const validationErrors = [];
+    breakdown.forEach((item) => {
+      const itemAmount = parseFloat(item.amount) || 0;
+      if (itemAmount <= 0) {
+        validationErrors.push(`Category ${item.category || 'Other'} must have a positive amount.`);
+      }
+      const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      if (Math.abs(itemAmount - supplierTotal) > 0.01) {
+        validationErrors.push(`Supplier amounts for ${item.category || 'Other'} must sum to £${itemAmount.toFixed(2)}.`);
+      }
+      item.suppliers.forEach((s) => {
+        if (!s.supplier) {
+          validationErrors.push('Each supplier must have a valid supplier selected.');
+        }
+        if (!transactionMethods.includes(s.transactionMethod)) {
+          validationErrors.push(`Invalid transaction method for supplier ${s.supplier}.`);
+        }
+        if (!paymentMethods.includes(s.paymentMethod)) {
+          validationErrors.push(`Invalid payment method for supplier ${s.supplier}.`);
+        }
+        if (
+          ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+            s.paymentMethod
+          )
+        ) {
+          const firstAmount = parseFloat(s.firstMethodAmount) || 0;
+          const secondAmount = parseFloat(s.secondMethodAmount) || 0;
+          if (firstAmount <= 0 || secondAmount <= 0) {
+            validationErrors.push(`Combined payment amounts for ${s.supplier} must be positive.`);
+          }
+          if (Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01) {
+            validationErrors.push(
+              `Combined payment amounts for ${s.supplier} must sum to £${parseFloat(s.amount).toFixed(2)}.`
+            );
+          }
+        } else if (parseFloat(s.firstMethodAmount) <= 0 && s.firstMethodAmount !== '') {
+          validationErrors.push(`Amount for ${s.supplier} must be positive.`);
+        }
+      });
+    });
+
+    if (validationErrors.length > 0) {
+      setErrorMessage(validationErrors.join(' '));
+      setIsValid(false);
+      return;
+    }
 
     const validBreakdown = breakdown
       .filter((item) => item.amount && parseFloat(item.amount) > 0)
@@ -160,9 +317,20 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
           .map((s) => ({
             supplier: s.supplier,
             amount: parseFloat(s.amount),
+            transactionMethod: s.transactionMethod,
             paymentMethod: s.paymentMethod,
             paidAmount: parseFloat(s.paidAmount) || 0,
             pendingAmount: parseFloat(s.pendingAmount) || 0,
+            firstMethodAmount: ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+              s.paymentMethod
+            )
+              ? parseFloat(s.firstMethodAmount) || 0
+              : parseFloat(s.firstMethodAmount) || parseFloat(s.amount),
+            secondMethodAmount: ['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+              s.paymentMethod
+            )
+              ? parseFloat(s.secondMethodAmount) || 0
+              : 0,
           })),
       }));
 
@@ -171,8 +339,8 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
 
   const calculateTotal = () => {
     return breakdown.reduce((sum, item) => {
-      const amount = parseFloat(item.amount) || 0;
-      return sum + amount;
+      const itemAmount = parseFloat(item.amount) || 0;
+      return sum + itemAmount;
     }, 0);
   };
 
@@ -180,12 +348,10 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
 
   return (
     <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl overflow-y-auto max-h-[80vh]">
+      <div className="bg-white rounded-lg p-6 w-full max-w-3xl shadow-xl overflow-y-auto max-h-[80vh]">
         <h3 className="text-lg font-semibold mb-4 text-center text-gray-800">Product Cost Breakdown</h3>
 
-        {errorMessage && (
-          <div className="mb-4 p-2 bg-red-100 text-red-600 rounded-lg">{errorMessage}</div>
-        )}
+        {errorMessage && <div className="mb-4 p-2 bg-red-100 text-red-600 rounded-lg">{errorMessage}</div>}
 
         <div className="space-y-4 mb-4">
           {breakdown.map((item) => (
@@ -198,14 +364,9 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                   placeholder="Category name"
                   className="flex-1 p-2 border rounded-lg bg-gray-100"
                 />
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={item.amount}
-                  onChange={(e) => handleAmountChange(item.id, e.target.value)}
-                  placeholder="0.00"
-                  className="w-24 p-2 border rounded-lg bg-gray-100"
-                />
+                <span className="px-3 py-2 bg-gray-200 rounded-lg w-24 text-center">
+                  £{parseFloat(item.amount || 0).toFixed(2)}
+                </span>
                 <button
                   type="button"
                   onClick={() => removeCategory(item.id)}
@@ -219,7 +380,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
               <div className="ml-4 space-y-2">
                 <h4 className="text-sm font-medium">Supplier Allocations</h4>
                 {item.suppliers.map((s, index) => (
-                  <div key={index} className="flex items-center space-x-2">
+                  <div key={index} className="flex items-center space-x-2 flex-wrap">
                     <select
                       value={s.supplier}
                       onChange={(e) => handleSupplierChange(item.id, index, 'supplier', e.target.value)}
@@ -232,30 +393,61 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={s.amount}
-                      onChange={(e) => handleSupplierChange(item.id, index, 'amount', e.target.value)}
-                      placeholder="0.00"
-                      className="w-24 p-2 border rounded-lg bg-gray-100"
-                    />
+                    <span className="px-3 py-2 bg-gray-200 rounded-lg w-24 text-center">
+                      £{parseFloat(s.amount || 0).toFixed(2)}
+                    </span>
+                    <select
+                      value={s.transactionMethod}
+                      onChange={(e) => handleSupplierChange(item.id, index, 'transactionMethod', e.target.value)}
+                      className="w-32 p-2 border rounded-lg bg-gray-100"
+                    >
+                      <option value="">Select Transaction Method</option>
+                      {transactionMethods.map((method) => (
+                        <option key={method} value={method}>
+                          {method.replace('_', ' ')}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       value={s.paymentMethod}
                       onChange={(e) => handleSupplierChange(item.id, index, 'paymentMethod', e.target.value)}
-                      className="w-32 p-2 border rounded-lg bg-gray-100"
+                      className="w-48 p-2 border rounded-lg bg-gray-100"
                     >
-                      <option value="full">Full</option>
-                      <option value="credit">Credit</option>
-                      <option value="custom">Custom</option>
+                      <option value="">Select Payment Method</option>
+                      {paymentMethods.map((method) => (
+                        <option key={method} value={method}>
+                          {method.replace('_AND_', ' + ').replace('_', ' ')}
+                        </option>
+                      ))}
                     </select>
-                    {s.paymentMethod === 'custom' && (
+                    {['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(
+                      s.paymentMethod
+                    ) ? (
+                      <>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={s.firstMethodAmount}
+                          onChange={(e) => handleSupplierChange(item.id, index, 'firstMethodAmount', e.target.value)}
+                          placeholder={`${s.paymentMethod.split('_AND_')[0].replace('_', ' ')} Amount`}
+                          className="w-32 p-2 border rounded-lg bg-gray-100"
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={s.secondMethodAmount}
+                          onChange={(e) => handleSupplierChange(item.id, index, 'secondMethodAmount', e.target.value)}
+                          placeholder={`${s.paymentMethod.split('_AND_')[1].replace('_', ' ')} Amount`}
+                          className="w-32 p-2 border rounded-lg bg-gray-100"
+                        />
+                      </>
+                    ) : (
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={s.paidAmount}
-                        onChange={(e) => handleSupplierChange(item.id, index, 'paidAmount', e.target.value)}
-                        placeholder="Paid Amount"
+                        value={s.firstMethodAmount}
+                        onChange={(e) => handleSupplierChange(item.id, index, 'firstMethodAmount', e.target.value)}
+                        placeholder="Amount"
                         className="w-24 p-2 border rounded-lg bg-gray-100"
                       />
                     )}

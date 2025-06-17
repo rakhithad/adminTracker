@@ -24,13 +24,12 @@ model Booking {
   paymentMethod     PaymentMethod   @map("payment_method")
   lastPaymentDate   DateTime?       @map("last_payment_date")
   travelDate        DateTime?       @map("travel_date")
-  supplier          Suppliers?      @map("supplier")
   revenue           Float?          @map("revenue")
   prodCost          Float?          @map("prod_cost")
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
   received          Float?          @map("received")
-  transactionMethod  String?         @map("transaction_method")
+  transactionMethod  String?        @map("transaction_method")
   receivedDate      DateTime?       @map("received_date")
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
@@ -41,16 +40,17 @@ model Booking {
   costItems         CostItem[] 
   instalments       Instalment[]    
   passengers        Passenger[]
+  numPax            Int             @map("num_pax")
   @@map("bookings")
 }
 
 model PendingBooking {
   id                Int             @id @default(autoincrement())
-  refNo             String          @map("ref_no") 
+  refNo             String          @map("ref_no")
   paxName           String          @map("pax_name")
-  agentName         String          @map("agent_name")  
-  teamName          Teams?          @map("team_name")  
-  pnr               String          @map("pnr") 
+  agentName         String          @map("agent_name")
+  teamName          Teams?          @map("team_name")
+  pnr               String          @map("pnr")
   airline           String          @map("airline")
   fromTo            String          @map("from_to")
   bookingType       BookingType     @map("booking_type")
@@ -60,13 +60,12 @@ model PendingBooking {
   paymentMethod     PaymentMethod   @map("payment_method")
   lastPaymentDate   DateTime?       @map("last_payment_date")
   travelDate        DateTime?       @map("travel_date")
-  supplier          Suppliers?      @map("supplier")
   revenue           Float?          @map("revenue")
   prodCost          Float?          @map("prod_cost")
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
   received          Float?          @map("received")
-  transactionMethod  String?         @map("transaction_method")
+  transactionMethod String?         @map("transaction_method")
   receivedDate      DateTime?       @map("received_date")
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
@@ -78,6 +77,7 @@ model PendingBooking {
   costItems         PendingCostItem[]
   instalments       PendingInstalment[]
   passengers        PendingPassenger[]
+  numPax            Int             @map("num_pax")
   @@map("pending_bookings")
 }
 
@@ -265,9 +265,12 @@ model CostItemSupplier {
   pendingCostItemId Int?
   supplier          Suppliers
   amount            Float
-  paymentMethod     String           @default("full")
+  paymentMethod     String           @default("BANK_TRANSFER")
   paidAmount        Float            @default(0.0)
   pendingAmount     Float            @default(0.0)
+  transactionMethod String?
+  firstMethodAmount Float?           // Added
+  secondMethodAmount Float?          // Added
   costItem          CostItem?        @relation(fields: [costItemId], references: [id], onDelete: Cascade)
   pendingCostItem   PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
   createdAt         DateTime         @default(now()) @map("created_at")
