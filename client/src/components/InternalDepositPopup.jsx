@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import ProductCostBreakdown from './ProductCostBreakdown';
+import ReceivedAmountPopup from './ReceivedAmountPopup'; // Import ReceivedAmountPopup
 
 export default function InternalDepositPopup({ initialData, onClose, onSubmit }) {
   const [depositData, setDepositData] = useState({
@@ -12,6 +13,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     costItems: initialData.costItems || [],
     surcharge: initialData.surcharge || '',
     received: initialData.received || '',
+    transactionMethod: initialData.transactionMethod || '', // Add transactionMethod
+    receivedDate: initialData.receivedDate || new Date().toISOString().split('T')[0], // Add receivedDate
     balance: '',
     profit: '',
     last_payment_date: initialData.last_payment_date || '',
@@ -24,6 +27,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   });
 
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
+  const [showReceivedAmount, setShowReceivedAmount] = useState(false); // State for ReceivedAmountPopup
   const [isValid, setIsValid] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -87,11 +91,13 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   const validateInstalments = (instalments, expectedTotal, isWithin30Days = true) => {
     const today = new Date();
     const totalAmount = instalments.reduce((sum, inst) => sum + (parseFloat(inst.amount) || 0), 0);
-    const within30Days = instalments.every(inst => {
+    const within30Days = instalments.every((inst) => {
       const dueDate = new Date(inst.dueDate);
       return dueDate.getTime() <= today.getTime() + 30 * 24 * 60 * 60 * 1000;
     });
-    const allValid = instalments.every(inst => inst.dueDate && parseFloat(inst.amount) > 0 && new Date(inst.dueDate) >= today);
+    const allValid = instalments.every(
+      (inst) => inst.dueDate && parseFloat(inst.amount) > 0 && new Date(inst.dueDate) >= today
+    );
     return (
       Math.abs(totalAmount - parseFloat(expectedTotal)) < 0.01 &&
       (!isWithin30Days || within30Days) &&
@@ -115,6 +121,18 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     }
     return [];
   }, [depositData.repaymentPeriod, depositData.totalBalancePayable]);
+
+  // Handle ReceivedAmountPopup submission
+  const handleReceivedAmountSubmit = ({ amount, transactionMethod, receivedDate }) => {
+    setDepositData((prev) => ({
+      ...prev,
+      received: depositData.period === 'within30days' ? amount : prev.received,
+      depositPaid: depositData.period === 'beyond30' ? amount : prev.depositPaid,
+      transactionMethod,
+      receivedDate,
+    }));
+    setShowReceivedAmount(false);
+  };
 
   useEffect(() => {
     let profit = '';
@@ -145,17 +163,36 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       const isProdCostValid = prod_cost >= 0;
       const isSurchargeValid = surcharge >= 0;
       const isReceivedValid = received >= 0;
+      const isTransactionMethodValid = depositData.transactionMethod
+        ? ['BANK_TRANSFER', 'LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'].includes(
+            depositData.transactionMethod
+          )
+        : true; // Optional for FULL payment
+      const isReceivedDateValid = depositData.receivedDate ? new Date(depositData.receivedDate) <= new Date() : true; // Optional
       const areDatesValid =
-        depositData.last_payment_date &&
         depositData.travel_date &&
-        new Date(depositData.last_payment_date) < new Date(depositData.travel_date);
+        (!depositData.last_payment_date ||
+          new Date(depositData.last_payment_date) < new Date(depositData.travel_date)); // last_payment_date optional
 
-      setIsValid(isRevenueValid && isProdCostValid && isSurchargeValid && isReceivedValid && areDatesValid && instalmentsValid);
+      setIsValid(
+        isRevenueValid &&
+          isProdCostValid &&
+          isSurchargeValid &&
+          isReceivedValid &&
+          isTransactionMethodValid &&
+          isReceivedDateValid &&
+          areDatesValid &&
+          instalmentsValid
+      );
       setErrorMessage(
         !areDatesValid && depositData.last_payment_date && depositData.travel_date
           ? 'Last Payment Date must be before Travel Date'
           : !instalmentsValid
           ? 'Instalments must sum to balance and be within 30 days'
+          : !isTransactionMethodValid
+          ? 'Invalid transaction method'
+          : !isReceivedDateValid
+          ? 'Received date cannot be in the future'
           : ''
       );
     } else if (depositData.period === 'beyond30') {
@@ -195,6 +232,12 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       const isRepaymentPeriodValid = parseInt(repaymentPeriod) > 0;
       const isProdCostValid = prod_cost >= 0;
       const isSurchargeValid = surcharge >= 0;
+      const isTransactionMethodValid = depositData.transactionMethod
+        ? ['BANK_TRANSFER', 'LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'].includes(
+            depositData.transactionMethod
+          )
+        : true; // Optional
+      const isReceivedDateValid = depositData.receivedDate ? new Date(depositData.receivedDate) <= new Date() : true; // Optional
       const areDatesValid =
         last_payment_date &&
         depositData.travel_date &&
@@ -202,12 +245,14 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
       setIsValid(
         isTotalSellingPriceValid &&
-        isDepositPaidValid &&
-        isRepaymentPeriodValid &&
-        isProdCostValid &&
-        isSurchargeValid &&
-        areDatesValid &&
-        instalmentsValid
+          isDepositPaidValid &&
+          isRepaymentPeriodValid &&
+          isProdCostValid &&
+          isSurchargeValid &&
+          isTransactionMethodValid &&
+          isReceivedDateValid &&
+          areDatesValid &&
+          instalmentsValid
       );
       setErrorMessage(
         !areDatesValid && last_payment_date && depositData.travel_date
@@ -220,16 +265,21 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           ? 'Production Cost must be non-negative'
           : !instalmentsValid
           ? 'Instalments must sum to total balance payable'
+          : !isTransactionMethodValid
+          ? 'Invalid transaction method'
+          : !isReceivedDateValid
+          ? 'Received date cannot be in the future'
           : ''
       );
     }
 
-    setDepositData(prev => ({
+    setDepositData((prev) => ({
       ...prev,
       profit: profit !== '' && !isNaN(profit) ? profit : prev.profit,
       balance: balance !== '' && !isNaN(balance) ? balance : prev.balance,
       trans_fee: trans_fee !== '' && !isNaN(trans_fee) ? trans_fee : prev.trans_fee,
-      totalBalancePayable: totalBalancePayable !== '' && !isNaN(totalBalancePayable) ? totalBalancePayable : prev.totalBalancePayable,
+      totalBalancePayable:
+        totalBalancePayable !== '' && !isNaN(totalBalancePayable) ? totalBalancePayable : prev.totalBalancePayable,
       revenue: revenue !== '' && !isNaN(revenue) ? revenue : prev.revenue,
       repaymentPeriod: repaymentPeriod !== '' && !isNaN(repaymentPeriod) ? repaymentPeriod : prev.repaymentPeriod,
       last_payment_date: last_payment_date || prev.last_payment_date,
@@ -242,6 +292,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
     depositData.prod_cost,
     depositData.surcharge,
     depositData.received,
+    depositData.transactionMethod, // Add dependency
+    depositData.receivedDate, // Add dependency
     depositData.last_payment_date,
     depositData.travel_date,
     depositData.totalSellingPrice,
@@ -255,25 +307,25 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   const handleNumberChange = (e) => {
     const { name, value } = e.target;
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
-      setDepositData(prev => ({ ...prev, [name]: value }));
+      setDepositData((prev) => ({ ...prev, [name]: value }));
     }
   };
 
   const handleIntegerChange = (e) => {
     const { name, value } = e.target;
     if (value === '' || /^\d+$/.test(value)) {
-      setDepositData(prev => ({ ...prev, [name]: value }));
+      setDepositData((prev) => ({ ...prev, [name]: value }));
     }
   };
 
   const handleDateChange = (e) => {
     const { name, value } = e.target;
-    setDepositData(prev => ({ ...prev, [name]: value }));
+    setDepositData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleBreakdownSubmit = (breakdown) => {
     const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    setDepositData(prev => ({
+    setDepositData((prev) => ({
       ...prev,
       prod_cost: total.toFixed(2),
       costItems: breakdown,
@@ -282,7 +334,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   };
 
   const handlePeriodChange = (period) => {
-    setDepositData(prev => ({
+    setDepositData((prev) => ({
       ...prev,
       period,
       instalmentType: period === 'within30days' ? 'weekly' : 'monthly',
@@ -291,6 +343,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       costItems: prev.costItems,
       surcharge: prev.surcharge,
       received: period === 'within30days' ? prev.received : '',
+      transactionMethod: '', // Reset transactionMethod
+      receivedDate: new Date().toISOString().split('T')[0], // Reset receivedDate
       totalSellingPrice: period === 'beyond30' ? prev.totalSellingPrice : '',
       depositPaid: period === 'beyond30' ? prev.depositPaid : '',
       repaymentPeriod: '',
@@ -304,13 +358,13 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
   };
 
   const handleInstalmentTypeChange = (type) => {
-    setDepositData(prev => ({ ...prev, instalmentType: type, customInstalments: [], repaymentPeriod: '' }));
+    setDepositData((prev) => ({ ...prev, instalmentType: type, customInstalments: [], repaymentPeriod: '' }));
   };
 
   const handleCustomInstalmentChange = (index, field, value) => {
     const updatedInstalments = [...depositData.customInstalments];
     updatedInstalments[index] = { ...updatedInstalments[index], [field]: value };
-    setDepositData(prev => ({ ...prev, customInstalments: updatedInstalments }));
+    setDepositData((prev) => ({ ...prev, customInstalments: updatedInstalments }));
   };
 
   const addCustomInstalment = () => {
@@ -321,14 +375,14 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           .toISOString()
           .split('T')[0]
       : new Date(today.setDate(today.getDate() + 30)).toISOString().split('T')[0];
-    setDepositData(prev => ({
+    setDepositData((prev) => ({
       ...prev,
       customInstalments: [...prev.customInstalments, { dueDate: defaultDueDate, amount: '', status: 'PENDING' }],
     }));
   };
 
   const removeCustomInstalment = (index) => {
-    setDepositData(prev => ({
+    setDepositData((prev) => ({
       ...prev,
       customInstalments: prev.customInstalments.filter((_, i) => i !== index),
     }));
@@ -343,14 +397,16 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       costItems: depositData.costItems,
       surcharge: depositData.surcharge,
       received: depositData.received,
+      transactionMethod: depositData.transactionMethod || null, // Include transactionMethod
+      receivedDate: depositData.receivedDate || null, // Include receivedDate
       balance: depositData.balance,
       profit: depositData.profit,
-      last_payment_date: depositData.last_payment_date,
+      last_payment_date: depositData.last_payment_date || null, // Optional for FULL
       travel_date: depositData.travel_date,
       totalSellingPrice: depositData.totalSellingPrice,
       depositPaid: depositData.depositPaid,
       repaymentPeriod: depositData.repaymentPeriod,
-      trans_fee: depositData.trans_fee,
+      trans_fee: depositData.trans_fee || null, // Optional for FULL
       totalBalancePayable: depositData.totalBalancePayable,
       instalments:
         depositData.period === 'within30days'
@@ -364,6 +420,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
     onSubmit(dataToSubmit);
   };
+
   const handleCancel = () => {
     setDepositData({
       period: 'within30days',
@@ -375,6 +432,8 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       costItems: initialData.costItems || [],
       surcharge: initialData.surcharge || '',
       received: initialData.received || '',
+      transactionMethod: initialData.transactionMethod || '', // Reset transactionMethod
+      receivedDate: initialData.receivedDate || new Date().toISOString().split('T')[0], // Reset receivedDate
       balance: '',
       profit: '',
       last_payment_date: '',
@@ -386,6 +445,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
       totalBalancePayable: '',
     });
     setShowCostBreakdown(false);
+    setShowReceivedAmount(false);
     onClose();
   };
 
@@ -403,7 +463,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             <input
               type="radio"
               name="period"
-              value="within30daysdays"
+              value="within30days"
               checked={depositData.period === 'within30days'}
               onChange={() => handlePeriodChange('within30days')}
               className="mr-2"
@@ -543,7 +603,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
               </div>
               {depositData.costItems.length > 0 && (
                 <div className="mt-2 text-sm text-gray-600">
-                  {depositData.costItems.map(item => (
+                  {depositData.costItems.map((item) => (
                     <span key={item.id} className="mr-2">
                       {item.category}: £{parseFloat(item.amount).toFixed(2)}
                     </span>
@@ -566,14 +626,29 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
             <div>
               <label className="block text-gray-700 mb-1">Amount Received (£)</label>
-              <input
-                name="received"
-                type="number"
-                step="0.01"
-                value={depositData.received}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-100 border rounded-lg"
-              />
+              <div className="flex space-x-2">
+                <input
+                  name="received"
+                  type="number"
+                  step="0.01"
+                  value={depositData.received}
+                  className="w-full p-2 bg-gray-100 border rounded-lg"
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowReceivedAmount(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Input
+                </button>
+              </div>
+              {depositData.transactionMethod && depositData.receivedDate && (
+                <div className="mt-2 text-sm text-gray-600">
+                  Transaction Method: {depositData.transactionMethod}, Date:{' '}
+                  {new Date(depositData.receivedDate).toLocaleDateString()}
+                </div>
+              )}
             </div>
 
             <div>
@@ -601,19 +676,18 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             </div>
 
             <div>
-              <label className="block text-gray-700 mb-1">Last Payment Date*</label>
+              <label className="block text-gray-700 mb-1">Last Payment Date</label>
               <input
                 type="date"
                 name="last_payment_date"
                 value={depositData.last_payment_date}
                 onChange={handleDateChange}
                 className="w-full p-2 bg-gray-100 border rounded-lg"
-                required
               />
             </div>
 
             <div>
-              <label className="text-gray-700">Travel Date*</label>
+              <label className="block text-gray-700">Travel Date*</label>
               <input
                 type="date"
                 name="travel_date"
@@ -744,7 +818,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
               </div>
               {depositData.costItems.length > 0 && (
                 <div className="mt-2 text-sm text-gray-600">
-                  {depositData.costItems.map(item => (
+                  {depositData.costItems.map((item) => (
                     <span key={item.id} className="mr-2">
                       {item.category}: £{parseFloat(item.amount).toFixed(2)}
                     </span>
@@ -767,14 +841,29 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
 
             <div>
               <label className="block text-gray-700 mb-1">Deposit Paid (£)</label>
-              <input
-                name="depositPaid"
-                type="number"
-                step="0.01"
-                value={depositData.depositPaid}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-100 border rounded-lg"
-              />
+              <div className="flex space-x-2">
+                <input
+                  name="depositPaid"
+                  type="number"
+                  step="0.01"
+                  value={depositData.depositPaid}
+                  className="w-full p-2 bg-gray-100 border rounded-lg"
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowReceivedAmount(true)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Input
+                </button>
+              </div>
+              {depositData.transactionMethod && depositData.receivedDate && (
+                <div className="mt-2 text-sm text-gray-600">
+                  Transaction Method: {depositData.transactionMethod}, Date:{' '}
+                  {new Date(depositData.receivedDate).toLocaleDateString()}
+                </div>
+              )}
             </div>
 
             <div>
@@ -892,6 +981,18 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
             onClose={() => setShowCostBreakdown(false)}
             onSubmit={handleBreakdownSubmit}
             totalCost={parseFloat(depositData.prod_cost) || 0}
+          />
+        )}
+
+        {showReceivedAmount && (
+          <ReceivedAmountPopup
+            initialData={{
+              amount: depositData.period === 'within30days' ? depositData.received : depositData.depositPaid,
+              transactionMethod: depositData.transactionMethod,
+              receivedDate: depositData.receivedDate,
+            }}
+            onClose={() => setShowReceivedAmount(false)}
+            onSubmit={handleReceivedAmountSubmit}
           />
         )}
       </div>

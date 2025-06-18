@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits, updateInstalment } from '../api/api';
+import { getCustomerDeposits } from '../api/api';
+import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
-  const [editingInstalment, setEditingInstalment] = useState(null);
+  const [paymentPopup, setPaymentPopup] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
-  const [filter, setFilter] = useState('all'); // Filter state: 'all', 'ongoing', 'completed'
+  const [filter, setFilter] = useState('all');
 
   useEffect(() => {
     fetchBookings();
@@ -27,60 +28,40 @@ export default function CustomerDeposits() {
     }
   };
 
-  const handleEditInstalment = (instalment) => {
-    setEditingInstalment({ ...instalment });
+  const handleOpenPaymentPopup = (instalment, booking) => {
+    setPaymentPopup({ instalment, booking });
   };
 
-  const handleSaveInstalment = async (instalmentId) => {
-    try {
-      if (!editingInstalment?.amount || parseFloat(editingInstalment.amount) <= 0) {
-        setErrorMessage('Amount must be a positive number');
-        return;
-      }
-
-      await updateInstalment(instalmentId, {
-        amount: parseFloat(editingInstalment.amount),
-        status: editingInstalment.status,
-      });
-
-      setBookings((prevBookings) =>
-        prevBookings.map((booking) => ({
+  const handleSavePayment = (updatedInstalment) => {
+    setBookings((prevBookings) =>
+      prevBookings.map((booking) => {
+        // Find the old instalment to check its previous status
+        const oldInstalment = booking.instalments.find((inst) => inst.id === updatedInstalment.id);
+        // Determine if the instalment is newly paid (was PENDING/OVERDUE, now PAID)
+        const isNewlyPaid =
+          updatedInstalment.status === 'PAID' &&
+          oldInstalment &&
+          ['PENDING', 'OVERDUE'].includes(oldInstalment.status);
+        return {
           ...booking,
           instalments: booking.instalments.map((inst) =>
-            inst.id === instalmentId
-              ? { ...inst, amount: parseFloat(editingInstalment.amount), status: editingInstalment.status }
-              : inst
+            inst.id === updatedInstalment.id ? updatedInstalment : inst
           ),
           totalInstalments: booking.instalments
-            .reduce(
-              (sum, inst) =>
-                sum + (inst.id === instalmentId ? parseFloat(editingInstalment.amount) : parseFloat(inst.amount)),
+            .reduce((sum, inst) =>
+              sum + (inst.id === updatedInstalment.id ? parseFloat(updatedInstalment.amount) : parseFloat(inst.amount)),
               0
             )
             .toFixed(2),
-        }))
-      );
-
-      setEditingInstalment(null);
-      setErrorMessage('');
-    } catch (error) {
-      console.error('Error updating instalment:', error);
-      setErrorMessage(error.response?.data?.error || 'Failed to update instalment.');
-    }
-  };
-
-  const handleTogglePaid = (instalmentId, currentStatus) => {
-    const newStatus = currentStatus === 'PAID' ? 'PENDING' : 'PAID';
-    setEditingInstalment((prev) =>
-      prev && prev.id === instalmentId ? { ...prev, status: newStatus } : { id: instalmentId, status: newStatus, amount: 0 }
+          received: isNewlyPaid
+            ? (booking.received || 0) + parseFloat(updatedInstalment.amount)
+            : booking.received,
+          balance: isNewlyPaid
+            ? (booking.revenue || 0) - ((booking.received || 0) + parseFloat(updatedInstalment.amount))
+            : booking.balance,
+        };
+      })
     );
-  };
-
-  const handleAmountChange = (e) => {
-    const value = e.target.value;
-    if (value === '' || /^\d*\.?\d*$/.test(value)) {
-      setEditingInstalment((prev) => (prev ? { ...prev, amount: value } : null));
-    }
   };
 
   const formatDate = (dateStr) => {
@@ -99,22 +80,28 @@ export default function CustomerDeposits() {
     return instalments.find((inst) => inst.status === 'PENDING' || inst.status === 'OVERDUE') || null;
   };
 
-  // Calculate days left from today to travel date
   const calculateDaysLeft = (travelDate) => {
     if (!travelDate) return null;
-    const today = new Date('2025-06-05'); // Hardcoded as per current date
+    const today = new Date('2025-06-18');
     const travel = new Date(travelDate);
     const diffTime = travel - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 ? diffDays : null; // Return null for past dates
+    return diffDays >= 0 ? diffDays : null;
   };
 
-  // Filter bookings based on status
+  const getTransactionMethod = (instalment) => {
+    if (!instalment.payments || instalment.payments.length === 0) return 'N/A';
+    const latestPayment = instalment.payments.reduce((latest, payment) =>
+      new Date(payment.createdAt) > new Date(latest.createdAt) ? payment : latest
+    );
+    return latestPayment.transactionMethod.replace('_', ' ');
+  };
+
   const filteredBookings = bookings.filter((booking) => {
     const allPaid = booking.instalments.every((inst) => inst.status === 'PAID');
     if (filter === 'ongoing') return !allPaid;
     if (filter === 'completed') return allPaid;
-    return true; // 'all'
+    return true;
   });
 
   if (loading) {
@@ -214,11 +201,11 @@ export default function CustomerDeposits() {
                     <td className="py-4 px-6 text-sm text-gray-600">{booking.agentName}</td>
                     <td className="py-4 px-6 text-sm text-gray-600">
                       {formatDate(booking.travelDate)}
-                      <br></br>
+                      <br />
                       {daysLeft !== null && (
                         <span
                           className={`text-xs font-medium ${
-                            daysLeft <= 7 ? ' text-red-700' : 'text-blue-700'
+                            daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'
                           }`}
                         >
                           {daysLeft} days left
@@ -236,64 +223,28 @@ export default function CustomerDeposits() {
                         {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
                           (instalment) => (
                             <div key={instalment.id} className="flex items-center space-x-3">
-                              {editingInstalment && editingInstalment.id === instalment.id ? (
-                                <>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={editingInstalment.amount}
-                                    onChange={handleAmountChange}
-                                    className="w-24 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Amount"
-                                  />
-                                  <input
-                                    type="checkbox"
-                                    checked={editingInstalment.status === 'PAID'}
-                                    onChange={() => handleTogglePaid(instalment.id, editingInstalment.status)}
-                                    className="h-4 w-4 text-blue-600 rounded"
-                                  />
+                              <>
+                                <span
+                                  className={`${
+                                    instalment.status === 'OVERDUE'
+                                      ? 'text-red-500'
+                                      : instalment.status === 'PAID'
+                                      ? 'text-green-500'
+                                      : 'text-gray-600'
+                                  }`}
+                                >
+                                  Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} (
+                                  {instalment.status}) - {getTransactionMethod(instalment)}
+                                </span>
+                                {instalment.status !== 'PAID' && (
                                   <button
-                                    onClick={() => handleSaveInstalment(instalment.id)}
-                                    className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingInstalment(null)}
-                                    className="px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors duration-200"
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <span
-                                    className={`${
-                                      instalment.status === 'OVERDUE'
-                                        ? 'text-red-500'
-                                        : instalment.status === 'PAID'
-                                        ? 'text-green-500'
-                                        : 'text-gray-600'
-                                    }`}
-                                  >
-                                    Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} (
-                                    {instalment.status})
-                                  </span>
-                                  <input
-                                    type="checkbox"
-                                    checked={instalment.status === 'PAID'}
-                                    onChange={() => handleTogglePaid(instalment.id, instalment.status)}
-                                    disabled={instalment.status === 'OVERDUE'}
-                                    className="h-4 w-4 text-blue-600 rounded"
-                                  />
-                                  <button
-                                    onClick={() => handleEditInstalment(instalment)}
+                                    onClick={() => handleOpenPaymentPopup(instalment, booking)}
                                     className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
                                   >
-                                    Edit
+                                    Record Payment
                                   </button>
-                                </>
-                              )}
+                                )}
+                              </>
                             </div>
                           )
                         )}
@@ -331,6 +282,14 @@ export default function CustomerDeposits() {
           <h3 className="text-xl font-semibold text-gray-700 mb-2">No Customer Deposits Found</h3>
           <p className="text-gray-500">Create a booking with INTERNAL payment method to get started.</p>
         </div>
+      )}
+      {paymentPopup && (
+        <InstalmentPaymentPopup
+          instalment={paymentPopup.instalment}
+          booking={paymentPopup.booking}
+          onClose={() => setPaymentPopup(null)}
+          onSubmit={handleSavePayment}
+        />
       )}
     </div>
   );

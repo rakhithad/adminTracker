@@ -29,7 +29,7 @@ model Booking {
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
   received          Float?          @map("received")
-  transactionMethod  String?        @map("transaction_method")
+  transactionMethod String?         @map("transaction_method")
   receivedDate      DateTime?       @map("received_date")
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
@@ -82,14 +82,15 @@ model PendingBooking {
 }
 
 model Instalment {
-  id            Int       @id @default(autoincrement())
+  id            Int              @id @default(autoincrement())
   bookingId     Int
-  dueDate       DateTime  @map("due_date")
+  dueDate       DateTime         @map("due_date")
   amount        Float
-  status        String    @default("PENDING")
-  booking       Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  status        String           @default("PENDING")
+  booking       Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  payments      InstalmentPayment[]
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
   @@map("instalments")
 }
 
@@ -103,6 +104,18 @@ model PendingInstalment {
   createdAt         DateTime       @default(now()) @map("created_at")
   updatedAt         DateTime       @updatedAt @map("updated_at")
   @@map("pending_instalments")
+}
+
+model InstalmentPayment {
+  id            Int        @id @default(autoincrement())
+  instalmentId  Int
+  amount        Float
+  transactionMethod String
+  paymentDate   DateTime
+  instalment    Instalment @relation(fields: [instalmentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  @@map("instalment_payments")
 }
 
 enum InstalmentStatus {
