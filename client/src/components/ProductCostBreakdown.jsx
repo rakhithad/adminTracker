@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 
 export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubmit, totalCost }) {
   const suppliersList = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
-  const transactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
   const paymentMethods = [
     'BANK_TRANSFER',
     'CREDIT',
@@ -19,7 +19,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
           ...item,
           suppliers: item.suppliers.map((supplier) => ({
             ...supplier,
-            transactionMethod: supplier.transactionMethod || 'BANK_TRANSFER',
+            transactionMethod: supplier.transactionMethod || 'LOYDS',
             paymentMethod: supplier.paymentMethod || 'BANK_TRANSFER',
             firstMethodAmount: supplier.firstMethodAmount || '',
             secondMethodAmount: supplier.secondMethodAmount || '',
@@ -36,7 +36,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
               {
                 supplier: '',
                 amount: totalCost || 0,
-                transactionMethod: 'BANK_TRANSFER',
+                transactionMethod: 'LOYDS',
                 paymentMethod: 'BANK_TRANSFER',
                 firstMethodAmount: totalCost || '',
                 secondMethodAmount: '',
@@ -186,7 +186,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                 {
                   supplier: '',
                   amount: 0,
-                  transactionMethod: 'BANK_TRANSFER',
+                  transactionMethod: 'LOYDS',
                   paymentMethod: 'BANK_TRANSFER',
                   firstMethodAmount: '',
                   secondMethodAmount: '',
@@ -215,7 +215,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                 {
                   supplier: '',
                   amount: 0,
-                  transactionMethod: 'BANK_TRANSFER',
+                  transactionMethod: 'LOYDS',
                   paymentMethod: 'BANK_TRANSFER',
                   firstMethodAmount: '',
                   secondMethodAmount: '',
@@ -240,7 +240,7 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
           {
             supplier: '',
             amount: 0,
-            transactionMethod: 'BANK_TRANSFER',
+            transactionMethod: 'LOYDS',
             paymentMethod: 'BANK_TRANSFER',
             firstMethodAmount: '',
             secondMethodAmount: '',

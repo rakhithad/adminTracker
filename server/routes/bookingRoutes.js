@@ -13,6 +13,7 @@ const {
   getCustomerDeposits,
   updateInstalment,
   getSuppliersInfo,
+  createSupplierPaymentSettlement,
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -27,5 +28,6 @@ router.get('/dashboard/recent', getRecentBookings);
 router.get('/customer-deposits', getCustomerDeposits);
 router.patch('/instalments/:id', updateInstalment);
 router.get('/suppliers-info', getSuppliersInfo);
+router.post('/suppliers/settlements', createSupplierPaymentSettlement)
 
 module.exports = router;

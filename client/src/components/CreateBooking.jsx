@@ -185,7 +185,7 @@ export default function CreateBooking({ onBookingCreated }) {
           'BANK_TRANSFER_AND_CREDIT_NOTES',
           'CREDIT_AND_CREDIT_NOTES',
         ];
-        const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+        const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
         const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
         for (const item of formData.prodCostBreakdown) {
           if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {

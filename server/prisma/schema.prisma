@@ -260,20 +260,33 @@ model PendingPassenger {
 }
 
 model CostItemSupplier {
+  id                     Int                     @id @default(autoincrement())
+  costItemId             Int?
+  pendingCostItemId      Int?
+  supplier               Suppliers
+  amount                 Float
+  paymentMethod          String                  @default("BANK_TRANSFER")
+  paidAmount             Float                   @default(0.0)
+  pendingAmount          Float                   @default(0.0)
+  transactionMethod      String?
+  firstMethodAmount      Float?           
+  secondMethodAmount     Float?          
+  costItem               CostItem?               @relation(fields: [costItemId], references: [id], onDelete: Cascade)
+  pendingCostItem        PendingCostItem?        @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
+  settlements            SupplierPaymentSettlement[]
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  @@map("cost_item_suppliers")
+}
+
+model SupplierPaymentSettlement {
   id                Int              @id @default(autoincrement())
-  costItemId        Int?
-  pendingCostItemId Int?
-  supplier          Suppliers
+  costItemSupplierId Int
   amount            Float
-  paymentMethod     String           @default("BANK_TRANSFER")
-  paidAmount        Float            @default(0.0)
-  pendingAmount     Float            @default(0.0)
-  transactionMethod String?
-  firstMethodAmount Float?           // Added
-  secondMethodAmount Float?          // Added
-  costItem          CostItem?        @relation(fields: [costItemId], references: [id], onDelete: Cascade)
-  pendingCostItem   PendingCostItem? @relation(fields: [pendingCostItemId], references: [id], onDelete: Cascade)
+  transactionMethod String
+  settlementDate    DateTime
+  costItemSupplier  CostItemSupplier @relation(fields: [costItemSupplierId], references: [id], onDelete: Cascade)
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
-  @@map("cost_item_suppliers")
+  @@map("supplier_payment_settlements")
 }

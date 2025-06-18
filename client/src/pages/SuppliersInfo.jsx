@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getSuppliersInfo } from '../api/api';
+import SettlePaymentPopup from '../components/SettlePaymentPopup';
 
 export default function SuppliersInfo() {
   const [supplierData, setSupplierData] = useState({});
@@ -7,6 +8,7 @@ export default function SuppliersInfo() {
   const [error, setError] = useState('');
   const [expandedSuppliers, setExpandedSuppliers] = useState({});
   const [filterPending, setFilterPending] = useState(false);
+  const [settlePopup, setSettlePopup] = useState(null);
 
   const fetchSuppliersInfo = async () => {
     try {
@@ -34,6 +36,35 @@ export default function SuppliersInfo() {
       ...prev,
       [supplier]: !prev[supplier],
     }));
+  };
+
+  const handleBookingClick = (supplier, booking) => {
+    setSettlePopup({ supplier, booking });
+  };
+
+  const handleSettleSubmit = (settlement) => {
+    setSupplierData((prev) => {
+      const updated = { ...prev };
+      const supplier = updated[settlePopup.supplier];
+      const booking = supplier.bookings.find((b) => b.costItemSupplierId === settlePopup.booking.costItemSupplierId);
+      if (booking) {
+        booking.paidAmount += parseFloat(settlement.amount);
+        booking.pendingAmount -= parseFloat(settlement.amount);
+        booking.settlements = [
+          ...(booking.settlements || []),
+          {
+            id: settlement.id,
+            amount: parseFloat(settlement.amount),
+            transactionMethod: settlement.transactionMethod,
+            settlementDate: settlement.settlementDate,
+            createdAt: settlement.createdAt,
+          },
+        ];
+        supplier.totalPaid += parseFloat(settlement.amount);
+        supplier.totalPending -= parseFloat(settlement.amount);
+      }
+      return updated;
+    });
   };
 
   const getPaymentStatus = (paid, pending) => {
@@ -111,8 +142,8 @@ export default function SuppliersInfo() {
   }
 
   const filteredSuppliers = filterPending
-  ? Object.fromEntries(Object.entries(supplierData).filter(([, data]) => data.totalPending > 0))
-  : supplierData;
+    ? Object.fromEntries(Object.entries(supplierData).filter(([, data]) => data.totalPending > 0))
+    : supplierData;
 
   return (
     <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
@@ -240,7 +271,7 @@ export default function SuppliersInfo() {
                                   Pending (£)
                                 </th>
                                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                                  Payment Method
+                                  Payment Status
                                 </th>
                                 <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                                   Created At
@@ -249,7 +280,11 @@ export default function SuppliersInfo() {
                             </thead>
                             <tbody className="divide-y divide-gray-200">
                               {(data.bookings || []).map((booking) => (
-                                <tr key={`${booking.bookingId}-${booking.category}`}>
+                                <tr
+                                  key={`${booking.bookingId}-${booking.category}`}
+                                  onClick={() => handleBookingClick(supplier, booking)}
+                                  className="hover:bg-gray-100 cursor-pointer transition-colors duration-150"
+                                >
                                   <td className="px-4 py-2 text-sm">{booking.bookingId}</td>
                                   <td className="px-4 py-2 text-sm">{booking.refNo}</td>
                                   <td className="px-4 py-2 text-sm">{booking.paxName}</td>
@@ -258,7 +293,15 @@ export default function SuppliersInfo() {
                                   <td className="px-4 py-2 text-sm">£{(booking.amount || 0).toFixed(2)}</td>
                                   <td className="px-4 py-2 text-sm">£{(booking.paidAmount || 0).toFixed(2)}</td>
                                   <td className="px-4 py-2 text-sm">£{(booking.pendingAmount || 0).toFixed(2)}</td>
-                                  <td className="px-4 py-2 text-sm capitalize">{booking.paymentMethod}</td>
+                                  <td className="px-4 py-2 text-sm">
+                                    {booking.pendingAmount === 0 && booking.amount > 0 ? (
+                                      <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                        PAID
+                                      </span>
+                                    ) : (
+                                      booking.paymentMethod
+                                    )}
+                                  </td>
                                   <td className="px-4 py-2 text-sm">
                                     {booking.createdAt
                                       ? new Date(booking.createdAt).toLocaleDateString('en-GB')
@@ -278,6 +321,14 @@ export default function SuppliersInfo() {
           </tbody>
         </table>
       </div>
+      {settlePopup && (
+        <SettlePaymentPopup
+          booking={settlePopup.booking}
+          supplier={settlePopup.supplier}
+          onClose={() => setSettlePopup(null)}
+          onSubmit={handleSettleSubmit}
+        />
+      )}
     </div>
   );
 }

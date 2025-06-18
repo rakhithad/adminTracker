@@ -44,7 +44,7 @@ const createPendingBooking = async (req, res) => {
     }
 
     // Validate transactionMethod
-    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
     if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
       return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
     }
@@ -511,7 +511,7 @@ const createBooking = async (req, res) => {
       return apiResponse.error(res, `Invalid team_name. Must be one of: ${validTeams.join(', ')}`, 400);
     }
 
-    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
     if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
       return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
     }
@@ -786,7 +786,7 @@ const updateBooking = async (req, res) => {
       passengers,
     } = updates;
 
-    const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
     if (transactionMethod && !validTransactionMethods.includes(transactionMethod)) {
       return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
     }
@@ -1158,6 +1158,72 @@ const updateInstalment = async (req, res) => {
   }
 };
 
+const createSupplierPaymentSettlement = async (req, res) => {
+  try {
+    const { costItemSupplierId, amount, transactionMethod, settlementDate } = req.body;
+
+    // Validate required fields
+    if (!costItemSupplierId || isNaN(parseFloat(amount)) || amount <= 0 || !transactionMethod || !settlementDate) {
+      return apiResponse.error(res, 'Missing or invalid required fields: costItemSupplierId, amount, transactionMethod, settlementDate', 400);
+    }
+
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+    if (!validTransactionMethods.includes(transactionMethod)) {
+      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
+    }
+
+    // Validate settlement date
+    if (isNaN(new Date(settlementDate))) {
+      return apiResponse.error(res, 'Invalid settlementDate', 400);
+    }
+
+    // Fetch the CostItemSupplier
+    const costItemSupplier = await prisma.costItemSupplier.findUnique({
+      where: { id: parseInt(costItemSupplierId) },
+    });
+
+    if (!costItemSupplier) {
+      return apiResponse.error(res, 'CostItemSupplier not found', 404);
+    }
+
+    // Validate amount does not exceed pending amount
+    const pendingAmount = parseFloat(costItemSupplier.pendingAmount) || 0;
+    if (parseFloat(amount) > pendingAmount) {
+      return apiResponse.error(res, `Settlement amount (£${amount}) exceeds pending amount (£${pendingAmount.toFixed(2)})`, 400);
+    }
+
+    // Create the settlement record
+    const settlement = await prisma.supplierPaymentSettlement.create({
+      data: {
+        costItemSupplierId: parseInt(costItemSupplierId),
+        amount: parseFloat(amount),
+        transactionMethod,
+        settlementDate: new Date(settlementDate),
+      },
+    });
+
+    // Update CostItemSupplier paidAmount and pendingAmount
+    const newPaidAmount = (parseFloat(costItemSupplier.paidAmount) || 0) + parseFloat(amount);
+    const newPendingAmount = pendingAmount - parseFloat(amount);
+
+    await prisma.costItemSupplier.update({
+      where: { id: parseInt(costItemSupplierId) },
+      data: {
+        paidAmount: newPaidAmount,
+        pendingAmount: newPendingAmount,
+      },
+    });
+
+    return apiResponse.success(res, settlement, 201);
+  } catch (error) {
+    console.error('Error creating supplier payment settlement:', error);
+    if (error.name === 'PrismaClientValidationError') {
+      return apiResponse.error(res, `Invalid data provided: ${error.message}`, 400);
+    }
+    return apiResponse.error(res, `Failed to create supplier payment settlement: ${error.message}`, 500);
+  }
+};
+
 const getSuppliersInfo = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
@@ -1169,7 +1235,11 @@ const getSuppliersInfo = async (req, res) => {
         createdAt: true,
         costItems: {
           include: {
-            suppliers: true,
+            suppliers: {
+              include: {
+                settlements: true, // Include settlement history
+              },
+            },
           },
         },
       },
@@ -1200,6 +1270,14 @@ const getSuppliersInfo = async (req, res) => {
             paidAmount: parseFloat(s.paidAmount) || 0,
             pendingAmount: parseFloat(s.pendingAmount) || 0,
             createdAt: booking.createdAt,
+            costItemSupplierId: s.id, // Include for settlement reference
+            settlements: s.settlements.map((settlement) => ({
+              id: settlement.id,
+              amount: parseFloat(settlement.amount),
+              transactionMethod: settlement.transactionMethod,
+              settlementDate: settlement.settlementDate,
+              createdAt: settlement.createdAt,
+            })),
           });
         });
       });
@@ -1226,4 +1304,5 @@ module.exports = {
   getCustomerDeposits,
   updateInstalment,
   getSuppliersInfo,
+  createSupplierPaymentSettlement,
 };

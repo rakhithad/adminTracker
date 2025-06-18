@@ -11,7 +11,7 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
     const isValid =
       !isNaN(parseFloat(amount)) &&
       parseFloat(amount) >= 0 &&
-      ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES'].includes(transactionMethod) &&
+      ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES'].includes(transactionMethod) &&
       receivedDate;
     setIsValid(isValid);
     setErrorMessage(
@@ -61,7 +61,7 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
               required
             >
               <option value="">Select Method</option>
-              <option value="BANK_TRANSFER">Bank Transfer</option>
+              <option value="LOYDS">LOYDS</option>
               <option value="STRIPE">Stripe</option>
               <option value="WISE">Wise</option>
               <option value="HUMM">Humm</option>
