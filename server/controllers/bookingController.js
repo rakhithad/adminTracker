@@ -1286,7 +1286,7 @@ const createSupplierPaymentSettlement = async (req, res) => {
     }
 
     // Create the settlement record
-    const settlement = await prisma.supplierPaymentSettlement.create({
+    const newSettlement = await prisma.supplierPaymentSettlement.create({
       data: {
         costItemSupplierId: parseInt(costItemSupplierId),
         amount: parseFloat(amount),
@@ -1299,15 +1299,20 @@ const createSupplierPaymentSettlement = async (req, res) => {
     const newPaidAmount = (parseFloat(costItemSupplier.paidAmount) || 0) + parseFloat(amount);
     const newPendingAmount = pendingAmount - parseFloat(amount);
 
-    await prisma.costItemSupplier.update({
+    const updatedCostItemSupplier = await prisma.costItemSupplier.update({
       where: { id: parseInt(costItemSupplierId) },
       data: {
         paidAmount: newPaidAmount,
         pendingAmount: newPendingAmount,
       },
+      // Also include all settlements so the frontend has the full, updated history
+      include: {
+        settlements: true,
+      },
     });
 
-    return apiResponse.success(res, settlement, 201);
+    // Return a comprehensive payload with the newly created record and the updated parent record
+    return apiResponse.success(res, { newSettlement, updatedCostItemSupplier }, 201);
   } catch (error) {
     console.error('Error creating supplier payment settlement:', error);
     if (error.name === 'PrismaClientValidationError') {
@@ -1383,7 +1388,6 @@ const getSuppliersInfo = async (req, res) => {
     return apiResponse.error(res, `Failed to fetch suppliers info: ${error.message}`, 500);
   }
 };
-
 
 const updatePendingBooking = async (req, res) => {
   try {

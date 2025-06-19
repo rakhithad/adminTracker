@@ -42,34 +42,59 @@ export default function SuppliersInfo() {
     setSettlePopup({ supplier, booking });
   };
 
-  const handleSettleSubmit = (settlement) => {
-    setSupplierData((prev) => {
-      const updated = { ...prev };
-      const supplier = updated[settlePopup.supplier];
-      const booking = supplier.bookings.find((b) => b.costItemSupplierId === settlePopup.booking.costItemSupplierId);
-      if (booking) {
-        booking.paidAmount += parseFloat(settlement.amount);
-        booking.pendingAmount -= parseFloat(settlement.amount);
-        booking.settlements = [
-          ...(booking.settlements || []),
-          {
-            id: settlement.id,
-            amount: parseFloat(settlement.amount),
-            transactionMethod: settlement.transactionMethod,
-            settlementDate: settlement.settlementDate,
-            createdAt: settlement.createdAt,
-          },
-        ];
-        supplier.totalPaid += parseFloat(settlement.amount);
-        supplier.totalPending -= parseFloat(settlement.amount);
+  const handleSettleSubmit = (payload) => {
+    const { updatedCostItemSupplier } = payload;
+
+    setSupplierData((prevData) => {
+      // Create a deep copy to prevent direct state mutation.
+      // JSON.parse(JSON.stringify(...)) is a simple way to do this for serializable data.
+      const newData = JSON.parse(JSON.stringify(prevData));
+      
+      const supplierName = settlePopup.supplier;
+      const supplier = newData[supplierName];
+
+      if (!supplier) {
+        console.error("Supplier not found in state:", supplierName);
+        return prevData; // Return original state if supplier not found
       }
-      return updated;
+
+      // Find the index of the specific booking (cost item) that was updated
+      const bookingIndex = supplier.bookings.findIndex(
+        (b) => b.costItemSupplierId === updatedCostItemSupplier.id
+      );
+
+      if (bookingIndex === -1) {
+         console.error("Booking not found for supplier:", supplierName, "with costItemSupplierId:", updatedCostItemSupplier.id);
+        return prevData; // Return original state if booking not found
+      }
+
+      // **REPLACE** the old booking data with the new, authoritative data from the API
+      supplier.bookings[bookingIndex].paidAmount = updatedCostItemSupplier.paidAmount;
+      supplier.bookings[bookingIndex].pendingAmount = updatedCostItemSupplier.pendingAmount;
+      supplier.bookings[bookingIndex].settlements = updatedCostItemSupplier.settlements;
+
+      // **RECALCULATE** the supplier's totals from scratch using the updated bookings list
+      // This ensures the aggregate totals are always accurate.
+      supplier.totalPaid = supplier.bookings.reduce(
+        (sum, b) => sum + (b.paidAmount || 0),
+        0
+      );
+      supplier.totalPending = supplier.bookings.reduce(
+        (sum, b) => sum + (b.pendingAmount || 0),
+        0
+      );
+      
+      // Update the popup state with the new booking info so it shows correctly if reopened
+      setSettlePopup(prev => ({...prev, booking: supplier.bookings[bookingIndex]}))
+      
+      // Return the new, corrected state object
+      return newData;
     });
   };
 
   const getPaymentStatus = (paid, pending) => {
     const total = paid + pending;
-    if (pending === 0 && total > 0) return 'Fully Paid';
+    if (pending <= 0 && total > 0) return 'Fully Paid';
     if (paid === 0 && total > 0) return 'Unpaid';
     if (paid > 0 && pending > 0) return 'Partially Paid';
     return 'N/A';
@@ -204,10 +229,10 @@ export default function SuppliersInfo() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     £{(data.totalAmount || 0).toFixed(2)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
                     £{(data.totalPaid || 0).toFixed(2)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
                     £{(data.totalPending || 0).toFixed(2)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -291,10 +316,10 @@ export default function SuppliersInfo() {
                                   <td className="px-4 py-2 text-sm">{booking.agentName}</td>
                                   <td className="px-4 py-2 text-sm">{booking.category}</td>
                                   <td className="px-4 py-2 text-sm">£{(booking.amount || 0).toFixed(2)}</td>
-                                  <td className="px-4 py-2 text-sm">£{(booking.paidAmount || 0).toFixed(2)}</td>
-                                  <td className="px-4 py-2 text-sm">£{(booking.pendingAmount || 0).toFixed(2)}</td>
+                                  <td className="px-4 py-2 text-sm text-green-600">£{(booking.paidAmount || 0).toFixed(2)}</td>
+                                  <td className="px-4 py-2 text-sm text-red-600">£{(booking.pendingAmount || 0).toFixed(2)}</td>
                                   <td className="px-4 py-2 text-sm">
-                                    {booking.pendingAmount === 0 && booking.amount > 0 ? (
+                                    {booking.pendingAmount <= 0 && booking.amount > 0 ? (
                                       <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
                                         PAID
                                       </span>

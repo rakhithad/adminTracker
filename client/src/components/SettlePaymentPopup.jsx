@@ -48,6 +48,7 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
         throw new Error(response.data?.error || 'Failed to save settlement');
       }
 
+      // Pass the entire data payload from the successful response to the parent
       onSubmit(response.data.data);
       onClose();
     } catch (err) {
@@ -58,40 +59,44 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
     }
   };
 
-  // Prepare payment history: combine initial payment and settlements
+  // Prepare payment history
   const paymentHistory = [];
 
-  // Add initial payment(s) if applicable
-  if (booking.paymentMethod && booking.paidAmount > 0) {
+  // Add initial payments if applicable
+  if (booking.paidAmount > 0 && booking.paymentMethod) {
     if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(booking.paymentMethod)) {
+        // This logic seems complex and might need review, but we'll preserve it
       if (booking.firstMethodAmount > 0) {
-        const firstMethod = booking.paymentMethod.split('_AND_')[0].toUpperCase();
         paymentHistory.push({
           amount: parseFloat(booking.firstMethodAmount),
-          transactionMethod: booking.transactionMethod || firstMethod,
+          transactionMethod: booking.paymentMethod.split('_AND_')[0].toUpperCase(),
           paymentDate: booking.createdAt,
           recordedAt: booking.createdAt,
           isInitial: true,
         });
       }
       if (booking.secondMethodAmount > 0) {
-        const secondMethod = booking.paymentMethod.split('_AND_')[1].toUpperCase();
         paymentHistory.push({
           amount: parseFloat(booking.secondMethodAmount),
-          transactionMethod: booking.transactionMethod || secondMethod,
+          transactionMethod: booking.paymentMethod.split('_AND_')[1].toUpperCase(),
           paymentDate: booking.createdAt,
           recordedAt: booking.createdAt,
           isInitial: true,
         });
       }
     } else {
-      paymentHistory.push({
-        amount: parseFloat(booking.paidAmount),
-        transactionMethod: booking.transactionMethod || booking.paymentMethod,
-        paymentDate: booking.createdAt,
-        recordedAt: booking.createdAt,
-        isInitial: true,
-      });
+      // Logic to determine initial paid amount (Total paid - settlements)
+      const settlementTotal = (booking.settlements || []).reduce((sum, s) => sum + s.amount, 0);
+      const initialPaymentAmount = booking.paidAmount - settlementTotal;
+      if (initialPaymentAmount > 0) {
+          paymentHistory.push({
+            amount: initialPaymentAmount,
+            transactionMethod: booking.paymentMethod,
+            paymentDate: booking.createdAt,
+            recordedAt: booking.createdAt,
+            isInitial: true,
+          });
+      }
     }
   }
 
@@ -108,7 +113,6 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
     });
   }
 
-  // Sort by recordedAt date
   paymentHistory.sort((a, b) => new Date(a.recordedAt) - new Date(b.recordedAt));
 
   return (
@@ -206,7 +210,7 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {paymentHistory.map((payment, index) => (
-                    <tr key={payment.isInitial ? `initial-${index}` : `settlement-${payment.id}`}>
+                    <tr key={payment.isInitial ? `initial-${index}` : `settlement-${payment.id || index}`}>
                       <td className="px-4 py-2 text-sm">£{payment.amount.toFixed(2)}</td>
                       <td className="px-4 py-2 text-sm">{payment.transactionMethod.replace('_', ' ')}</td>
                       <td className="px-4 py-2 text-sm">
