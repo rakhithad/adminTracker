@@ -1352,6 +1352,321 @@ const getSuppliersInfo = async (req, res) => {
   }
 };
 
+
+const updatePendingBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    const {
+      refNo,
+      paxName,
+      agentName,
+      teamName,
+      pnr,
+      airline,
+      fromTo,
+      bookingType,
+      paymentMethod,
+      pcDate,
+      issuedDate,
+      lastPaymentDate,
+      travelDate,
+      revenue,
+      prodCost,
+      transFee,
+      surcharge,
+      received,
+      transactionMethod,
+      receivedDate,
+      balance,
+      profit,
+      invoiced,
+      description,
+      costItems,
+      instalments,
+      passengers,
+      numPax,
+    } = updates;
+
+    // Validate required fields if provided
+    const validTeams = ['PH', 'TOURS'];
+    if (teamName && !validTeams.includes(teamName)) {
+      return apiResponse.error(res, `Invalid team_name. Must be one of: ${validTeams.join(', ')}`, 400);
+    }
+
+    const validBookingTypes = ['FRESH', 'DATE_CHANGE', 'CANCELLATION'];
+    if (bookingType && !validBookingTypes.includes(bookingType)) {
+      return apiResponse.error(res, `Invalid bookingType. Must be one of: ${validBookingTypes.join(', ')}`, 400);
+    }
+
+    const validPaymentMethods = ['FULL', 'INTERNAL', 'REFUND', 'HUMM', 'FULL_HUMM', 'INTERNAL_HUMM'];
+    if (paymentMethod && !validPaymentMethods.includes(paymentMethod)) {
+      return apiResponse.error(res, `Invalid paymentMethod. Must be one of: ${validPaymentMethods.join(', ')}`, 400);
+    }
+
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+    if (transactionMethod && !validTransactionMethods.includes(transactionMethod)) {
+      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
+    }
+
+    // Validate numPax if provided
+    if (numPax !== undefined && (isNaN(parseInt(numPax)) || parseInt(numPax) < 1)) {
+      return apiResponse.error(res, 'numPax must be a positive integer', 400);
+    }
+
+    // Validate costItems if provided
+    if (costItems) {
+      if (!Array.isArray(costItems)) {
+        return apiResponse.error(res, 'costItems must be an array', 400);
+      }
+      const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
+      const validSupplierPaymentMethods = [
+        'BANK_TRANSFER',
+        'CREDIT',
+        'CREDIT_NOTES',
+        'BANK_TRANSFER_AND_CREDIT',
+        'BANK_TRANSFER_AND_CREDIT_NOTES',
+        'CREDIT_AND_CREDIT_NOTES',
+      ];
+      for (const item of costItems) {
+        if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
+          return apiResponse.error(res, 'Each cost item must have a category and a positive amount', 400);
+        }
+        if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+          return apiResponse.error(res, 'Each cost item must have at least one supplier allocation', 400);
+        }
+        const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+          return apiResponse.error(res, 'Supplier amounts must sum to the cost item amount', 400);
+        }
+        for (const s of item.suppliers) {
+          if (
+            !s.supplier ||
+            !validSuppliers.includes(s.supplier) ||
+            isNaN(parseFloat(s.amount)) ||
+            parseFloat(s.amount) <= 0 ||
+            !validSupplierPaymentMethods.includes(s.paymentMethod) ||
+            !validTransactionMethods.includes(s.transactionMethod)
+          ) {
+            return apiResponse.error(res, `Invalid supplier data for ${s.supplier}: must have valid supplier, amount, paymentMethod, and transactionMethod`, 400);
+          }
+          const paidAmount = parseFloat(s.paidAmount) || 0;
+          const pendingAmount = parseFloat(s.pendingAmount) || 0;
+          if (isNaN(paidAmount) || isNaN(pendingAmount)) {
+            return apiResponse.error(res, `Invalid paidAmount or pendingAmount for supplier ${s.supplier}`, 400);
+          }
+          if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(s.paymentMethod)) {
+            const firstAmount = parseFloat(s.firstMethodAmount) || 0;
+            const secondAmount = parseFloat(s.secondMethodAmount) || 0;
+            if (firstAmount <= 0 || secondAmount <= 0 || Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01) {
+              return apiResponse.error(res, `For supplier ${s.supplier}, combined payment method amounts must be positive and sum to the supplier amount`, 400);
+            }
+            const firstMethod = s.paymentMethod.split('_AND_')[0].toUpperCase();
+            const secondMethod = s.paymentMethod.split('_AND_')[1].toUpperCase();
+            const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
+            const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
+            if (
+              Math.abs(paidAmount - ((isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0))) > 0.01 ||
+              Math.abs(pendingAmount - ((isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount))) > 0.01
+            ) {
+              return apiResponse.error(res, `Paid and pending amounts for supplier ${s.supplier} must match payment method logic`, 400);
+            }
+          } else {
+            const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(s.paymentMethod);
+            if (
+              Math.abs(paidAmount - (isPaid ? parseFloat(s.amount) : 0)) > 0.01 ||
+              Math.abs(pendingAmount - (isPaid ? 0 : parseFloat(s.amount))) > 0.01 ||
+              (s.firstMethodAmount && Math.abs(parseFloat(s.firstMethodAmount) - parseFloat(s.amount)) > 0.01) ||
+              (s.secondMethodAmount && parseFloat(s.secondMethodAmount) > 0)
+            ) {
+              return apiResponse.error(res, `Payment amounts for supplier ${s.supplier} must match payment method logic`, 400);
+            }
+          }
+        }
+      }
+      // Validate prodCost matches sum of costItems
+      const calculatedProdCost = costItems.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
+      if (prodCost && Math.abs(parseFloat(prodCost) - calculatedProdCost) > 0.01) {
+        return apiResponse.error(res, 'Provided prodCost does not match the sum of costItems', 400);
+      }
+    }
+
+    // Validate instalments if provided
+    if (instalments) {
+      if (!Array.isArray(instalments)) {
+        return apiResponse.error(res, 'instalments must be an array', 400);
+      }
+      for (const inst of instalments) {
+        if (
+          !inst.dueDate ||
+          isNaN(parseFloat(inst.amount)) ||
+          parseFloat(inst.amount) <= 0 ||
+          !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')
+        ) {
+          return apiResponse.error(res, 'Each instalment must have a valid dueDate, positive amount, and valid status', 400);
+        }
+      }
+      if (paymentMethod === 'INTERNAL' && instalments.length === 0) {
+        return apiResponse.error(res, 'Instalments are required for INTERNAL payment method', 400);
+      }
+      if (balance) {
+        const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+        const revenueVal = revenue ? parseFloat(revenue) : 0;
+        const receivedVal = received ? parseFloat(received) : 0;
+        const expectedBalance = revenueVal - receivedVal;
+        if (Math.abs(totalInstalments - expectedBalance) > 0.01) {
+          return apiResponse.error(res, 'Sum of instalments must equal the balance (revenue - received)', 400);
+        }
+      }
+    }
+
+    // Validate passengers if provided
+    if (passengers) {
+      if (!Array.isArray(passengers) || passengers.length === 0) {
+        return apiResponse.error(res, 'passengers must be a non-empty array', 400);
+      }
+      const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
+      const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+      const validCategories = ['ADULT', 'CHILD', 'INFANT'];
+      for (const pax of passengers) {
+        const validationErrors = [];
+        if (!pax.title || !validTitles.includes(pax.title)) validationErrors.push(`Invalid or missing title: ${pax.title}`);
+        if (!pax.firstName) validationErrors.push('Missing firstName');
+        if (!pax.lastName) validationErrors.push('Missing lastName');
+        if (!pax.gender || !validGenders.includes(pax.gender)) validationErrors.push(`Invalid or missing gender: ${pax.gender}`);
+        if (!pax.category || !validCategories.includes(pax.category)) validationErrors.push(`Invalid or missing category: ${pax.category}`);
+        if (pax.birthday && isNaN(new Date(pax.birthday))) validationErrors.push(`Invalid birthday: ${pax.birthday}`);
+        if (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) validationErrors.push(`Invalid email: ${pax.email}`);
+        if (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo)) validationErrors.push(`Invalid contactNo: ${pax.contactNo}`);
+        if (validationErrors.length > 0) {
+          return apiResponse.error(res, `Passenger validation errors: ${validationErrors.join('; ')}`, 400);
+        }
+      }
+      // Validate numPax against passengers
+      if (numPax !== undefined && parseInt(numPax) < passengers.length) {
+        return apiResponse.error(res, 'numPax cannot be less than the number of passengers provided', 400);
+      }
+    }
+
+    // Prepare financial data
+    const financialData = {
+      revenue: revenue ? parseFloat(revenue) : undefined,
+      prodCost: prodCost ? parseFloat(prodCost) : undefined,
+      transFee: transFee ? parseFloat(transFee) : undefined,
+      surcharge: surcharge ? parseFloat(surcharge) : undefined,
+      received: received ? parseFloat(received) : undefined,
+      balance: balance ? parseFloat(balance) : undefined,
+      profit: profit ? parseFloat(profit) : undefined,
+      invoiced: invoiced || undefined,
+    };
+
+    // Recalculate profit and balance if financial data is provided
+    if (Object.values(financialData).some(val => val !== undefined)) {
+      const revenueVal = financialData.revenue || 0;
+      const prodCostVal = financialData.prodCost || 0;
+      const transFeeVal = financialData.transFee || 0;
+      const surchargeVal = financialData.surcharge || 0;
+      const receivedVal = financialData.received || 0;
+      financialData.profit = revenueVal - prodCostVal - transFeeVal - surchargeVal;
+      financialData.balance = revenueVal - receivedVal;
+    }
+
+    // Update the pending booking
+    const pendingBooking = await prisma.pendingBooking.update({
+      where: { id: parseInt(id) },
+      data: {
+        refNo,
+        paxName,
+        agentName,
+        teamName,
+        pnr,
+        airline,
+        fromTo,
+        bookingType,
+        pcDate: pcDate ? new Date(pcDate) : undefined,
+        issuedDate: issuedDate ? new Date(issuedDate) : undefined,
+        paymentMethod,
+        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : undefined,
+        travelDate: travelDate ? new Date(travelDate) : undefined,
+        transactionMethod: transactionMethod || undefined,
+        receivedDate: receivedDate ? new Date(receivedDate) : undefined,
+        description: description || undefined,
+        numPax: numPax !== undefined ? parseInt(numPax) : undefined,
+        ...financialData,
+        costItems: Array.isArray(costItems) && costItems.length > 0
+          ? {
+              deleteMany: {},
+              create: costItems.map(item => ({
+                category: item.category,
+                amount: parseFloat(item.amount),
+                suppliers: {
+                  create: item.suppliers.map(s => ({
+                    supplier: s.supplier,
+                    amount: parseFloat(s.amount),
+                    paymentMethod: s.paymentMethod,
+                    paidAmount: parseFloat(s.paidAmount) || 0,
+                    pendingAmount: parseFloat(s.pendingAmount) || 0,
+                    transactionMethod: s.transactionMethod,
+                    firstMethodAmount: parseFloat(s.firstMethodAmount) || null,
+                    secondMethodAmount: parseFloat(s.secondMethodAmount) || null,
+                  })),
+                },
+              })),
+            }
+          : undefined,
+        instalments: Array.isArray(instalments) && instalments.length > 0
+          ? {
+              deleteMany: {},
+              create: instalments.map(inst => ({
+                dueDate: new Date(inst.dueDate),
+                amount: parseFloat(inst.amount),
+                status: inst.status || 'PENDING',
+              })),
+            }
+          : undefined,
+        passengers: Array.isArray(passengers) && passengers.length > 0
+          ? {
+              deleteMany: {},
+              create: passengers.map(pax => ({
+                title: pax.title,
+                firstName: pax.firstName,
+                middleName: pax.middleName || null,
+                lastName: pax.lastName,
+                gender: pax.gender,
+                email: pax.email || null,
+                contactNo: pax.contactNo || null,
+                nationality: pax.nationality || null,
+                birthday: pax.birthday ? new Date(pax.birthday) : null,
+                category: pax.category,
+              })),
+            }
+          : undefined,
+      },
+      include: {
+        costItems: { include: { suppliers: true } },
+        instalments: true,
+        passengers: true,
+      },
+    });
+
+    return apiResponse.success(res, pendingBooking, 200);
+  } catch (error) {
+    console.error('Error updating pending booking:', error);
+    if (error.name === 'PrismaClientValidationError') {
+      return apiResponse.error(res, `Invalid data provided: ${error.message}`, 400);
+    }
+    if (error.code === 'P2002') {
+      return apiResponse.error(res, 'Pending booking with this reference number already exists', 409);
+    }
+    if (error.code === 'P2003') {
+      return apiResponse.error(res, 'Invalid enum value provided', 400);
+    }
+    return apiResponse.error(res, `Failed to update pending booking: ${error.message}`, 500);
+  }
+};
+
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -1366,4 +1681,5 @@ module.exports = {
   updateInstalment,
   getSuppliersInfo,
   createSupplierPaymentSettlement,
+  updatePendingBooking
 };

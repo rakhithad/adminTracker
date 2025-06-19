@@ -14,10 +14,12 @@ const {
   updateInstalment,
   getSuppliersInfo,
   createSupplierPaymentSettlement,
+  updatePendingBooking,
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
 router.get('/pending', getPendingBookings);
+router.put('/pending/:id', updatePendingBooking);
 router.post('/pending/:id/approve', approveBooking);
 router.post('/pending/:id/reject', rejectBooking);
 router.post('/', createBooking);

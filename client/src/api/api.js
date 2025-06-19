@@ -32,6 +32,10 @@ export const updateBooking = async (id, updates) => {
   return await api.put(`/bookings/${id}`, updates);
 };
 
+export const updatePendingBooking = async (bookingId, updates) => {
+  return await api.put(`/bookings/pending/${bookingId}`, updates);
+};
+
 export const getUsers = async () => {
   return await api.get('/users');
 };
