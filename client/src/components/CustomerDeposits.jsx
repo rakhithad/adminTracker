@@ -32,33 +32,26 @@ export default function CustomerDeposits() {
     setPaymentPopup({ instalment, booking });
   };
 
-  const handleSavePayment = (updatedInstalment) => {
+  const handleSavePayment = (payload) => {
+    const { updatedInstalment, bookingUpdate } = payload;
+
     setBookings((prevBookings) =>
       prevBookings.map((booking) => {
-        // Find the old instalment to check its previous status
-        const oldInstalment = booking.instalments.find((inst) => inst.id === updatedInstalment.id);
-        // Determine if the instalment is newly paid (was PENDING/OVERDUE, now PAID)
-        const isNewlyPaid =
-          updatedInstalment.status === 'PAID' &&
-          oldInstalment &&
-          ['PENDING', 'OVERDUE'].includes(oldInstalment.status);
+        // If this is not the booking that was updated, return it as is.
+        if (booking.id !== bookingUpdate.id) {
+          return booking;
+        }
+
+        // Otherwise, create a new booking object with the updated data from the API
         return {
           ...booking,
+          // Update received and balance directly from the API response
+          received: bookingUpdate.received,
+          balance: bookingUpdate.balance,
+          // Update the specific instalment in the instalments array
           instalments: booking.instalments.map((inst) =>
             inst.id === updatedInstalment.id ? updatedInstalment : inst
           ),
-          totalInstalments: booking.instalments
-            .reduce((sum, inst) =>
-              sum + (inst.id === updatedInstalment.id ? parseFloat(updatedInstalment.amount) : parseFloat(inst.amount)),
-              0
-            )
-            .toFixed(2),
-          received: isNewlyPaid
-            ? (booking.received || 0) + parseFloat(updatedInstalment.amount)
-            : booking.received,
-          balance: isNewlyPaid
-            ? (booking.revenue || 0) - ((booking.received || 0) + parseFloat(updatedInstalment.amount))
-            : booking.balance,
         };
       })
     );
@@ -98,9 +91,9 @@ export default function CustomerDeposits() {
   };
 
   const filteredBookings = bookings.filter((booking) => {
-    const allPaid = booking.instalments.every((inst) => inst.status === 'PAID');
-    if (filter === 'ongoing') return !allPaid;
-    if (filter === 'completed') return allPaid;
+    const balance = parseFloat(booking.balance);
+    if (filter === 'ongoing') return balance > 0;
+    if (filter === 'completed') return balance <= 0;
     return true;
   });
 
@@ -182,8 +175,11 @@ export default function CustomerDeposits() {
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger Name</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Instalments (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Initial Payment (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Revenue (£)</th>
+                {/* *** NEW COLUMN HEADER *** */}
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Initial Deposit (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Paid (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Balance (£)</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Instalments</th>
               </tr>
             </thead>
@@ -192,6 +188,7 @@ export default function CustomerDeposits() {
                 const nextUnpaidInstalment = getNextUnpaidInstalment(booking.instalments);
                 const isExpanded = expandedRows[booking.id] || false;
                 const daysLeft = calculateDaysLeft(booking.travelDate);
+                const balance = parseFloat(booking.balance);
 
                 return (
                   <tr key={booking.id} className="hover:bg-gray-50 transition-colors duration-150">
@@ -212,12 +209,25 @@ export default function CustomerDeposits() {
                         </span>
                       )}
                     </td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
-                      {booking.totalInstalments ? parseFloat(booking.totalInstalments).toFixed(2) : '0.00'}
+                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">
+                        {parseFloat(booking.revenue).toFixed(2)}
                     </td>
                     <td className="py-4 px-6 text-sm text-gray-600">
-                      {booking.received ? parseFloat(booking.received).toFixed(2) : '0.00'}
+                        {parseFloat(booking.initialDeposit).toFixed(2)}
                     </td>
+                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">
+                        {parseFloat(booking.received).toFixed(2)}
+                    </td>
+                    <td className={`py-4 px-6 text-sm font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {balance.toFixed(2)}
+                        {balance < 0 && (
+                            <span className="block text-xs font-normal">
+                                (Overpaid by {Math.abs(balance).toFixed(2)})
+                            </span>
+                        )}
+                    </td>
+                    
+                    
                     <td className="py-4 px-6 text-sm text-gray-600">
                       <div className="space-y-2">
                         {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(

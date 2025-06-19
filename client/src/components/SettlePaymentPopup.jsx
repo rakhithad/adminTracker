@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createSupplierPaymentSettlement } from '../api/api';
 
 export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmit }) {

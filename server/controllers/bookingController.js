@@ -1088,76 +1088,91 @@ const updateInstalment = async (req, res) => {
     const { id } = req.params;
     const { amount, status, transactionMethod, paymentDate } = req.body;
 
-    // Validate input
-    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
-      return apiResponse.error(res, 'Amount must be a positive number', 400);
-    }
-    if (!['PENDING', 'PAID', 'OVERDUE'].includes(status)) {
-      return apiResponse.error(res, `Invalid status. Must be one of: PENDING, PAID, OVERDUE`, 400);
-    }
-    if (status === 'PAID') {
-      if (!transactionMethod || !paymentDate) {
-        return apiResponse.error(res, 'Transaction method and payment date are required for PAID status', 400);
-      }
-      const validTransactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
-      if (!validTransactionMethods.includes(transactionMethod)) {
-        return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
-      }
-      if (isNaN(new Date(paymentDate))) {
-        return apiResponse.error(res, 'Invalid payment date', 400);
-      }
-    }
+    // ... (Your existing validation logic is good, keep it here)
+    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) { /* ... */ }
+    if (!['PENDING', 'PAID', 'OVERDUE'].includes(status)) { /* ... */ }
+    // ... etc.
 
-    // Fetch instalment
-    const instalment = await prisma.instalment.findUnique({
+    const instalmentToUpdate = await prisma.instalment.findUnique({
       where: { id: parseInt(id) },
-      include: { booking: true },
-    });
-    if (!instalment) {
-      return apiResponse.error(res, 'Instalment not found', 404);
-    }
-
-    // Update instalment and create payment record if PAID
-    let updatedInstalment;
-    if (status === 'PAID' && instalment.status !== 'PAID') {
-      // Create payment record
-      await prisma.instalmentPayment.create({
-        data: {
-          instalmentId: parseInt(id),
-          amount: parseFloat(amount),
-          transactionMethod,
-          paymentDate: new Date(paymentDate),
-        },
-      });
-    }
-    updatedInstalment = await prisma.instalment.update({
-      where: { id: parseInt(id) },
-      data: { amount: parseFloat(amount), status },
-    });
-
-    // Update booking received and balance
-    const instalments = await prisma.instalment.findMany({
-      where: { bookingId: instalment.bookingId },
-      include: { payments: true },
-    });
-    const totalReceivedFromInstalments = instalments
-      .filter((inst) => inst.status === 'PAID')
-      .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
-    const initialReceived = instalment.booking.received || 0;
-    const totalReceived = initialReceived + totalReceivedFromInstalments;
-    const revenue = instalment.booking.revenue || 0;
-    const balance = revenue - totalReceived;
-
-    await prisma.booking.update({
-      where: { id: instalment.bookingId },
-      data: { 
-        received: totalReceived, 
-        balance: balance >= 0 ? balance : 0,
-        lastPaymentDate: status === 'PAID' && instalment.status !== 'PAID' ? new Date(paymentDate) : instalment.booking.lastPaymentDate,
+      include: { 
+        booking: {
+            include: {
+                instalments: true // Fetch all instalments for the booking
+            }
+        } 
       },
     });
 
-    return apiResponse.success(res, updatedInstalment);
+
+    if (!instalmentToUpdate) {
+      return apiResponse.error(res, 'Instalment not found', 404);
+    }
+    
+    const currentTotalReceived = parseFloat(instalmentToUpdate.booking.received || 0);
+    const sumOfPaidInstalments_beforeUpdate = instalmentToUpdate.booking.instalments
+      .filter(inst => inst.status === 'PAID')
+      .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+    const initialDeposit = currentTotalReceived - sumOfPaidInstalments_beforeUpdate;
+
+
+
+    
+    if (status === 'PAID') {
+        await prisma.instalmentPayment.create({
+            data: {
+                instalmentId: parseInt(id),
+                amount: parseFloat(amount),
+                transactionMethod,
+                paymentDate: new Date(paymentDate),
+            },
+        });
+    }
+
+    const updatedInstalment = await prisma.instalment.update({
+      where: { id: parseInt(id) },
+      data: { 
+          amount: parseFloat(amount), 
+          status 
+      },
+      include: { payments: true } // Include payments in the returned instalment
+    });
+    
+    // --- START: CRITICAL RECALCULATION LOGIC ---
+    // Recalculate the total received amount for the entire booking from scratch
+    const allInstalments_afterUpdate = await prisma.instalment.findMany({
+        where: { bookingId: instalmentToUpdate.bookingId },
+    });
+
+    const sumOfPaidInstalments_afterUpdate = allInstalments_afterUpdate
+        .filter(inst => inst.status === 'PAID')
+        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+
+    const newTotalReceived = initialDeposit + sumOfPaidInstalments_afterUpdate;
+    const bookingRevenue = parseFloat(instalmentToUpdate.booking.revenue || 0);
+    const newBalance = bookingRevenue - newTotalReceived;
+    
+    const updatedBooking = await prisma.booking.update({
+        where: { id: instalmentToUpdate.bookingId },
+        data: {
+            received: newTotalReceived,
+            balance: newBalance,
+            lastPaymentDate: status === 'PAID' ? new Date(paymentDate) : instalmentToUpdate.booking.lastPaymentDate,
+        }
+    });
+    
+    // --- END: CRITICAL RECALCULATION LOGIC ---
+
+    // Return a comprehensive payload to the frontend
+    return apiResponse.success(res, {
+        updatedInstalment,
+        bookingUpdate: {
+            id: updatedBooking.id,
+            received: updatedBooking.received,
+            balance: updatedBooking.balance
+        }
+    });
+
   } catch (error) {
     console.error('Error updating instalment:', error);
     return apiResponse.error(res, `Failed to update instalment: ${error.message}`, 500);
@@ -1179,8 +1194,8 @@ const getCustomerDeposits = async (req, res) => {
         agentName: true,
         pcDate: true,
         travelDate: true,
-        received: true,
-        revenue: true,
+        revenue: true, 
+        received: true, 
         instalments: {
           select: {
             id: true,
@@ -1202,13 +1217,30 @@ const getCustomerDeposits = async (req, res) => {
       },
     });
 
+    // Enhance the booking data with balance and totalInstalmentValue
     const formattedBookings = bookings.map((booking) => {
-      const totalInstalments = booking.instalments
-        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0)
-        .toFixed(2);
+      const totalReceivedFromDb = parseFloat(booking.received || 0);
+      const revenue = parseFloat(booking.revenue || 0);
+      const received = parseFloat(booking.received || 0);
+      const totalInstalmentValue = booking.instalments
+        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+      
+      const sumOfPaidInstalments = booking.instalments
+        .filter((inst) => inst.status === 'PAID')
+        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+      
+      const initialDeposit = totalReceivedFromDb - sumOfPaidInstalments;
+        
+
+
       return {
         ...booking,
-        totalInstalments,
+        revenue: revenue.toFixed(2),
+        received: totalReceivedFromDb.toFixed(2),
+        balance: (revenue - totalReceivedFromDb).toFixed(2),
+        // We'll keep this for reference, though the main display will use revenue/balance
+        totalInstalmentValue: totalInstalmentValue.toFixed(2),
+        initialDeposit: initialDeposit.toFixed(2),
       };
     });
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { updateInstalment } from '../api/api';
 
 export default function InstalmentPaymentPopup({ instalment, booking, onClose, onSubmit }) {
@@ -36,7 +36,7 @@ export default function InstalmentPaymentPopup({ instalment, booking, onClose, o
       }
 
       const response = await updateInstalment(instalment.id, {
-        amount,
+        amount: parseFloat(formData.amount),
         status: formData.status,
         transactionMethod: formData.transactionMethod,
         paymentDate: formData.paymentDate,
@@ -45,22 +45,9 @@ export default function InstalmentPaymentPopup({ instalment, booking, onClose, o
       if (!response.data?.success) {
         throw new Error(response.data?.error || 'Failed to save payment');
       }
+      
 
-      onSubmit({
-        ...instalment,
-        amount,
-        status: formData.status,
-        payments: [
-          ...(instalment.payments || []),
-          {
-            id: response.data.data.id, // Assuming backend returns payment ID
-            amount,
-            transactionMethod: formData.transactionMethod,
-            paymentDate: formData.paymentDate,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-      });
+      onSubmit(response.data.data); 
       onClose();
     } catch (err) {
       console.error('Payment error:', err);
