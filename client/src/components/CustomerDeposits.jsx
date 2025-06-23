@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getCustomerDeposits } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
+import { FaSearch } from 'react-icons/fa';
 
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
@@ -9,6 +10,7 @@ export default function CustomerDeposits() {
   const [paymentPopup, setPaymentPopup] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
   const [filter, setFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     fetchBookings();
@@ -75,7 +77,7 @@ export default function CustomerDeposits() {
 
   const calculateDaysLeft = (travelDate) => {
     if (!travelDate) return null;
-    const today = new Date('2025-06-18');
+    const today = new Date();
     const travel = new Date(travelDate);
     const diffTime = travel - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -91,10 +93,30 @@ export default function CustomerDeposits() {
   };
 
   const filteredBookings = bookings.filter((booking) => {
+    // First, apply the status filter (Ongoing/Completed)
     const balance = parseFloat(booking.balance);
-    if (filter === 'ongoing') return balance > 0;
-    if (filter === 'completed') return balance <= 0;
-    return true;
+    const statusMatch =
+      (filter === 'ongoing' && balance > 0) ||
+      (filter === 'completed' && balance <= 0) ||
+      filter === 'all';
+    
+    if (!statusMatch) {
+      return false;
+    }
+
+    // Then, if there's a search term, apply the text search
+    if (searchTerm.trim() === '') {
+      return true; // No search term, so it passes this filter
+    }
+
+    const searchLower = searchTerm.toLowerCase();
+
+    // Check against relevant fields
+    const refNoMatch = booking.refNo.toLowerCase().includes(searchLower);
+    const paxNameMatch = booking.paxName.toLowerCase().includes(searchLower);
+    const agentNameMatch = booking.agentName.toLowerCase().includes(searchLower);
+
+    return refNoMatch || paxNameMatch || agentNameMatch;
   });
 
   if (loading) {
@@ -143,28 +165,48 @@ export default function CustomerDeposits() {
 
   return (
     <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+      {/* 2. Add the search bar to the UI */}
+      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
-        <div className="relative">
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8"
-          >
-            <option value="all">All Bookings</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="completed">Completed</option>
-          </select>
-          <svg
-            className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
+
+        <div className="flex items-center gap-4">
+          {/* Search Input */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <FaSearch className="h-4 w-4 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              placeholder="Search by Ref, Passenger, Agent..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            />
+          </div>
+
+          {/* Status Filter Dropdown */}
+          <div className="relative">
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8"
+            >
+              <option value="all">All Bookings</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+            </select>
+            <svg
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
         </div>
       </div>
+      
       {filteredBookings.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
