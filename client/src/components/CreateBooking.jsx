@@ -474,7 +474,7 @@ export default function CreateBooking({ onBookingCreated }) {
 
                 <FormInput label="Transaction Fee (£)" name="transFee" type="number" step="0.01" value={formData.transFee} onChange={handleNumberChange} />
                 <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
-                <FormInput label="Invoiced" name="invoiced" value={formData.invoiced} onChange={handleChange} placeholder="e.g., INV-123" />
+                <FormInput label="Invoiced" name="invoiced" value={formData.invoiced} onChange={handleChange} />
                 
                 <FormInput label="Balance (£)" name="balance" value={formData.balance} readOnly />
                 <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />

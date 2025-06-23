@@ -213,7 +213,7 @@ export default function CustomerDeposits() {
             <thead className="bg-gray-100">
               <tr>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Folder Number</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Ref No</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger Name</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
