@@ -1,6 +1,21 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { FaSearch, FaPencilAlt, FaSave, FaTimesCircle, FaSpinner, FaExclamationTriangle, FaFolderOpen } from 'react-icons/fa';
 import { getBookings, updateBooking } from '../api/api';
-import { useNavigate } from 'react-router-dom';
+
+// A small, reusable input for the inline edit form
+const EditCellInput = (props) => (
+  <input {...props} className="w-full p-1 border border-blue-300 rounded-md shadow-sm text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-blue-50" />
+);
+
+// A small, reusable select for the inline edit form
+const EditCellSelect = ({ children, ...props }) => (
+  <select {...props} className="w-full p-1 border border-blue-300 rounded-md shadow-sm text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-blue-50">
+    {children}
+  </select>
+);
+
+
+
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState([]);
@@ -9,7 +24,7 @@ export default function BookingsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editFormData, setEditFormData] = useState({});
-  const navigate = useNavigate();
+ 
 
   const formatDateDisplay = (dateString) => {
     if (!dateString) return '-';
@@ -141,85 +156,48 @@ export default function BookingsPage() {
   });
 
   if (loading) return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="text-center p-8 bg-white rounded-xl shadow-md">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-        <p className="text-lg font-medium text-gray-700">Loading bookings...</p>
-      </div>
-    </div>
-  );
-
-  if (error) return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="text-center p-8 bg-white rounded-xl shadow-md max-w-md">
-        <div className="text-red-500 mb-4">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        <h3 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Data</h3>
-        <p className="text-gray-600 mb-4">{error}</p>
-        <button 
-          onClick={fetchBookings}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Retry
-        </button>
+    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+      <div className="text-center">
+        <FaSpinner className="animate-spin text-blue-500 h-10 w-10 mx-auto mb-4" />
+        <p className="text-lg font-medium text-gray-700">Loading Bookings...</p>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-10">
+    <div className="min-h-screen bg-gray-100 p-4 md:p-8">
       <div className="max-w-full mx-auto">
-        <div className="flex flex-col md:flex-row gap-6 mb-6">
-          <div className="md:w-1/2 flex flex-col items-center justify-center">
-            <div className="text-center md:text-left">
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-800">Bookings Management</h1>
-              <p className="text-gray-600 mt-1">View and manage confirmed bookings</p>
-            </div>
-            <button
-              onClick={() => navigate('/admin')}
-              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              View Pending Bookings
-            </button>
-          </div>
-          <div className="md:w-1/2"></div>
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Confirmed Bookings</h1>
+          <p className="text-gray-600 mt-1">View and manage all confirmed bookings.</p>
         </div>
 
-        <div className="relative mt-10 mb-5 w-full max-w-xl">
+        <div className="relative mb-6 w-full max-w-lg">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+            <FaSearch className="h-5 w-5 text-gray-400" />
           </div>
           <input
             type="text"
-            placeholder="Search bookings..."
-            className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="Search all fields..."
+            className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
 
-        <div className="bg-white shadow-xl rounded-xl overflow-hidden">
+        {error && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center shadow-sm">
+                <FaExclamationTriangle className="mr-2"/> {error}
+            </div>
+        )}
+
+        <div className="bg-white shadow-lg rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-800">
                 <tr>
-                  {[
-                    "Ref No", "Passenger", "Agent", "Team", "PNR", "Airline",
-                    "Route", "Type", "Status", "PC Date", "Travel Date", "Issued", "Payment",
-                    "Last Payment", "Supplier", "Revenue", "Cost", "Fee", "Surcharge",
-                    "Received", "Balance", "Profit", "Invoiced", "Actions"
-                  ].map((header, index) => (
-                    <th 
-                      key={header}
-                      className={`px-4 py-3 text-left text-xs font-semibold text-gray-100 uppercase tracking-wider ${
-                        index === 0 ? 'sticky left-0 z-10 bg-gray-800' : ''
-                      }`}
-                    >
+                  {[ "Ref No", "Passenger", "Agent", "Team", "PNR", "Airline", "Route", "Type", "Status", "PC Date", "Travel Date", "Issued", "Payment", "Last Payment", "Revenue", "Cost", "Fee", "Surcharge", "Received", "Balance", "Profit", "Invoiced", "Actions" ].map((header) => (
+                    <th key={header} scope="col" className={`px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider sticky top-0 z-20 ${ header === 'Ref No' ? 'left-0 z-30' : header === 'Actions' ? 'right-0 z-30' : '' } bg-gray-800`}>
                       {header}
                     </th>
                   ))}
@@ -228,356 +206,66 @@ export default function BookingsPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.length > 0 ? (
                   filteredBookings.map((booking) => (
-                    <tr 
-                      key={booking.id} 
-                      className="hover:bg-gray-50 transition-colors duration-150"
-                    >
+                    <tr key={booking.id} className={`${editingId === booking.id ? 'bg-blue-50' : 'hover:bg-gray-50'} transition-colors duration-150`}>
                       {editingId === booking.id ? (
                         <>
-                          <td className="px-4 py-3 whitespace-nowrap sticky left-0 z-10 bg-white">
-                            <input
-                              type="text"
-                              name="refNo"
-                              value={editFormData.refNo}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-2 py-5 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="paxName"
-                              value={editFormData.paxName}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-2 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="agentName"
-                              value={editFormData.agentName}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <select
-                              name="teamName"
-                              value={editFormData.teamName || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-1 py-1 border rounded text-sm"
-                            >
-                              <option value="">None</option>
-                              <option value="PH">PH</option>
-                              <option value="TOURS">TOURS</option>
-                            </select>
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="pnr"
-                              value={editFormData.pnr}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm font-mono"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="airline"
-                              value={editFormData.airline}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="fromTo"
-                              value={editFormData.fromTo}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <select
-                              name="bookingType"
-                              value={editFormData.bookingType}
-                              onChange={handleEditFormChange}
-                              className="w-full px-1 py-1 border rounded text-sm"
-                            >
-                              <option value="FRESH">FRESH</option>
-                              <option value="DATE_CHANGE">DATE_CHANGE</option>
-                              <option value="CANCELLATION">CANCELLATION</option>
-                            </select>
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <select
-                              name="bookingStatus"
-                              value={editFormData.bookingStatus}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            >
-                              <option value="PENDING">PENDING</option>
-                              <option value="CONFIRMED">CONFIRMED</option>
-                              <option value="COMPLETED">COMPLETED</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="date"
-                              name="pcDate"
-                              value={editFormData.pcDate || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="date"
-                              name="travelDate"
-                              value={editFormData.travelDate || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="date"
-                              name="issuedDate"
-                              value={editFormData.issuedDate || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <select
-                              name="paymentMethod"
-                              value={editFormData.paymentMethod}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            >
-                              <option value="FULL">FULL</option>
-                              <option value="INTERNAL">INTERNAL</option>
-                              <option value="REFUND">REFUND</option>
-                              <option value="HUMM">HUMM</option>
-                              <option value="FULL_HUMM">FULL_HUMM</option>
-                              <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="date"
-                              name="lastPaymentDate"
-                              value={editFormData.lastPaymentDate || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <select
-                              name="supplier"
-                              value={editFormData.supplier || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            >
-                              <option value="">None</option>
-                              <option value="BTRES">BTRES</option>
-                              <option value="LYCA">LYCA</option>
-                              <option value="CEBU">CEBU</option>
-                              <option value="BTRES_LYCA">BTRES_LYCA</option>
-                              <option value="BA">BA</option>
-                              <option value="TRAINLINE">TRAINLINE</option>
-                              <option value="EASYJET">EASYJET</option>
-                              <option value="FLYDUBAI">FLYDUBAI</option>
-                            </select>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="revenue"
-                              value={editFormData.revenue || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="prodCost"
-                              value={editFormData.prodCost || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="transFee"
-                              value={editFormData.transFee || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="surcharge"
-                              value={editFormData.surcharge || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="received"
-                              value={editFormData.received || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="balance"
-                              value={editFormData.balance || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-1 py-3 whitespace-nowrap">
-                            <input
-                              type="number"
-                              name="profit"
-                              value={editFormData.profit || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="text"
-                              name="invoiced"
-                              value={editFormData.invoiced || ''}
-                              onChange={handleEditFormChange}
-                              className="w-full px-2 py-1 border rounded text-sm"
-                            />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleSaveClick(booking.id)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={handleCancelClick}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                Cancel
-                              </button>
+                          {/* --- EDIT MODE CELLS --- */}
+                          <td className="px-2 py-2 whitespace-nowrap sticky left-0 z-10 bg-blue-50"><EditCellInput name="refNo" value={editFormData.refNo} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="paxName" value={editFormData.paxName} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="agentName" value={editFormData.agentName} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellSelect name="teamName" value={editFormData.teamName || ''} onChange={handleEditFormChange}><option value="PH">PH</option><option value="TOURS">TOURS</option></EditCellSelect></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="pnr" value={editFormData.pnr} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="airline" value={editFormData.airline} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="fromTo" value={editFormData.fromTo} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellSelect name="bookingType" value={editFormData.bookingType} onChange={handleEditFormChange}><option value="FRESH">FRESH</option><option value="DATE_CHANGE">DATE_CHANGE</option><option value="CANCELLATION">CANCELLATION</option></EditCellSelect></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellSelect name="bookingStatus" value={editFormData.bookingStatus} onChange={handleEditFormChange}><option value="PENDING">PENDING</option><option value="CONFIRMED">CONFIRMED</option><option value="COMPLETED">COMPLETED</option></EditCellSelect></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="date" name="pcDate" value={editFormData.pcDate} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="date" name="travelDate" value={editFormData.travelDate} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="date" name="issuedDate" value={editFormData.issuedDate} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellSelect name="paymentMethod" value={editFormData.paymentMethod} onChange={handleEditFormChange}><option value="FULL">FULL</option><option value="INTERNAL">INTERNAL</option><option value="REFUND">REFUND</option><option value="FULL_HUMM">FULL_HUMM</option><option value="INTERNAL_HUMM">INTERNAL_HUMM</option></EditCellSelect></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="date" name="lastPaymentDate" value={editFormData.lastPaymentDate} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="revenue" value={editFormData.revenue || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="prodCost" value={editFormData.prodCost || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="transFee" value={editFormData.transFee || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="surcharge" value={editFormData.surcharge || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="received" value={editFormData.received || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="balance" value={editFormData.balance || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput type="number" step="0.01" name="profit" value={editFormData.profit || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap"><EditCellInput name="invoiced" value={editFormData.invoiced || ''} onChange={handleEditFormChange} /></td>
+                          <td className="px-2 py-2 whitespace-nowrap sticky right-0 z-10 bg-blue-50">
+                            <div className="flex items-center space-x-3">
+                              <button onClick={() => handleSaveClick(booking.id)} title="Save" className="p-2 text-green-600 hover:text-green-800"><FaSave size={16} /></button>
+                              <button onClick={handleCancelClick} title="Cancel" className="p-2 text-red-600 hover:text-red-800"><FaTimesCircle size={16} /></button>
                             </div>
                           </td>
                         </>
                       ) : (
                         <>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-blue-600 sticky left-0 z-10 bg-white">
-                            {booking.refNo}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.paxName}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.agentName}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {booking.teamName || '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-mono text-gray-700">
-                            {booking.pnr}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.airline}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.fromTo}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              booking.bookingType === 'FRESH' ? 'bg-blue-100 text-blue-800' :
-                              booking.bookingType === 'DATE_CHANGE' ? 'bg-green-100 text-green-800' :
-                              booking.bookingType === 'CANCELLATION' ? 'bg-purple-100 text-purple-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {booking.bookingType}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              booking.bookingStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                              booking.bookingStatus === 'CONFIRMED' ? 'bg-yellow-100 text-yellow-800' :
-                              booking.bookingStatus === 'PENDING' ? 'bg-red-100 text-red-800' :
-                              'bg-gray-100 text-gray-800'
-                            }`}>
-                              {booking.bookingStatus}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatDateDisplay(booking.pcDate)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatDateDisplay(booking.travelDate)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatDateDisplay(booking.issuedDate)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.paymentMethod}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {formatDateDisplay(booking.lastPaymentDate)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                            {booking.supplier || '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
-                            {booking.revenue ? `£${parseFloat(booking.revenue).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-red-600">
-                            {booking.prodCost ? `£${parseFloat(booking.prodCost).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.transFee ? `£${parseFloat(booking.transFee).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.surcharge ? `£${parseFloat(booking.surcharge).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-600">
-                            {booking.received ? `£${parseFloat(booking.received).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium ${
-                            booking.balance > 0 ? 'text-red-600' : 'text-green-600'
-                          }">
-                            {booking.balance ? `£${Math.abs(parseFloat(booking.balance)).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-bold ${
-                            booking.profit > 0 ? 'text-green-600' : 'text-red-600'
-                          }">
-                            {booking.profit ? `£${parseFloat(booking.profit).toFixed(2)}` : '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                            {booking.invoiced || '-'}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
-                            <button
-                              onClick={() => handleEditClick(booking)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              Edit
-                            </button>
+                          {/* --- VIEW MODE CELLS --- */}
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-blue-600 sticky left-0 z-10 bg-white hover:bg-gray-50">{booking.refNo}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-800">{booking.paxName}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.agentName}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{booking.teamName || '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-mono text-gray-700">{booking.pnr}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.airline}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.fromTo}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs"><span className={`px-2 py-1 font-semibold leading-tight rounded-full ${ booking.bookingType === 'FRESH' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800' }`}>{booking.bookingType}</span></td>
+                          <td className="px-4 py-3 whitespace-nowrap text-xs"><span className={`px-2 py-1 font-semibold leading-tight rounded-full ${ booking.bookingStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' : booking.bookingStatus === 'CONFIRMED' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800' }`}>{booking.bookingStatus}</span></td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDateDisplay(booking.pcDate)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDateDisplay(booking.travelDate)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDateDisplay(booking.issuedDate)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.paymentMethod?.replace(/_/g, ' ')}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{formatDateDisplay(booking.lastPaymentDate)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-700">{booking.revenue ? `£${parseFloat(booking.revenue).toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-red-700">{booking.prodCost ? `£${parseFloat(booking.prodCost).toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.transFee ? `£${parseFloat(booking.transFee).toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.surcharge ? `£${parseFloat(booking.surcharge).toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-green-700">{booking.received ? `£${parseFloat(booking.received).toFixed(2)}` : '—'}</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${parseFloat(booking.balance) > 0 ? 'text-red-700' : 'text-green-700'}`}>{booking.balance != null ? `£${parseFloat(booking.balance).toFixed(2)}` : '—'}</td>
+                          <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${parseFloat(booking.profit) > 0 ? 'text-green-700' : 'text-red-700'}`}>{booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.invoiced || '—'}</td>
+                          <td className="px-4 py-3 whitespace-nowrap text-center text-sm sticky right-0 z-10 bg-white hover:bg-gray-50">
+                            <button onClick={() => handleEditClick(booking)} title="Edit Booking" className="p-2 text-blue-600 hover:bg-blue-100 rounded-full transition"><FaPencilAlt /></button>
                           </td>
                         </>
                       )}
@@ -585,18 +273,14 @@ export default function BookingsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={23} className="px-6 py-8 text-center">
-                      <div className="flex flex-col items-center justify-center">
-                        <svg className="h-12 w-12 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <h3 className="text-lg font-medium text-gray-700 mb-1">
-                          {searchTerm ? 'No matching bookings found' : 'No bookings available'}
-                        </h3>
-                        <p className="text-gray-500 max-w-md">
-                          {searchTerm ? 'Try adjusting your search query' : 'No confirmed bookings exist'}
-                        </p>
-                      </div>
+                    <td colSpan="23" className="px-6 py-16 text-center">
+                      <FaFolderOpen className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                      <h3 className="text-xl font-medium text-gray-800">
+                        {searchTerm ? 'No Matching Bookings Found' : 'No Bookings Available'}
+                      </h3>
+                      <p className="text-gray-500 mt-2">
+                        {searchTerm ? 'Try a different search term.' : 'Confirmed bookings will appear here.'}
+                      </p>
                     </td>
                   </tr>
                 )}

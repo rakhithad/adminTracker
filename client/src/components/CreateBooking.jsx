@@ -1,9 +1,43 @@
 import { useState, useEffect } from 'react';
+import { FaUserPlus, FaCalculator, FaMoneyBillWave, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { createPendingBooking } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
 import InternalDepositPopup from './InternalDepositPopup';
 import PaxDetailsPopup from './PaxDetailsPopup';
 import ReceivedAmountPopup from './ReceivedAmountPopup';
+
+// A reusable input component for consistent styling
+const FormInput = ({ label, name, required = false, ...props }) => (
+  <div>
+    <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">
+      {label} {required && <span className="text-red-500">*</span>}
+    </label>
+    <input
+      id={name}
+      name={name}
+      {...props}
+      className={`w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-150 ease-in-out ${props.readOnly ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`}
+    />
+  </div>
+);
+
+// A reusable select component
+const FormSelect = ({ label, name, required = false, children, ...props }) => (
+    <div>
+      <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      <select
+        id={name}
+        name={name}
+        {...props}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-150 ease-in-out bg-white"
+      >
+        {children}
+      </select>
+    </div>
+  );
+
 
 export default function CreateBooking({ onBookingCreated }) {
   const [formData, setFormData] = useState({
@@ -327,417 +361,148 @@ export default function CreateBooking({ onBookingCreated }) {
   };
 
   return (
-    <div className="bg-gray-100 p-6 rounded-lg shadow h-full">
-      <h3 className="text-xl font-semibold mb-4 text-gray-800">Create New Booking</h3>
+    <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full">
+      <h3 className="text-2xl font-bold mb-1 text-gray-900">Create New Booking</h3>
+      <p className="text-gray-500 mb-6">Fill in the details below to create a booking pending for approval.</p>
+
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-100 text-green-800 rounded">{successMessage}</div>
+        <div className="flex items-center mb-6 p-4 bg-green-100 text-green-800 rounded-lg shadow-sm">
+          <FaCheckCircle className="mr-3 h-5 w-5" />
+          <span className="font-medium">{successMessage}</span>
+        </div>
       )}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-100 text-red-800 rounded">{errorMessage}</div>
+        <div className="flex items-center mb-6 p-4 bg-red-100 text-red-800 rounded-lg shadow-sm">
+          <FaTimesCircle className="mr-3 h-5 w-5" />
+          <span className="font-medium">{errorMessage}</span>
+        </div>
       )}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-1">Reference No*</label>
-            <input
-              name="refNo"
-              type="text"
-              placeholder="e.g., IBE13260992"
-              value={formData.refNo}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Passenger Name*</label>
-            <div className="flex">
-              <input
-                name="paxName"
-                type="text"
-                value={formData.paxName}
-                className="w-full p-2 bg-gray-200 border rounded"
-                readOnly
-              />
-              <button
-                type="button"
-                onClick={() => setShowPaxDetails(true)}
-                className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Input
-              </button>
-            </div>
-            {formData.passengers.length > 0 && (
-              <div className="mt-2 text-sm text-gray-600">
-                {formData.passengers.map((pax, index) => (
-                  <div key={index}>
-                    {pax.title}. {pax.lastName}/{pax.middleName ? pax.middleName + ' ' : ''}{pax.firstName} ({pax.category})
-                  </div>
-                ))}
-                <div>Total Passengers: {formData.numPax}</div>
+
+      <form onSubmit={handleSubmit} className="space-y-10">
+        {/* Section 1: Core Information */}
+        <div className="border-t border-gray-200 pt-6">
+          <h4 className="text-lg font-semibold text-gray-800 mb-4">Core Booking Information</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+            <FormInput label="Reference No" name="refNo" value={formData.refNo} onChange={handleChange} required placeholder="e.g., IBE13260992" />
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Lead Passenger <span className="text-red-500">*</span></label>
+              <div className="flex items-center">
+                <input name="paxName" type="text" value={formData.paxName} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly placeholder="Click Input button ->" />
+                <button type="button" onClick={() => setShowPaxDetails(true)} className="ml-2 px-4 h-[42px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0 transition" aria-label="Input Passenger Details">
+                  <FaUserPlus />
+                </button>
               </div>
-            )}
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Agent Name*</label>
-            <input
-              name="agentName"
-              type="text"
-              value={formData.agentName}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Team*</label>
-            <select
-              name="teamName"
-              value={formData.teamName}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            >
-              <option value="">SELECT TEAM</option>
+              {formData.passengers.length > 0 && (
+                <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600">
+                  <p className="font-semibold">{formData.paxName}</p>
+                  <p>Total Passengers: {formData.numPax}</p>
+                </div>
+              )}
+            </div>
+
+            <FormInput label="Agent Name" name="agentName" value={formData.agentName} onChange={handleChange} required />
+            <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required>
+              <option value="">Select Team</option>
               <option value="PH">PH</option>
               <option value="TOURS">TOURS</option>
-            </select>
+            </FormSelect>
+            <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required placeholder="e.g., JJ55WW" />
+            <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required placeholder="e.g., QR, EK" />
+            <FormInput label="From/To" name="fromTo" value={formData.fromTo} onChange={handleChange} required placeholder="e.g., LHR-DXB" />
           </div>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-1">PNR*</label>
-            <input
-              name="pnr"
-              type="text"
-              placeholder="e.g., JJ55WW"
-              value={formData.pnr}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Airline*</label>
-            <input
-              name="airline"
-              type="text"
-              placeholder="e.g., QR"
-              value={formData.airline}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">From/To*</label>
-            <input
-              name="fromTo"
-              type="text"
-              placeholder="e.g., NYC-LON"
-              value={formData.fromTo}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Booking Type*</label>
-            <select
-              name="bookingType"
-              value={formData.bookingType}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            >
-              <option value="FRESH">FRESH</option>
-              <option value="DATE_CHANGE">DATE_CHANGE</option>
-              <option value="CANCELLATION">CANCELLATION</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Travel Date*</label>
-            <input
-              type="date"
-              name="travelDate"
-              value={formData.travelDate}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
+
+        {/* Section 2: Dates & Payment Type */}
+        <div className="border-t border-gray-200 pt-6">
+          <h4 className="text-lg font-semibold text-gray-800 mb-4">Dates & Payment</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+            <FormSelect label="Booking Type" name="bookingType" value={formData.bookingType} onChange={handleChange} required>
+              <option value="FRESH">Fresh</option>
+              <option value="DATE_CHANGE">Date Change</option>
+              <option value="CANCELLATION">Cancellation</option>
+            </FormSelect>
+            <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
+            <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
+            <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
+            <FormSelect label="Payment Method" name="paymentMethod" value={formData.paymentMethod} onChange={(e) => { handleChange(e); if (e.target.value === 'INTERNAL' || e.target.value === 'INTERNAL_HUMM') { setShowInternalDeposit(true); } }} required>
+              <option value="FULL">Full</option>
+              <option value="INTERNAL">Internal (Instalments)</option>
+              <option value="REFUND">Refund</option>
+              <option value="FULL_HUMM">Full Humm</option>
+              <option value="INTERNAL_HUMM">Internal Humm</option>
+            </FormSelect>
+            <FormInput label="Last Payment Date" name="lastPaymentDate" type="date" value={formData.lastPaymentDate} onChange={handleChange} />
           </div>
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 mb-1">Payment Method*</label>
-            <select
-              name="paymentMethod"
-              value={formData.paymentMethod}
-              onChange={(e) => {
-                handleChange(e);
-                if (e.target.value === 'INTERNAL') {
-                  setShowInternalDeposit(true);
-                }
-              }}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            >
-              <option value="FULL">FULL</option>
-              <option value="INTERNAL">INTERNAL</option>
-              <option value="REFUND">REFUND</option>
-              <option value="FULL_HUMM">FULL_HUMM</option>
-              <option value="INTERNAL_HUMM">INTERNAL_HUMM</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">PC Date*</label>
-            <input
-              type="date"
-              name="pcDate"
-              value={formData.pcDate}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-1">Last Payment Date</label>
-            <input
-              type="date"
-              name="lastPaymentDate"
-              value={formData.lastPaymentDate}
-              onChange={handleChange}
-              className="w-full p-2 bg-gray-200 border rounded"
-            />
-          </div>
-        </div>
-        <div className="md:col-span-3 border-t pt-4 mt-4">
-          <h4 className="text-lg font-semibold mb-3">Financial Information</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 mb-1">Issued Date*</label>
-              <input
-                type="date"
-                name="issuedDate"
-                value={formData.issuedDate}
-                onChange={handleChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Revenue (£)</label>
-              <input
-                name="revenue"
-                type="number"
-                step="0.01"
-                value={formData.revenue}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Product Cost (£)</label>
-              <div className="flex">
-                <input
-                  name="prodCost"
-                  type="number"
-                  step="0.01"
-                  value={formData.prodCost}
-                  className="w-full p-2 bg-gray-200 border rounded"
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowCostBreakdown(!showCostBreakdown)}
-                  className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  {showCostBreakdown ? 'Hide' : 'Breakdown'}
-                </button>
-              </div>
-              {formData.prodCostBreakdown.length > 0 && (
-                <div className="mt-2 text-sm text-gray-600">
-                  {formData.prodCostBreakdown.map((item) => (
-                    <div key={item.id} className="mb-2">
-                      <span className="font-medium">{item.category}: £{parseFloat(item.amount).toFixed(2)}</span>
-                      <div className="ml-4">
-                        {item.suppliers.map((supplier, index) => (
-                          <div key={index}>
-                            {supplier.supplier}: £{parseFloat(supplier.amount).toFixed(2)} (
-                            {supplier.paymentMethod.replace('_AND_', ' + ').replace('_', ' ')} - 
-                            Paid: £{parseFloat(supplier.paidAmount).toFixed(2)}, 
-                            Pending: £{parseFloat(supplier.pendingAmount).toFixed(2)})
-                          </div>
-                        ))}
-                      </div>
+        
+        {/* Section 3: Financials */}
+        <div className="border-t border-gray-200 pt-6">
+            <h4 className="text-lg font-semibold text-gray-800 mb-4">Financial Details</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                <FormInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={formData.revenue} onChange={handleNumberChange} />
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Cost (£)</label>
+                  <div className="flex items-center">
+                    <input name="prodCost" type="number" step="0.01" value={formData.prodCost} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly />
+                    <button type="button" onClick={() => setShowCostBreakdown(true)} className="ml-2 px-4 h-[42px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center shrink-0 transition" aria-label="Input Product Cost Breakdown">
+                        <FaCalculator />
+                    </button>
+                  </div>
+                  {formData.prodCostBreakdown.length > 0 && (
+                    <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600 space-y-1">
+                      {formData.prodCostBreakdown.map((item, i) => <div key={i}>{item.category}: £{parseFloat(item.amount).toFixed(2)}</div>)}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Transaction Fee (£)</label>
-              <input
-                name="transFee"
-                type="number"
-                step="0.01"
-                value={formData.transFee}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Surcharge (£)</label>
-              <input
-                name="surcharge"
-                type="number"
-                step="0.01"
-                value={formData.surcharge}
-                onChange={handleNumberChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Amount Received (£)</label>
-              <div className="flex">
-                <input
-                  name="received"
-                  type="number"
-                  step="0.01"
-                  value={formData.received}
-                  className="w-full p-2 bg-gray-200 border rounded"
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowReceivedAmount(true)}
-                  className="ml-2 px-3 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Input
-                </button>
-              </div>
-              {formData.transactionMethod && formData.receivedDate && (
-                <div className="mt-2 text-sm text-gray-600">
-                  Transaction Method: {formData.transactionMethod}, Date: {new Date(formData.receivedDate).toLocaleDateString()}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Balance (£)</label>
-              <input
-                name="balance"
-                type="number"
-                step="0.01"
-                value={formData.balance}
-                className="w-full p-2 bg-gray-200 border rounded"
-                readOnly
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Profit (£)</label>
-              <input
-                name="profit"
-                type="number"
-                step="0.01"
-                value={formData.profit}
-                className="w-full p-2 bg-gray-200 border rounded"
-                readOnly
-              />
-            </div>
-            <div>
-              <label className="block text-gray-700 mb-1">Invoiced</label>
-              <input
-                name="invoiced"
-                type="text"
-                value={formData.invoiced}
-                onChange={handleChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-gray-700 mb-1">Description</label>
-              <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                className="w-full p-2 bg-gray-200 border rounded"
-                rows="4"
-                placeholder="Optional notes about the booking"
-              />
-            </div>
-            {formData.instalments.length > 0 && (
-              <div>
-                <label className="block text-gray-700 mb-1">Instalments</label>
-                <div className="mt-2 text-sm text-gray-600">
-                  {formData.instalments.map((inst, index) => (
-                    <div key={index} className="mb-1">
-                      <span>
-                        Due: {new Date(inst.dueDate).toLocaleDateString()} - £
-                        {parseFloat(inst.amount).toFixed(2)} ({inst.status})
-                      </span>
+
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Amount Received (£)</label>
+                    <div className="flex items-center">
+                        <input name="received" type="number" step="0.01" value={formData.received} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly />
+                        <button type="button" onClick={() => setShowReceivedAmount(true)} className="ml-2 px-4 h-[42px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center justify-center shrink-0 transition" aria-label="Input Received Amount">
+                           <FaMoneyBillWave />
+                        </button>
                     </div>
-                  ))}
+                    {formData.transactionMethod && (
+                        <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600">
+                           {formData.transactionMethod.replace('_', ' ')} on {new Date(formData.receivedDate).toLocaleDateString('en-GB')}
+                        </div>
+                    )}
                 </div>
-              </div>
-            )}
-          </div>
+
+                <FormInput label="Transaction Fee (£)" name="transFee" type="number" step="0.01" value={formData.transFee} onChange={handleNumberChange} />
+                <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
+                <FormInput label="Invoiced" name="invoiced" value={formData.invoiced} onChange={handleChange} placeholder="e.g., INV-123" />
+                
+                <FormInput label="Balance (£)" name="balance" value={formData.balance} readOnly />
+                <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />
+
+                <div className="lg:col-span-3">
+                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description / Notes</label>
+                    <textarea id="description" name="description" value={formData.description} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white" rows="3" placeholder="Optional notes about the booking..." />
+                </div>
+            </div>
         </div>
-        <div className="md:col-span-3 mt-4">
+
+        {/* Submit Button */}
+        <div className="flex justify-end pt-6 border-t border-gray-200">
           <button
             type="submit"
-            className={`py-2 px-6 rounded text-white ${
-              isSubmitting ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'
-            }`}
+            className="inline-flex items-center justify-center py-3 px-8 border border-transparent text-base font-semibold rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-wait transition-colors"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Submitting...' : 'Submit Booking'}
+            {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
           </button>
         </div>
       </form>
-      {showCostBreakdown && (
-        <ProductCostBreakdown
-          initialBreakdown={formData.prodCostBreakdown}
-          onClose={() => setShowCostBreakdown(false)}
-          onSubmit={handleBreakdownSubmit}
-          totalCost={parseFloat(formData.prodCost) || 0}
-        />
-      )}
-      {showInternalDeposit && (
-        <InternalDepositPopup
-          initialData={{
-            revenue: formData.revenue,
-            prod_cost: formData.prodCost,
-            costItems: formData.prodCostBreakdown,
-            surcharge: formData.surcharge,
-            received: formData.received,
-            last_payment_date: formData.lastPaymentDate,
-            travel_date: formData.travelDate,
-            totalSellingPrice: formData.revenue,
-            depositPaid: formData.received,
-            trans_fee: formData.transFee,
-          }}
-          onClose={() => setShowInternalDeposit(false)}
-          onSubmit={handleInternalDepositSubmit}
-        />
-      )}
-      {showPaxDetails && (
-        <PaxDetailsPopup
-          initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }}
-          onClose={() => setShowPaxDetails(false)}
-          onSubmit={handlePaxDetailsSubmit}
-        />
-      )}
-      {showReceivedAmount && (
-        <ReceivedAmountPopup
-          initialData={{
-            amount: formData.received,
-            transactionMethod: formData.transactionMethod,
-            receivedDate: formData.receivedDate,
-          }}
-          onClose={() => setShowReceivedAmount(false)}
-          onSubmit={handleReceivedAmountSubmit}
-        />
-      )}
+
+      {/* --- POPUPS (UNCHANGED) --- */}
+      {showCostBreakdown && <ProductCostBreakdown initialBreakdown={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} totalCost={parseFloat(formData.prodCost) || 0} />}
+      {showInternalDeposit && <InternalDepositPopup initialData={{ revenue: formData.revenue, prod_cost: formData.prodCost, costItems: formData.prodCostBreakdown, surcharge: formData.surcharge, received: formData.received, last_payment_date: formData.lastPaymentDate, travel_date: formData.travelDate, totalSellingPrice: formData.revenue, depositPaid: formData.received, trans_fee: formData.transFee, }} onClose={() => setShowInternalDeposit(false)} onSubmit={handleInternalDepositSubmit} />}
+      {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}
+      {showReceivedAmount && <ReceivedAmountPopup initialData={{ amount: formData.received, transactionMethod: formData.transactionMethod, receivedDate: formData.receivedDate, }} onClose={() => setShowReceivedAmount(false)} onSubmit={handleReceivedAmountSubmit} />}
     </div>
   );
 }
