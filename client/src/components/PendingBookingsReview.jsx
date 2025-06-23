@@ -29,7 +29,7 @@ const DetailItem = ({ label, children, className = '' }) => (
 );
 
 
-export default function PendingBookingsReview({ searchTerm = '' }) {
+export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
   const [pendingBookings, setPendingBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,7 +54,7 @@ export default function PendingBookingsReview({ searchTerm = '' }) {
 
   useEffect(() => {
     fetchPendingBookings();
-  }, []);
+  }, [refreshKey]);
 
   const handleAction = async (action, bookingId, successMessage) => {
     try {

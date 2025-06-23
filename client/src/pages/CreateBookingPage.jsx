@@ -5,10 +5,13 @@ import PendingBookingsReview from '../components/PendingBookingsReview';
 
 export default function CreateBookingPage() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const handleNewBooking = (newPendingBooking) => {
     // This function can be used to trigger a refresh or show a global notification
-    console.log('New pending booking created in parent page:', newPendingBooking);
+    console.log('New pending booking created, triggering refresh:', newPendingBooking);
+    setRefreshKey(prevKey => prevKey + 1);
+
   };
 
   return (
@@ -44,7 +47,7 @@ export default function CreateBookingPage() {
 
         {/* Pending Bookings Table */}
         <div className="bg-white p-4 rounded-xl shadow-lg">
-            <PendingBookingsReview searchTerm={searchTerm} />
+            <PendingBookingsReview searchTerm={searchTerm} refreshKey={refreshKey} />
         </div>
       </div>
     </div>
