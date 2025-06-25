@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FaSearch, FaPencilAlt, FaSave, FaTimesCircle, FaSpinner, FaExclamationTriangle, FaFolderOpen } from 'react-icons/fa';
 import { getBookings, updateBooking } from '../api/api';
 

@@ -118,7 +118,7 @@ export default function SuppliersInfo() {
 
   // --- MAIN RENDER ---
   return (
-    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
+    <div className="bg-white mt-20 shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
       {/* Header Section */}
       <div className="flex justify-between items-start mb-6 flex-wrap gap-4">
         <div>

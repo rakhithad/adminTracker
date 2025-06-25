@@ -361,7 +361,6 @@ const approveBooking = async (req, res) => {
       return apiResponse.error(res, 'At least one passenger is required', 400);
     }
 
-    // Validate numPax
     if (!pendingBooking.numPax || pendingBooking.numPax < pendingBooking.passengers.length) {
       return apiResponse.error(res, `Invalid numPax: must be at least ${pendingBooking.passengers.length}`, 400);
     }
@@ -376,13 +375,12 @@ const approveBooking = async (req, res) => {
         airline: pendingBooking.airline,
         fromTo: pendingBooking.fromTo,
         bookingType: pendingBooking.bookingType,
-        bookingStatus: pendingBooking.bookingStatus || 'PENDING',
+        bookingStatus: 'CONFIRMED',
         pcDate: pendingBooking.pcDate,
         issuedDate: pendingBooking.issuedDate || null,
         paymentMethod: pendingBooking.paymentMethod,
         lastPaymentDate: pendingBooking.lastPaymentDate || null,
         travelDate: pendingBooking.travelDate || null,
-        // supplier: pendingBooking.supplier || null, // Omit if unused
         revenue: pendingBooking.revenue ? parseFloat(pendingBooking.revenue) : null,
         prodCost: pendingBooking.prodCost ? parseFloat(pendingBooking.prodCost) : null,
         transFee: pendingBooking.transFee ? parseFloat(pendingBooking.transFee) : null,
@@ -394,7 +392,7 @@ const approveBooking = async (req, res) => {
         profit: pendingBooking.profit ? parseFloat(pendingBooking.profit) : null,
         invoiced: pendingBooking.invoiced || null,
         description: pendingBooking.description || null,
-        numPax: pendingBooking.numPax, // Added
+        numPax: pendingBooking.numPax,
         costItems: {
           create: pendingBooking.costItems.map((item) => ({
             category: item.category,
@@ -442,7 +440,6 @@ const approveBooking = async (req, res) => {
       },
     });
 
-    // Update pending booking status instead of deleting
     await prisma.pendingBooking.update({
       where: { id: bookingId },
       data: { status: 'APPROVED' },
