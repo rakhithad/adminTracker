@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits } from '../api/api';
+import { getCustomerDeposits, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
-import { FaSearch } from 'react-icons/fa';
+import FinalSettlementPopup from './FinalSettlementPopup';
+import PaymentHistoryPopup from './PaymentHistoryPopup'; // Make sure this is imported
+import { FaSearch, FaExclamationCircle } from 'react-icons/fa';
 
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [paymentPopup, setPaymentPopup] = useState(null);
+  const [settlementPopup, setSettlementPopup] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // State for the new history popup
+  const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
 
   useEffect(() => {
     fetchBookings();
@@ -34,29 +40,32 @@ export default function CustomerDeposits() {
     setPaymentPopup({ instalment, booking });
   };
 
+  const handleOpenSettlementPopup = (booking) => {
+    setSettlementPopup(booking);
+  };
+
   const handleSavePayment = (payload) => {
     const { updatedInstalment, bookingUpdate } = payload;
-
     setBookings((prevBookings) =>
       prevBookings.map((booking) => {
-        // If this is not the booking that was updated, return it as is.
         if (booking.id !== bookingUpdate.id) {
           return booking;
         }
-
-        // Otherwise, create a new booking object with the updated data from the API
         return {
           ...booking,
-          // Update received and balance directly from the API response
           received: bookingUpdate.received,
           balance: bookingUpdate.balance,
-          // Update the specific instalment in the instalments array
           instalments: booking.instalments.map((inst) =>
             inst.id === updatedInstalment.id ? updatedInstalment : inst
           ),
         };
       })
     );
+  };
+
+  const handleSaveSettlement = async (bookingId, paymentData) => {
+    await recordSettlementPayment(bookingId, paymentData);
+    fetchBookings();
   };
 
   const formatDate = (dateStr) => {
@@ -93,7 +102,6 @@ export default function CustomerDeposits() {
   };
 
   const filteredBookings = bookings.filter((booking) => {
-    // First, apply the status filter (Ongoing/Completed)
     const balance = parseFloat(booking.balance);
     const statusMatch =
       (filter === 'ongoing' && balance > 0) ||
@@ -104,14 +112,12 @@ export default function CustomerDeposits() {
       return false;
     }
 
-    // Then, if there's a search term, apply the text search
     if (searchTerm.trim() === '') {
-      return true; // No search term, so it passes this filter
+      return true;
     }
 
     const searchLower = searchTerm.toLowerCase();
 
-    // Check against relevant fields
     const refNoMatch = booking.refNo.toLowerCase().includes(searchLower);
     const paxNameMatch = booking.paxName.toLowerCase().includes(searchLower);
     const agentNameMatch = booking.agentName.toLowerCase().includes(searchLower);
@@ -135,27 +141,13 @@ export default function CustomerDeposits() {
       <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
         <div className="text-center max-w-md p-6">
           <div className="text-red-500 mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-12 w-12 mx-auto"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <h3 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Data</h3>
           <p className="text-gray-600 mb-6">{errorMessage}</p>
-          <button
-            onClick={fetchBookings}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-          >
+          <button onClick={fetchBookings} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
             Retry
           </button>
         </div>
@@ -165,42 +157,22 @@ export default function CustomerDeposits() {
 
   return (
     <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
-      {/* 2. Add the search bar to the UI */}
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
-
         <div className="flex items-center gap-4">
-          {/* Search Input */}
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <FaSearch className="h-4 w-4 text-gray-400" />
             </div>
-            <input
-              type="text"
-              placeholder="Search by Ref, Passenger, Agent..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
-            />
+            <input type="text" placeholder="Search by Ref, Passenger, Agent..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" />
           </div>
-
-          {/* Status Filter Dropdown */}
           <div className="relative">
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8"
-            >
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8">
               <option value="all">All Bookings</option>
               <option value="ongoing">Ongoing</option>
               <option value="completed">Completed</option>
             </select>
-            <svg
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
+            <svg className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
@@ -218,7 +190,6 @@ export default function CustomerDeposits() {
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Revenue (£)</th>
-                {/* *** NEW COLUMN HEADER *** */}
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Initial Deposit (£)</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Paid (£)</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Balance (£)</th>
@@ -227,13 +198,15 @@ export default function CustomerDeposits() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredBookings.map((booking) => {
+                const hasPendingInstalments = booking.instalments.some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
+                const isFinalSettlementMode = parseFloat(booking.balance) > 0 && !hasPendingInstalments;
                 const nextUnpaidInstalment = getNextUnpaidInstalment(booking.instalments);
                 const isExpanded = expandedRows[booking.id] || false;
                 const daysLeft = calculateDaysLeft(booking.travelDate);
                 const balance = parseFloat(booking.balance);
 
                 return (
-                  <tr key={booking.id} className="hover:bg-gray-50 transition-colors duration-150">
+                  <tr key={booking.id} className="hover:bg-blue-50 transition-colors duration-150 cursor-pointer" onClick={() => setHistoryPopupBooking(booking)}>
                     <td className="py-4 px-6 text-sm text-gray-600">{formatDate(booking.pcDate)}</td>
                     <td className="py-4 px-6 text-sm text-gray-600">{booking.refNo}</td>
                     <td className="py-4 px-6 text-sm text-gray-600">{booking.paxName}</td>
@@ -241,74 +214,47 @@ export default function CustomerDeposits() {
                     <td className="py-4 px-6 text-sm text-gray-600">
                       {formatDate(booking.travelDate)}
                       <br />
-                      {daysLeft !== null && (
-                        <span
-                          className={`text-xs font-medium ${
-                            daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'
-                          }`}
-                        >
-                          {daysLeft} days left
-                        </span>
-                      )}
+                      {daysLeft !== null && (<span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
                     </td>
-                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">
-                        {parseFloat(booking.revenue).toFixed(2)}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
-                        {parseFloat(booking.initialDeposit).toFixed(2)}
-                    </td>
-                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">
-                        {parseFloat(booking.received).toFixed(2)}
-                    </td>
+                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">{parseFloat(booking.revenue).toFixed(2)}</td>
+                    <td className="py-4 px-6 text-sm text-gray-600">{parseFloat(booking.initialDeposit).toFixed(2)}</td>
+                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">{parseFloat(booking.received).toFixed(2)}</td>
                     <td className={`py-4 px-6 text-sm font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
                         {balance.toFixed(2)}
-                        {balance < 0 && (
-                            <span className="block text-xs font-normal">
-                                (Overpaid by {Math.abs(balance).toFixed(2)})
-                            </span>
-                        )}
+                        {balance < 0 && (<span className="block text-xs font-normal">(Overpaid by {Math.abs(balance).toFixed(2)})</span>)}
                     </td>
-                    
-                    
                     <td className="py-4 px-6 text-sm text-gray-600">
-                      <div className="space-y-2">
-                        {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
-                          (instalment) => (
-                            <div key={instalment.id} className="flex items-center space-x-3">
-                              <>
-                                <span
-                                  className={`${
-                                    instalment.status === 'OVERDUE'
-                                      ? 'text-red-500'
-                                      : instalment.status === 'PAID'
-                                      ? 'text-green-500'
-                                      : 'text-gray-600'
-                                  }`}
-                                >
-                                  Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} (
-                                  {instalment.status}) - {getTransactionMethod(instalment)}
-                                </span>
-                                {instalment.status !== 'PAID' && (
-                                  <button
-                                    onClick={() => handleOpenPaymentPopup(instalment, booking)}
-                                    className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200"
-                                  >
-                                    Record Payment
-                                  </button>
-                                )}
-                              </>
-                            </div>
-                          )
-                        )}
-                        {booking.instalments.length > 1 && (
-                          <button
-                            onClick={() => toggleExpand(booking.id)}
-                            className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
-                          >
-                            {isExpanded ? 'Collapse' : 'Show All Instalments'}
-                          </button>
-                        )}
-                      </div>
+                      {isFinalSettlementMode ? (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center space-x-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
+                           <FaExclamationCircle className="h-5 w-5 text-yellow-500 flex-shrink-0"/>
+                           <div className="flex-grow">
+                            <span className="font-semibold text-yellow-800">Final Balance Due: £{balance.toFixed(2)}</span>
+                            <button onClick={() => handleOpenSettlementPopup(booking)} className="block mt-1 w-full text-center px-3 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors duration-200 text-xs font-bold">Record Settlement</button>
+                           </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
+                            (instalment) => (
+                              <div key={instalment.id} className="flex items-center space-x-3">
+                                  <span className={`${instalment.status === 'OVERDUE' ? 'text-red-500' : instalment.status === 'PAID' ? 'text-green-500' : 'text-gray-600'}`}>
+                                    Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} ({instalment.status}) - {getTransactionMethod(instalment)}
+                                  </span>
+                                  {instalment.status !== 'PAID' && (
+                                    <button onClick={() => handleOpenPaymentPopup(instalment, booking)} className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">Pay</button>
+                                  )}
+                              </div>
+                            )
+                          )}
+                          {booking.instalments.length > 1 && (
+                            <button onClick={(e) => { e.stopPropagation(); toggleExpand(booking.id); }} className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium">
+                              {isExpanded ? 'Collapse' : 'Show All Instalments'}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -318,29 +264,35 @@ export default function CustomerDeposits() {
         </div>
       ) : (
         <div className="text-center py-12">
-          <svg
-            className="h-16 w-16 text-gray-400 mx-auto mb-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
+          <svg className="h-16 w-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <h3 className="text-xl font-semibold text-gray-700 mb-2">No Customer Deposits Found</h3>
           <p className="text-gray-500">Create a booking with INTERNAL payment method to get started.</p>
         </div>
       )}
+
+      {/* RENDER POPUPS CONDITIONALLY */}
       {paymentPopup && (
         <InstalmentPaymentPopup
           instalment={paymentPopup.instalment}
           booking={paymentPopup.booking}
           onClose={() => setPaymentPopup(null)}
           onSubmit={handleSavePayment}
+        />
+      )}
+      {settlementPopup && (
+        <FinalSettlementPopup
+          booking={settlementPopup}
+          onClose={() => setSettlementPopup(null)}
+          onSubmit={handleSaveSettlement}
+        />
+      )}
+      {/* THIS IS THE FIX: Use the state variable to conditionally render the popup */}
+      {historyPopupBooking && (
+        <PaymentHistoryPopup 
+          booking={historyPopupBooking}
+          onClose={() => setHistoryPopupBooking(null)}
         />
       )}
     </div>

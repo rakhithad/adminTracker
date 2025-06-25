@@ -60,10 +60,15 @@ export const updateInstalment = async (id, data) => {
   return await api.patch(`/bookings/instalments/${id}`, data);
 };
 
+
 export const getSuppliersInfo = async () => {
   return await api.get('/bookings/suppliers-info');
 };
 
 export const createSupplierPaymentSettlement = async (data) => {
   return await api.post('/bookings/suppliers/settlements', data);
+};
+
+export const recordSettlementPayment = async (bookingId, paymentData) => {
+  return await api.post(`/bookings/${bookingId}/record-settlement-payment`, paymentData);
 };

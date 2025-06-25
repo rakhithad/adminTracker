@@ -15,6 +15,7 @@ const {
   getSuppliersInfo,
   createSupplierPaymentSettlement,
   updatePendingBooking,
+  recordSettlementPayment,
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -31,5 +32,6 @@ router.get('/customer-deposits', getCustomerDeposits);
 router.patch('/instalments/:id', updateInstalment);
 router.get('/suppliers-info', getSuppliersInfo);
 router.post('/suppliers/settlements', createSupplierPaymentSettlement)
+router.post('/:bookingId/record-settlement-payment', recordSettlementPayment);
 
 module.exports = router;

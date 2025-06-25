@@ -1191,8 +1191,11 @@ const getCustomerDeposits = async (req, res) => {
         agentName: true,
         pcDate: true,
         travelDate: true,
-        revenue: true, 
-        received: true, 
+        revenue: true,
+        received: true,
+        // We need the original transactionMethod and receivedDate for the initial deposit
+        transactionMethod: true,
+        receivedDate: true,
         instalments: {
           select: {
             id: true,
@@ -1214,30 +1217,57 @@ const getCustomerDeposits = async (req, res) => {
       },
     });
 
-    // Enhance the booking data with balance and totalInstalmentValue
     const formattedBookings = bookings.map((booking) => {
       const totalReceivedFromDb = parseFloat(booking.received || 0);
       const revenue = parseFloat(booking.revenue || 0);
-      const received = parseFloat(booking.received || 0);
-      const totalInstalmentValue = booking.instalments
-        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
-      
+
       const sumOfPaidInstalments = booking.instalments
         .filter((inst) => inst.status === 'PAID')
-        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+        .reduce((sum, inst) => {
+            const paymentTotal = inst.payments.reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
+            return sum + paymentTotal;
+        }, 0);
       
       const initialDeposit = totalReceivedFromDb - sumOfPaidInstalments;
-        
 
+      // --- NEW: Assembling the Unified Payment History ---
+      const paymentHistory = [];
 
+      // 1. Add the Initial Deposit to the history
+      if (initialDeposit > 0) {
+        paymentHistory.push({
+          type: 'Initial Deposit',
+          date: booking.receivedDate || booking.pcDate, // Fallback to pcDate
+          amount: initialDeposit,
+          method: booking.transactionMethod || 'N/A',
+          status: 'Paid',
+        });
+      }
+
+      // 2. Add all instalment and settlement payments
+      booking.instalments.forEach(instalment => {
+        instalment.payments.forEach(payment => {
+          paymentHistory.push({
+            type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
+            date: payment.paymentDate,
+            amount: parseFloat(payment.amount),
+            method: payment.transactionMethod,
+            status: 'Paid',
+          });
+        });
+      });
+      
+      // 3. Sort the entire history chronologically
+      paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+      
       return {
+        // Return all original fields plus the new calculated ones
         ...booking,
         revenue: revenue.toFixed(2),
         received: totalReceivedFromDb.toFixed(2),
         balance: (revenue - totalReceivedFromDb).toFixed(2),
-        // We'll keep this for reference, though the main display will use revenue/balance
-        totalInstalmentValue: totalInstalmentValue.toFixed(2),
         initialDeposit: initialDeposit.toFixed(2),
+        paymentHistory: paymentHistory, // Attach the new history array
       };
     });
 
@@ -1699,6 +1729,109 @@ const updatePendingBooking = async (req, res) => {
   }
 };
 
+const recordSettlementPayment = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { amount, transactionMethod, paymentDate } = req.body;
+
+    // --- 1. Validation ---
+    if (!bookingId || isNaN(parseInt(bookingId))) {
+      return apiResponse.error(res, 'Invalid Booking ID', 400);
+    }
+    const paymentAmount = parseFloat(amount);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+      return apiResponse.error(res, 'Payment amount must be a positive number', 400);
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: parseInt(bookingId) },
+      include: { instalments: true },
+    });
+
+    if (!booking) {
+      return apiResponse.error(res, 'Booking not found', 404);
+    }
+    if (paymentAmount > booking.balance) {
+        return apiResponse.error(res, `Payment (£${paymentAmount.toFixed(2)}) exceeds balance (£${booking.balance.toFixed(2)})`, 400);
+    }
+
+    // --- 2. Find or Create the Special "SETTLEMENT" Instalment ---
+    let settlementInstalment = booking.instalments.find(inst => inst.status === 'SETTLEMENT');
+
+    if (!settlementInstalment) {
+      // It doesn't exist, so create it. This happens on the first settlement payment.
+      settlementInstalment = await prisma.instalment.create({
+        data: {
+          bookingId: booking.id,
+          dueDate: new Date(),
+          // The initial amount is the entire remaining balance
+          amount: booking.balance,
+          status: 'SETTLEMENT',
+        },
+      });
+    }
+
+    // --- 3. Record the Actual Payment ---
+    await prisma.instalmentPayment.create({
+      data: {
+        instalmentId: settlementInstalment.id,
+        amount: paymentAmount,
+        transactionMethod,
+        paymentDate: new Date(paymentDate),
+      },
+    });
+
+    // --- 4. Recalculate Totals for the Booking (CRITICAL for data integrity) ---
+    // This logic should be familiar from your updateInstalment controller
+    const allInstalments = await prisma.instalment.findMany({
+        where: { bookingId: booking.id },
+        include: { payments: true }
+    });
+
+    // Recalculate initial deposit
+    const totalReceivedFromDb = parseFloat(booking.received || 0);
+    const sumOfPaidScheduledInstalments = booking.instalments
+      .filter((inst) => inst.status === 'PAID')
+      .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+    const initialDeposit = totalReceivedFromDb - sumOfPaidScheduledInstalments;
+
+    // Recalculate total received from all paid instalments
+    const newSumOfPaidInstalments = allInstalments
+        .filter(inst => inst.status === 'PAID')
+        .reduce((sum, inst) => sum + inst.amount, 0);
+
+    // Recalculate total received from the settlement instalment's payments
+    const settlementPaymentsTotal = allInstalments
+        .find(inst => inst.status === 'SETTLEMENT')?.payments
+        .reduce((sum, p) => sum + p.amount, 0) || 0;
+        
+    const newTotalReceived = initialDeposit + newSumOfPaidInstalments + settlementPaymentsTotal;
+    const newBalance = parseFloat(booking.revenue) - newTotalReceived;
+
+    const updatedBooking = await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        received: newTotalReceived,
+        balance: newBalance,
+        lastPaymentDate: new Date(paymentDate),
+      },
+    });
+
+    // --- 5. Return a useful payload to the frontend ---
+    return apiResponse.success(res, {
+        bookingUpdate: {
+            id: updatedBooking.id,
+            received: updatedBooking.received,
+            balance: updatedBooking.balance
+        }
+    });
+
+  } catch (error) {
+    console.error('Error recording settlement payment:', error);
+    return apiResponse.error(res, `Failed to record settlement: ${error.message}`, 500);
+  }
+};
+
 
 module.exports = {
   createPendingBooking,
@@ -1714,5 +1847,6 @@ module.exports = {
   updateInstalment,
   getSuppliersInfo,
   createSupplierPaymentSettlement,
-  updatePendingBooking
+  updatePendingBooking,
+  recordSettlementPayment
 };

@@ -1,0 +1,80 @@
+import React from 'react';
+
+// Helper function to format dates
+const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    return new Date(dateStr).toLocaleDateString('en-GB');
+  };
+
+export default function PaymentHistoryPopup({ booking, onClose }) {
+  if (!booking) return null;
+
+  const revenue = parseFloat(booking.revenue);
+  const received = parseFloat(booking.received);
+  const balance = parseFloat(booking.balance);
+
+  return (
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity">
+      <div className="bg-white rounded-lg p-6 w-full max-w-3xl shadow-xl transform transition-all max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <h3 className="text-xl font-bold text-gray-800">Payment History</h3>
+            <p className="text-sm text-gray-500">
+              For Booking: <span className="font-semibold text-blue-600">{booking.refNo}</span> - {booking.paxName}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">×</button>
+        </div>
+
+        {/* Financial Summary */}
+        <div className="grid grid-cols-3 gap-4 mb-6 border-t border-b py-4">
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase font-semibold">Total Revenue</p>
+            <p className="text-lg font-bold text-gray-800">£{revenue.toFixed(2)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase font-semibold">Total Paid</p>
+            <p className="text-lg font-bold text-green-600">£{received.toFixed(2)}</p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs text-gray-500 uppercase font-semibold">Balance Due</p>
+            <p className="text-lg font-bold text-red-600">£{balance.toFixed(2)}</p>
+          </div>
+        </div>
+
+        {/* History Table */}
+        <div className="overflow-y-auto flex-grow">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount (£)</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {booking.paymentHistory && booking.paymentHistory.length > 0 ? (
+                booking.paymentHistory.map((payment, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatDate(payment.date)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-800">{payment.type}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{payment.method.replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-800 font-medium text-right">
+                      {payment.amount.toFixed(2)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="4" className="text-center py-10 text-gray-500">No payment history found.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
