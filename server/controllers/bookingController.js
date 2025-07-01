@@ -386,6 +386,9 @@ const approveBooking = async (req, res) => {
         transFee: pendingBooking.transFee ? parseFloat(pendingBooking.transFee) : null,
         surcharge: pendingBooking.surcharge ? parseFloat(pendingBooking.surcharge) : null,
         received: pendingBooking.received ? parseFloat(pendingBooking.received) : null,
+        initialDeposit: (pendingBooking.paymentMethod === 'INTERNAL' || pendingBooking.paymentMethod === 'INTERNAL_HUMM') 
+      ? (parseFloat(pendingBooking.received) || 0) 
+      : (parseFloat(pendingBooking.revenue) || 0),
         transactionMethod: pendingBooking.transactionMethod || null,
         receivedDate: pendingBooking.receivedDate || null,
         balance: pendingBooking.balance ? parseFloat(pendingBooking.balance) : null,
@@ -433,6 +436,7 @@ const approveBooking = async (req, res) => {
           })),
         },
       },
+      
       include: {
         costItems: { include: { suppliers: true } },
         instalments: true,
@@ -734,11 +738,57 @@ const createBooking = async (req, res) => {
 const getBookings = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
-      include: {
-        costItems: { include: { suppliers: true } },
-        instalments: true,
+      // Using select gives us fine-grained control over the data payload
+      select: {
+        // --- Core fields for the main table ---
+        id: true,
+        refNo: true,
+        paxName: true,
+        agentName: true,
+        pnr: true,
+        airline: true,
+        fromTo: true,
+        bookingType: true,
+        bookingStatus: true,
+        travelDate: true,
+        revenue: true,
+        balance: true,
+        profit: true,
+
+        // --- Additional fields needed for the Details Popup ---
+        teamName: true,
+        pcDate: true,
+        issuedDate: true,
+        paymentMethod: true,
+        lastPaymentDate: true,
+        prodCost: true,
+        transFee: true,
+        surcharge: true,
+        received: true,
+        initialDeposit: true, // Make sure this is selected
+        receivedDate: true,   // Needed for the initial deposit date
+        invoiced: true,
+        description: true,
+        
+        // --- Relations needed for the Popup Tabs ---
+        costItems: { 
+            include: { 
+                suppliers: true 
+            } 
+        },
         passengers: true,
+
+        // --- THE CRITICAL FIX IS HERE ---
+        // Instead of "instalments: true", we do a nested include.
+        instalments: {
+          include: {
+            payments: true, // This tells Prisma to fetch the payments for each instalment
+          },
+        },
       },
+      orderBy: {
+          pcDate: 'desc' // Optional: order bookings by most recent
+      }
     });
     return apiResponse.success(res, bookings);
   } catch (error) {

@@ -41,6 +41,7 @@ model Booking {
   instalments       Instalment[]    
   passengers        Passenger[]
   numPax            Int             @map("num_pax")
+  initialDeposit    Float?          @map("initial_deposit")
   @@map("bookings")
 }
 
