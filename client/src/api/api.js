@@ -72,3 +72,7 @@ export const createSupplierPaymentSettlement = async (data) => {
 export const recordSettlementPayment = async (bookingId, paymentData) => {
   return await api.post(`/bookings/${bookingId}/record-settlement-payment`, paymentData);
 };
+
+export const getTransactions = async () => {
+  return await api.get('/bookings/transactions');
+};

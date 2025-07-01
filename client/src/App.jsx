@@ -6,6 +6,7 @@ import CreateBooking from './pages/CreateBookingPage';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import CustomerDepositPage from './pages/CustomerDepositsPage';
 import SuppliersInfo from './pages/SuppliersInfo';
+import TransactionsPage from './pages/TransactionsPage';
 
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
           <Route path="/customer-deposits" element={<CustomerDepositPage />} />
           <Route path="/suppliers-info" element={<SuppliersInfo />} />
           <Route path="/create-booking" element={<CreateBooking />} />
+          <Route path="/transactions" element={<TransactionsPage />} />
           
         </Routes>
       </BrowserRouter>

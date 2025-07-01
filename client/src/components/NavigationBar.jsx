@@ -10,11 +10,13 @@ export default function NavigationBar() {
   };
 
   const navLinks = [
+    { name: 'Home', path: '/' },
     { name: 'Dashboard', path: '/Dashboard' },
     { name: 'Create Booking', path: '/create-booking' },
     { name: 'Bookings', path: '/bookings' },
     { name: 'Customer Deposits', path: '/customer-deposits' },
     { name: 'Supplier Info', path: '/suppliers-info' },
+    { name: 'Transactions', path: '/transactions' },
   ];
 
   return (

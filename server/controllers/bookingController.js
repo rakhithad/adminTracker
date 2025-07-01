@@ -1193,7 +1193,6 @@ const getCustomerDeposits = async (req, res) => {
         travelDate: true,
         revenue: true,
         received: true,
-        // We need the original transactionMethod and receivedDate for the initial deposit
         transactionMethod: true,
         receivedDate: true,
         instalments: {
@@ -1833,6 +1832,141 @@ const recordSettlementPayment = async (req, res) => {
 };
 
 
+// controllers/bookingController.js
+
+const getTransactions = async (req, res) => {
+  try {
+    // 1. Fetch all different types of financial transactions with precise includes
+
+    // MONEY IN: Initial Deposits (from non-instalment bookings)
+    const initialDeposits = await prisma.booking.findMany({
+      where: {
+        received: { gt: 0 },
+        paymentMethod: { notIn: ['INTERNAL', 'INTERNAL_HUMM'] },
+      },
+      select: {
+        id: true,
+        refNo: true,
+        paxName: true,
+        received: true,
+        receivedDate: true,
+        transactionMethod: true,
+      },
+    });
+
+    // MONEY IN: Instalment Payments
+    const instalmentPayments = await prisma.instalmentPayment.findMany({
+      include: {
+        instalment: {
+          select: { // More precise select
+            booking: {
+              select: {
+                refNo: true,
+                paxName: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // MONEY OUT: Supplier Payments
+    const supplierSettlements = await prisma.supplierPaymentSettlement.findMany({
+      include: {
+        costItemSupplier: {
+          select: { // More precise select
+            supplier: true,
+            costItem: {
+              select: {
+                booking: {
+                  select: {
+                    refNo: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // 2. Map each type to a standardized format with explicit checks
+
+    const formattedInitialDeposits = initialDeposits.map(booking => ({
+      id: `booking-${booking.id}`,
+      type: 'Incoming',
+      category: 'Initial Deposit',
+      date: booking.receivedDate,
+      amount: booking.received,
+      bookingRefNo: booking.refNo,
+      method: booking.transactionMethod,
+      details: `Passenger: ${booking.paxName}`,
+    }));
+
+    const formattedInstalmentPayments = instalmentPayments.map(payment => ({
+      id: `inst-${payment.id}`,
+      type: 'Incoming',
+      category: 'Instalment',
+      date: payment.paymentDate,
+      amount: payment.amount,
+      bookingRefNo: payment.instalment.booking.refNo,
+      method: payment.transactionMethod,
+      details: `Passenger: ${payment.instalment.booking.paxName}`,
+    }));
+
+    const formattedSupplierPayments = supplierSettlements.map(settlement => ({
+      id: `supp-${settlement.id}`,
+      type: 'Outgoing',
+      category: 'Supplier Payment',
+      date: settlement.settlementDate,
+      amount: settlement.amount,
+      // More robust access to the nested booking reference number
+      bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A',
+      method: settlement.transactionMethod,
+      details: `Supplier: ${settlement.costItemSupplier?.supplier || 'Unknown'}`,
+    }));
+
+    // 3. Combine, sort, calculate totals, and send
+
+    const allTransactions = [
+      ...formattedInitialDeposits,
+      ...formattedInstalmentPayments,
+      ...formattedSupplierPayments,
+    ].filter(t => t && t.id); // Add a filter to remove any potential null/undefined entries
+
+    allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    const totalIncoming = allTransactions
+      .filter(t => t.type === 'Incoming')
+      .reduce((sum, t) => sum + (t.amount || 0), 0); // Add fallback for amount
+
+    const totalOutgoing = allTransactions
+      .filter(t => t.type === 'Outgoing')
+      .reduce((sum, t) => sum + (t.amount || 0), 0); // Add fallback for amount
+
+    const netBalance = totalIncoming - totalOutgoing;
+
+    const payload = {
+      transactions: allTransactions,
+      totals: {
+        incoming: totalIncoming,
+        outgoing: totalOutgoing,
+        netBalance: netBalance,
+      },
+    };
+    
+    return apiResponse.success(res, payload);
+
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+    return apiResponse.error(res, `Failed to fetch transactions: ${error.message}`, 500);
+  }
+};
+
+
+
+
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -1848,5 +1982,6 @@ module.exports = {
   getSuppliersInfo,
   createSupplierPaymentSettlement,
   updatePendingBooking,
-  recordSettlementPayment
+  recordSettlementPayment,
+  getTransactions
 };
