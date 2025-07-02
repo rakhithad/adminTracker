@@ -85,7 +85,7 @@ export default function BookingsPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-800">
                 <tr>
-                  {[ "Ref No", "Passenger", "Agent", "PNR", "Airline", "Route", "Type", "Status", "Travel Date", "Revenue", "Balance", "Profit" ].map((header) => (
+                  {[ "FolderNo", "Ref No", "Passenger", "Agent", "PNR", "Airline", "Route", "Type", "Status", "Travel Date", "Revenue", "Balance", "Profit" ].map((header) => (
                     <th key={header} scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">
                       {header}
                     </th>
@@ -97,6 +97,7 @@ export default function BookingsPage() {
                   filteredBookings.map((booking) => (
                     // Make the entire row clickable
                     <tr key={booking.id} onClick={() => setSelectedBooking(booking)} className="hover:bg-blue-50 cursor-pointer transition-colors duration-150">
+                        <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-blue-600">{booking.folderNo}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-blue-600">{booking.refNo}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-800">{booking.paxName}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{booking.agentName}</td>

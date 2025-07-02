@@ -178,7 +178,7 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Ref No / PNR</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Folder / Ref No / PNR</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Passenger / Agent</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Route / Travel Date</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Revenue (£)</th>
@@ -190,6 +190,7 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
                 <React.Fragment key={booking.id}>
                   <tr className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
+                        {booking.folderNo && <div className="text-sm font-bold text-blue-600">Folder: {booking.folderNo}</div>}
                         <div className="text-sm font-medium text-gray-900">{booking.refNo}</div>
                         <div className="text-xs text-gray-500">{booking.pnr}</div>
                     </td>
