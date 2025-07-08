@@ -43,6 +43,9 @@ model Booking {
   passengers        Passenger[]
   numPax            Int             @map("num_pax")
   initialDeposit    Float?          @map("initial_deposit")
+
+  cancellation      Cancellation?   
+
   @@map("bookings")
 }
 
@@ -209,6 +212,7 @@ enum BookingStatus {
   PENDING
   CONFIRMED
   COMPLETED
+  CANCELLED
 }
 
 enum PendingStatus {
@@ -304,4 +308,41 @@ model SupplierPaymentSettlement {
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
   @@map("supplier_payment_settlements")
+}
+
+enum CreditNoteStatus {
+  AVAILABLE
+  PARTIALLY_USED
+  USED
+}
+
+
+// In prisma/schema.prisma, find the Cancellation model
+
+model Cancellation {
+  id                      Int      @id @default(autoincrement())
+  originalBookingId       Int      @unique @map("original_booking_id")
+  originalBooking         Booking  @relation(fields: [originalBookingId], references: [id])
+  
+  // --- NEW FIELDS TO ADD ---
+  folderNo                String         @unique @map("folder_no") // Its own unique folder number
+  refundTransactionMethod String   @map("refund_transaction_method") // How we paid the pax
+
+  // Snapshot of the original booking's key financials
+  originalRevenue         Float    @map("original_revenue")
+  originalProdCost        Float    @map("original_prod_cost")
+
+  // The new transaction details you input
+  supplierCancellationFee Float    @map("supplier_cancellation_fee")
+  refundToPassenger       Float    @map("refund_to_passenger")
+  
+  // The results of this transaction
+  creditNoteAmount        Float?   @map("credit_note_amount")
+  profitOrLoss            Float    @map("profit_or_loss")
+
+  description             String?
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("cancellations")
 }

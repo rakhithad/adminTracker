@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FaTimes, FaPencilAlt, FaSave, FaBan } from 'react-icons/fa';
-import { updateBooking } from '../api/api';
+import { updateBooking, createCancellation  } from '../api/api';
+import CancellationPopup from './CancellationPopup'
 
 // Reusable tab button
 const TabButton = ({ label, isActive, onClick }) => (
@@ -29,6 +30,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({});
   const [error, setError] = useState('');
+  const [showCancelPopup, setShowCancelPopup] = useState(false);
 
   useEffect(() => {
     // When a new booking is selected, reset the state
@@ -42,6 +44,12 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     setIsEditing(false);
     setActiveTab('details');
   }, [booking]);
+
+  const handleConfirmCancellation = async (data) => {
+    await createCancellation(booking.id, data);
+    onSave(); 
+    onClose();
+  };
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
@@ -209,6 +217,9 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             ) : (
                 <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><FaPencilAlt className="mr-2"/>Edit</button>
             )}
+            {!isEditing && booking.bookingStatus !== 'CANCELLED' && (
+         <button onClick={() => setShowCancelPopup(true)} className="flex items-center px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700">Cancel Booking</button>
+      )}
             <button onClick={onClose} className="p-2 rounded-full text-gray-500 hover:bg-gray-100"><FaTimes /></button>
           </div>
         </div>
@@ -231,6 +242,14 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             {activeTab === 'customer' && renderCustomerPaymentsTab()}
             {activeTab === 'supplier' && renderSupplierPaymentsTab()}
         </div>
+
+        {showCancelPopup && (
+    <CancellationPopup 
+      booking={booking}
+      onClose={() => setShowCancelPopup(false)}
+      onConfirm={handleConfirmCancellation}
+    />
+  )}
       </div>
     </div>
   );

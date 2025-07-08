@@ -749,60 +749,19 @@ const createBooking = async (req, res) => {
   }
 };
 
+// In bookingController.js
+
 const getBookings = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
-      // Using select gives us fine-grained control over the data payload
-      select: {
-        folderNo: true,
-        id: true,
-        refNo: true,
-        paxName: true,
-        agentName: true,
-        pnr: true,
-        airline: true,
-        fromTo: true,
-        bookingType: true,
-        bookingStatus: true,
-        travelDate: true,
-        revenue: true,
-        balance: true,
-        profit: true,
-
-        // --- Additional fields needed for the Details Popup ---
-        teamName: true,
-        pcDate: true,
-        issuedDate: true,
-        paymentMethod: true,
-        lastPaymentDate: true,
-        prodCost: true,
-        transFee: true,
-        surcharge: true,
-        received: true,
-        initialDeposit: true, // Make sure this is selected
-        receivedDate: true,   // Needed for the initial deposit date
-        invoiced: true,
-        description: true,
-        
-        // --- Relations needed for the Popup Tabs ---
-        costItems: { 
-            include: { 
-                suppliers: true 
-            } 
-        },
+      // The `where` clause is no longer needed since we aren't nesting bookings
+      include: {
+        costItems: { include: { suppliers: true } },
         passengers: true,
-
-        // --- THE CRITICAL FIX IS HERE ---
-        // Instead of "instalments: true", we do a nested include.
-        instalments: {
-          include: {
-            payments: true, // This tells Prisma to fetch the payments for each instalment
-          },
-        },
+        instalments: { include: { payments: true } },
+        cancellation: true, // <-- NEW: Include the related cancellation record
       },
-      orderBy: {
-          pcDate: 'desc' // Optional: order bookings by most recent
-      }
+      orderBy: { pcDate: 'desc' },
     });
     return apiResponse.success(res, bookings);
   } catch (error) {
@@ -1900,7 +1859,7 @@ const recordSettlementPayment = async (req, res) => {
 
 const getTransactions = async (req, res) => {
   try {
-    // 1. Fetch all different types of financial transactions with precise includes
+    // 1. Fetch all different types of financial transactions
 
     // MONEY IN: Initial Deposits (from non-instalment bookings)
     const initialDeposits = await prisma.booking.findMany({
@@ -1909,114 +1868,69 @@ const getTransactions = async (req, res) => {
         paymentMethod: { notIn: ['INTERNAL', 'INTERNAL_HUMM'] },
       },
       select: {
-        id: true,
-        refNo: true,
-        paxName: true,
-        received: true,
-        receivedDate: true,
-        transactionMethod: true,
+        id: true, refNo: true, paxName: true, received: true, receivedDate: true, transactionMethod: true,
       },
     });
 
     // MONEY IN: Instalment Payments
     const instalmentPayments = await prisma.instalmentPayment.findMany({
-      include: {
-        instalment: {
-          select: { // More precise select
-            booking: {
-              select: {
-                refNo: true,
-                paxName: true,
-              },
-            },
-          },
-        },
-      },
+      include: { instalment: { select: { booking: { select: { refNo: true, paxName: true } } } } },
     });
 
     // MONEY OUT: Supplier Payments
     const supplierSettlements = await prisma.supplierPaymentSettlement.findMany({
-      include: {
-        costItemSupplier: {
-          select: { // More precise select
-            supplier: true,
-            costItem: {
-              select: {
-                booking: {
-                  select: {
-                    refNo: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
+      include: { costItemSupplier: { select: { supplier: true, costItem: { select: { booking: { select: { refNo: true } } } } } } },
     });
 
-    // 2. Map each type to a standardized format with explicit checks
+    // --- NEW: MONEY OUT: Passenger Refunds from Cancellations ---
+    const passengerRefunds = await prisma.booking.findMany({
+      where: {
+        bookingType: 'CANCELLATION',
+        refundedAmount: { gt: 0 },
+      },
+      select: {
+        id: true, refNo: true, paxName: true, refundedAmount: true, createdAt: true,
+      }
+    });
+
+    // 2. Map each type to a standardized format
 
     const formattedInitialDeposits = initialDeposits.map(booking => ({
-      id: `booking-${booking.id}`,
-      type: 'Incoming',
-      category: 'Initial Deposit',
-      date: booking.receivedDate,
-      amount: booking.received,
-      bookingRefNo: booking.refNo,
-      method: booking.transactionMethod,
-      details: `Passenger: ${booking.paxName}`,
+      id: `booking-${booking.id}`, type: 'Incoming', category: 'Initial Deposit', date: booking.receivedDate, amount: booking.received, bookingRefNo: booking.refNo, method: booking.transactionMethod, details: `Passenger: ${booking.paxName}`,
     }));
 
     const formattedInstalmentPayments = instalmentPayments.map(payment => ({
-      id: `inst-${payment.id}`,
-      type: 'Incoming',
-      category: 'Instalment',
-      date: payment.paymentDate,
-      amount: payment.amount,
-      bookingRefNo: payment.instalment.booking.refNo,
-      method: payment.transactionMethod,
-      details: `Passenger: ${payment.instalment.booking.paxName}`,
+      id: `inst-${payment.id}`, type: 'Incoming', category: 'Instalment', date: payment.paymentDate, amount: payment.amount, bookingRefNo: payment.instalment.booking.refNo, method: payment.transactionMethod, details: `Passenger: ${payment.instalment.booking.paxName}`,
     }));
 
     const formattedSupplierPayments = supplierSettlements.map(settlement => ({
-      id: `supp-${settlement.id}`,
-      type: 'Outgoing',
-      category: 'Supplier Payment',
-      date: settlement.settlementDate,
-      amount: settlement.amount,
-      // More robust access to the nested booking reference number
-      bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A',
-      method: settlement.transactionMethod,
-      details: `Supplier: ${settlement.costItemSupplier?.supplier || 'Unknown'}`,
+      id: `supp-${settlement.id}`, type: 'Outgoing', category: 'Supplier Payment', date: settlement.settlementDate, amount: settlement.amount, bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A', method: settlement.transactionMethod, details: `Supplier: ${settlement.costItemSupplier?.supplier || 'Unknown'}`,
+    }));
+
+    // --- NEW: Map the refunds ---
+    const formattedRefunds = passengerRefunds.map(refund => ({
+      id: `refund-${refund.id}`, type: 'Outgoing', category: 'Passenger Refund', date: refund.createdAt, // Using createdAt as the refund date
+      amount: refund.refundedAmount, bookingRefNo: refund.refNo, method: 'Bank Transfer', // Assuming method, can be enhanced later
+      details: `Refund to: ${refund.paxName}`,
     }));
 
     // 3. Combine, sort, calculate totals, and send
-
     const allTransactions = [
       ...formattedInitialDeposits,
       ...formattedInstalmentPayments,
       ...formattedSupplierPayments,
-    ].filter(t => t && t.id); // Add a filter to remove any potential null/undefined entries
+      ...formattedRefunds, // Add refunds to the list
+    ].filter(t => t && t.id);
 
     allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    const totalIncoming = allTransactions
-      .filter(t => t.type === 'Incoming')
-      .reduce((sum, t) => sum + (t.amount || 0), 0); // Add fallback for amount
-
-    const totalOutgoing = allTransactions
-      .filter(t => t.type === 'Outgoing')
-      .reduce((sum, t) => sum + (t.amount || 0), 0); // Add fallback for amount
-
+    const totalIncoming = allTransactions.filter(t => t.type === 'Incoming').reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalOutgoing = allTransactions.filter(t => t.type === 'Outgoing').reduce((sum, t) => sum + (t.amount || 0), 0);
     const netBalance = totalIncoming - totalOutgoing;
 
     const payload = {
       transactions: allTransactions,
-      totals: {
-        incoming: totalIncoming,
-        outgoing: totalOutgoing,
-        netBalance: netBalance,
-      },
+      totals: { incoming: totalIncoming, outgoing: totalOutgoing, netBalance: netBalance },
     };
     
     return apiResponse.success(res, payload);
@@ -2027,8 +1941,77 @@ const getTransactions = async (req, res) => {
   }
 };
 
+const createCancellation = async (req, res) => {
+  const { id: originalBookingId } = req.params;
+  const { supplierCancellationFee, refundToPassenger, refundTransactionMethod } = req.body;
 
+  if (supplierCancellationFee === undefined || refundToPassenger === undefined || !refundTransactionMethod) {
+    return apiResponse.error(res, 'Supplier fee, refund amount, and refund transaction method are required.', 400);
+  }
 
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Fetch the Original Booking
+      const originalBooking = await tx.booking.findUnique({
+        where: { id: parseInt(originalBookingId) },
+        include: { cancellation: true }
+      });
+
+      if (!originalBooking) { throw new Error('Original booking not found.'); }
+      if (originalBooking.cancellation) { throw new Error('This booking has already been cancelled.'); }
+
+      // 2. Calculate Financials
+      const originalRevenue = originalBooking.revenue || 0;
+      const originalProdCost = originalBooking.prodCost || 0;
+      const fee = parseFloat(supplierCancellationFee);
+      const refund = parseFloat(refundToPassenger);
+      const profitOrLoss = (originalProdCost - fee) - refund;
+      const creditNoteAmount = originalProdCost - fee;
+
+      // --- 3. CALCULATE THE '1.1' STYLE FOLDER NUMBER ---
+      // Count how many cancellations already exist for this booking
+      const existingCancellationsCount = await tx.cancellation.count({
+          where: { originalBooking: { id: originalBooking.id } },
+      });
+      const subVersion = existingCancellationsCount + 1;
+      const newCancellationFolderNo = `${originalBooking.folderNo}.${subVersion}`;
+      // This will generate '1.1', then '1.2' on a second cancellation, etc.
+
+      // 4. Create the Cancellation Record
+      const newCancellationRecord = await tx.cancellation.create({
+        data: {
+          originalBookingId: originalBooking.id,
+          folderNo: newCancellationFolderNo, // SAVING THE STRING '1.1'
+          refundTransactionMethod: refundTransactionMethod,
+          originalRevenue: originalRevenue,
+          originalProdCost: originalProdCost,
+          supplierCancellationFee: fee,
+          refundToPassenger: refund,
+          creditNoteAmount: creditNoteAmount > 0 ? creditNoteAmount : 0,
+          profitOrLoss: profitOrLoss,
+          description: `Credit Note: £${creditNoteAmount.toFixed(2)}. Pax Refund: £${refund.toFixed(2)} via ${refundTransactionMethod}.`,
+        },
+      });
+
+      // 5. Update the Original Booking's status
+      await tx.booking.update({
+        where: { id: originalBooking.id },
+        data: { bookingStatus: 'CANCELLED' },
+      });
+
+      return newCancellationRecord;
+    });
+
+    return apiResponse.success(res, result, 201);
+
+  } catch (error) {
+    console.error('Error creating cancellation:', error);
+    if (error.code === 'P2002' && error.meta?.target?.includes('folderNo')) {
+        return apiResponse.error(res, 'A unique folder number could not be generated. Please try again.', 409);
+    }
+    return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
+  }
+};
 
 
 module.exports = {
@@ -2047,5 +2030,6 @@ module.exports = {
   createSupplierPaymentSettlement,
   updatePendingBooking,
   recordSettlementPayment,
-  getTransactions
+  getTransactions,
+  createCancellation
 };

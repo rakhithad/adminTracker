@@ -76,3 +76,7 @@ export const recordSettlementPayment = async (bookingId, paymentData) => {
 export const getTransactions = async () => {
   return await api.get('/bookings/transactions');
 };
+
+export const createCancellation = async (originalBookingId, data) => {
+  return await api.post(`/bookings/${originalBookingId}/cancel`, data);
+};
