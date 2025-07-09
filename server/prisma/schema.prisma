@@ -295,6 +295,9 @@ model CostItemSupplier {
   settlements            SupplierPaymentSettlement[]
   createdAt              DateTime                @default(now()) @map("created_at")
   updatedAt              DateTime                @updatedAt @map("updated_at")
+  paidByCreditNoteUsage  CreditNoteUsage?
+
+
   @@map("cost_item_suppliers")
 }
 
@@ -344,5 +347,44 @@ model Cancellation {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
+  generatedCreditNote     SupplierCreditNote?
+
+
+
   @@map("cancellations")
+}
+
+// Add this model for the credit notes
+model SupplierCreditNote {
+  id                 Int      @id @default(autoincrement())
+  supplier           Suppliers
+  initialAmount      Float    @map("initial_amount")
+  remainingAmount    Float    @map("remaining_amount")
+  status             CreditNoteStatus @default(AVAILABLE)
+  generatedFromCancellationId Int @unique @map("generated_from_cancellation_id")
+  generatedFromCancellation Cancellation @relation(fields: [generatedFromCancellationId], references: [id])
+  
+  // This links to all the times this credit note was used
+  usageHistory       CreditNoteUsage[]
+
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  @@map("supplier_credit_notes")
+}
+
+// Add this model to track the usage history
+model CreditNoteUsage {
+  id                  Int      @id @default(autoincrement())
+  amountUsed          Float    @map("amount_used")
+  usedAt              DateTime @default(now()) @map("used_at")
+
+  // Link to the credit note that was used
+  creditNoteId        Int
+  creditNote          SupplierCreditNote @relation(fields: [creditNoteId], references: [id])
+  
+  // Link to the booking where it was applied
+  usedOnCostItemSupplierId Int @unique
+  usedOnCostItemSupplier   CostItemSupplier @relation(fields: [usedOnCostItemSupplierId], references: [id])
+
+  @@map("credit_note_usage")
 }

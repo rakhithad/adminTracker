@@ -1384,52 +1384,75 @@ const getSuppliersInfo = async (req, res) => {
           include: {
             suppliers: {
               include: {
-                settlements: true, // Include settlement history
+                settlements: true,
+                paidByCreditNoteUsage: true,
               },
             },
           },
         },
+        cancellation: {
+          include: {
+            generatedCreditNote: true // We need the ID to match below
+          }
+        }
       },
     });
 
-    const supplierSummary = bookings.reduce((acc, booking) => {
-      booking.costItems.forEach((item) => {
-        item.suppliers.forEach((s) => {
-          if (!acc[s.supplier]) {
-            acc[s.supplier] = {
-              totalAmount: 0,
-              totalPaid: 0,
-              totalPending: 0,
-              bookings: [],
-            };
+    const allCreditNotes = await prisma.supplierCreditNote.findMany({
+      include: {
+        usageHistory: {
+          include: {
+            usedOnCostItemSupplier: {
+              include: { costItem: { include: { booking: { select: { refNo: true } } } } }
+            }
           }
-          acc[s.supplier].totalAmount += parseFloat(s.amount);
-          acc[s.supplier].totalPaid += parseFloat(s.paidAmount) || 0;
-          acc[s.supplier].totalPending += parseFloat(s.pendingAmount) || 0;
-          acc[s.supplier].bookings.push({
-            bookingId: booking.id,
-            refNo: booking.refNo,
-            paxName: booking.paxName,
-            agentName: booking.agentName,
-            category: item.category,
-            amount: parseFloat(s.amount),
-            paymentMethod: s.paymentMethod,
-            paidAmount: parseFloat(s.paidAmount) || 0,
-            pendingAmount: parseFloat(s.pendingAmount) || 0,
-            createdAt: booking.createdAt,
-            costItemSupplierId: s.id, // Include for settlement reference
-            settlements: s.settlements.map((settlement) => ({
-              id: settlement.id,
-              amount: parseFloat(settlement.amount),
-              transactionMethod: settlement.transactionMethod,
-              settlementDate: settlement.settlementDate,
-              createdAt: settlement.createdAt,
-            })),
-          });
+        },
+        generatedFromCancellation: { // This relation is on SupplierCreditNote
+          include: {
+            originalBooking: { // This relation is on Cancellation
+              select: { refNo: true } 
+            }
+          }
+        }
+      }
+    });
+
+    // We can simplify the data assembly now
+    const supplierSummary = {};
+
+    // Process all bookings
+    bookings.forEach(booking => {
+        booking.costItems.forEach(item => {
+            item.suppliers.forEach(s => {
+                if (!supplierSummary[s.supplier]) {
+                    supplierSummary[s.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
+                }
+                supplierSummary[s.supplier].totalAmount += parseFloat(s.amount);
+                supplierSummary[s.supplier].totalPaid += parseFloat(s.paidAmount) || 0;
+                supplierSummary[s.supplier].totalPending += parseFloat(s.pendingAmount) || 0;
+                supplierSummary[s.supplier].transactions.push({ type: 'Booking', data: { ...s, refNo: booking.refNo, paxName: booking.paxName } });
+            });
         });
-      });
-      return acc;
-    }, {});
+    });
+
+    // Process all credit notes and add them to the correct supplier
+    allCreditNotes.forEach(note => {
+        if (!supplierSummary[note.supplier]) {
+            supplierSummary[note.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
+        }
+        supplierSummary[note.supplier].transactions.push({
+            type: 'CreditNote',
+            data: {
+                ...note,
+                generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'
+            }
+        });
+    });
+
+    // Sort transactions within each supplier by date
+    for (const supplier in supplierSummary) {
+        supplierSummary[supplier].transactions.sort((a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt));
+    }
 
     return apiResponse.success(res, supplierSummary);
   } catch (error) {
@@ -1946,54 +1969,69 @@ const createCancellation = async (req, res) => {
   const { supplierCancellationFee, refundToPassenger, refundTransactionMethod } = req.body;
 
   if (supplierCancellationFee === undefined || refundToPassenger === undefined || !refundTransactionMethod) {
-    return apiResponse.error(res, 'Supplier fee, refund amount, and refund transaction method are required.', 400);
+    return apiResponse.error(res, 'All fields are required.', 400);
   }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Fetch the Original Booking
+      // 1. Fetch Original Booking and its MAIN cost item supplier
       const originalBooking = await tx.booking.findUnique({
         where: { id: parseInt(originalBookingId) },
-        include: { cancellation: true }
+        include: {
+          cancellation: true,
+          costItems: { include: { suppliers: true } }
+        }
       });
 
-      if (!originalBooking) { throw new Error('Original booking not found.'); }
-      if (originalBooking.cancellation) { throw new Error('This booking has already been cancelled.'); }
+      if (!originalBooking) throw new Error('Original booking not found.');
+      if (originalBooking.cancellation) throw new Error('Booking already cancelled.');
 
+      const mainCostItem = [...originalBooking.costItems].sort((a, b) => b.amount - a.amount)[0];
+      if (!mainCostItem || mainCostItem.suppliers.length === 0) {
+        throw new Error('Could not determine primary supplier for cancellation.');
+      }
+      const supplierInfo = mainCostItem.suppliers[0];
+      const amountPaidToSupplier = supplierInfo.paidAmount || 0;
+      
       // 2. Calculate Financials
-      const originalRevenue = originalBooking.revenue || 0;
-      const originalProdCost = originalBooking.prodCost || 0;
       const fee = parseFloat(supplierCancellationFee);
       const refund = parseFloat(refundToPassenger);
-      const profitOrLoss = (originalProdCost - fee) - refund;
-      const creditNoteAmount = originalProdCost - fee;
+      const profitOrLoss = (amountPaidToSupplier - fee) - refund;
+      const creditOrDebt = amountPaidToSupplier - fee;
 
-      // --- 3. CALCULATE THE '1.1' STYLE FOLDER NUMBER ---
-      // Count how many cancellations already exist for this booking
-      const existingCancellationsCount = await tx.cancellation.count({
-          where: { originalBooking: { id: originalBooking.id } },
-      });
-      const subVersion = existingCancellationsCount + 1;
-      const newCancellationFolderNo = `${originalBooking.folderNo}.${subVersion}`;
-      // This will generate '1.1', then '1.2' on a second cancellation, etc.
+      const existingCancellationsCount = await tx.cancellation.count({ where: { originalBookingId: originalBooking.id } });
+      const newCancellationFolderNo = `${originalBooking.folderNo}.${existingCancellationsCount + 1}`;
 
-      // 4. Create the Cancellation Record
+      // 3. Create the Cancellation Record
       const newCancellationRecord = await tx.cancellation.create({
         data: {
           originalBookingId: originalBooking.id,
-          folderNo: newCancellationFolderNo, // SAVING THE STRING '1.1'
+          folderNo: newCancellationFolderNo,
           refundTransactionMethod: refundTransactionMethod,
-          originalRevenue: originalRevenue,
-          originalProdCost: originalProdCost,
+          originalRevenue: originalBooking.revenue || 0,
+          originalProdCost: originalBooking.prodCost || 0,
           supplierCancellationFee: fee,
           refundToPassenger: refund,
-          creditNoteAmount: creditNoteAmount > 0 ? creditNoteAmount : 0,
+          creditNoteAmount: creditOrDebt > 0 ? creditOrDebt : 0,
           profitOrLoss: profitOrLoss,
-          description: `Credit Note: £${creditNoteAmount.toFixed(2)}. Pax Refund: £${refund.toFixed(2)} via ${refundTransactionMethod}.`,
+          description: `Cancellation Processed. Outcome: ${creditOrDebt > 0 ? `£${creditOrDebt.toFixed(2)} Credit` : `£${Math.abs(creditOrDebt).toFixed(2)} Payable`}`,
         },
       });
 
-      // 5. Update the Original Booking's status
+      // 4. Create Credit Note if applicable
+      if (creditOrDebt > 0) {
+        await tx.supplierCreditNote.create({
+          data: {
+            supplier: supplierInfo.supplier,
+            initialAmount: creditOrDebt,
+            remainingAmount: creditOrDebt,
+            generatedFromCancellationId: newCancellationRecord.id,
+          }
+        });
+      }
+      // --- REMOVED THE LOGIC THAT CREATES A NEW PAYABLE. The original record remains untouched. ---
+      
+      // 5. Finalize by updating original booking status
       await tx.booking.update({
         where: { id: originalBooking.id },
         data: { bookingStatus: 'CANCELLED' },
@@ -2006,13 +2044,9 @@ const createCancellation = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating cancellation:', error);
-    if (error.code === 'P2002' && error.meta?.target?.includes('folderNo')) {
-        return apiResponse.error(res, 'A unique folder number could not be generated. Please try again.', 409);
-    }
     return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
   }
 };
-
 
 module.exports = {
   createPendingBooking,
