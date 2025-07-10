@@ -295,7 +295,7 @@ model CostItemSupplier {
   settlements            SupplierPaymentSettlement[]
   createdAt              DateTime                @default(now()) @map("created_at")
   updatedAt              DateTime                @updatedAt @map("updated_at")
-  paidByCreditNoteUsage  CreditNoteUsage?
+  paidByCreditNoteUsage  CreditNoteUsage[]
 
 
   @@map("cost_item_suppliers")
@@ -373,18 +373,18 @@ model SupplierCreditNote {
 }
 
 // Add this model to track the usage history
+// In prisma/schema.prisma
+
 model CreditNoteUsage {
   id                  Int      @id @default(autoincrement())
   amountUsed          Float    @map("amount_used")
   usedAt              DateTime @default(now()) @map("used_at")
 
-  // Link to the credit note that was used
   creditNoteId        Int
   creditNote          SupplierCreditNote @relation(fields: [creditNoteId], references: [id])
   
-  // Link to the booking where it was applied
-  usedOnCostItemSupplierId Int @unique
+  usedOnCostItemSupplierId Int 
   usedOnCostItemSupplier   CostItemSupplier @relation(fields: [usedOnCostItemSupplierId], references: [id])
 
   @@map("credit_note_usage")
-}
+} 
