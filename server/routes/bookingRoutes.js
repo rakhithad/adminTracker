@@ -18,6 +18,7 @@ const {
   recordSettlementPayment,
   getTransactions,
   createCancellation,
+  getAvailableCreditNotes,
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -37,6 +38,7 @@ router.post('/:bookingId/record-settlement-payment', recordSettlementPayment);
 router.get('/transactions', getTransactions);
 router.post('/:id/cancel', createCancellation);
 router.put('/:id', updateBooking);
+router.get('/credit-notes/available/:supplier', getAvailableCreditNotes);
 
 
 module.exports = router;

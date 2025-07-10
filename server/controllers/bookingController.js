@@ -2,303 +2,290 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
 
+// In controllers/bookingController.js
+
 const createPendingBooking = async (req, res) => {
-  console.log('Received body:', JSON.stringify(req.body, null, 2));
+  console.log('Received body for pending booking:', JSON.stringify(req.body, null, 2));
 
   try {
-    // Validate required fields
-    const requiredFields = [
-      'ref_no',
-      'pax_name',
-      'agent_name',
-      'team_name',
-      'pnr',
-      'airline',
-      'from_to',
-      'bookingType',
-      'paymentMethod',
-      'pcDate',
-      'issuedDate',
-      'travelDate',
-      'numPax', // Added
-    ];
-    const missingFields = requiredFields.filter((field) => !req.body[field] && req.body[field] !== 0);
-    if (missingFields.length > 0) {
-      return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
-    }
+    const pendingBooking = await prisma.$transaction(async (tx) => {
+      // --- ALL YOUR EXISTING VALIDATION LOGIC, WRAPPED IN THE TRANSACTION ---
 
-    // Validate enum values
-    const validTeams = ['PH', 'TOURS'];
-    if (!validTeams.includes(req.body.team_name)) {
-      return apiResponse.error(res, `Invalid team_name. Must be one of: ${validTeams.join(', ')}`, 400);
-    }
-
-    const validBookingTypes = ['FRESH', 'DATE_CHANGE', 'CANCELLATION'];
-    if (!validBookingTypes.includes(req.body.bookingType)) {
-      return apiResponse.error(res, `Invalid bookingType. Must be one of: ${validBookingTypes.join(', ')}`, 400);
-    }
-
-    const validPaymentMethods = ['FULL', 'INTERNAL', 'REFUND', 'HUMM', 'FULL_HUMM', 'INTERNAL_HUMM'];
-    if (!validPaymentMethods.includes(req.body.paymentMethod)) {
-      return apiResponse.error(res, `Invalid paymentMethod. Must be one of: ${validPaymentMethods.join(', ')}`, 400);
-    }
-
-    // Validate transactionMethod
-    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
-    if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
-      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
-    }
-
-    // Validate numPax
-    const numPax = parseInt(req.body.numPax);
-    if (isNaN(numPax) || numPax < 1) {
-      return apiResponse.error(res, 'numPax must be a positive integer', 400);
-    }
-
-    // Validate prodCostBreakdown
-    const prodCostBreakdown = req.body.prodCostBreakdown || [];
-    if (!Array.isArray(prodCostBreakdown)) {
-      return apiResponse.error(res, 'prodCostBreakdown must be an array', 400);
-    }
-
-    const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
-    const validSupplierPaymentMethods = [
-      'BANK_TRANSFER',
-      'CREDIT',
-      'CREDIT_NOTES',
-      'BANK_TRANSFER_AND_CREDIT',
-      'BANK_TRANSFER_AND_CREDIT_NOTES',
-      'CREDIT_AND_CREDIT_NOTES',
-    ];
-    for (const item of prodCostBreakdown) {
-      if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
-        return apiResponse.error(res, 'Each cost item must have a category and a positive amount', 400);
+      // 1. Validate required fields
+      const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'travelDate', 'numPax' ];
+      const missingFields = requiredFields.filter((field) => !req.body[field] && req.body[field] !== 0);
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
       }
-      if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
-        return apiResponse.error(res, 'Each cost item must have at least one supplier allocation', 400);
+
+      // 2. Validate enum values
+      const validTeams = ['PH', 'TOURS'];
+      if (!validTeams.includes(req.body.team_name)) {
+        throw new Error(`Invalid team_name. Must be one of: ${validTeams.join(', ')}`);
       }
-      const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
-      if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
-        return apiResponse.error(res, 'Supplier amounts must sum to the cost item amount', 400);
+      const validBookingTypes = ['FRESH', 'DATE_CHANGE', 'CANCELLATION'];
+      if (!validBookingTypes.includes(req.body.bookingType)) {
+        throw new Error(`Invalid bookingType. Must be one of: ${validBookingTypes.join(', ')}`);
       }
-      for (const s of item.suppliers) {
-        if (
-          !s.supplier ||
-          !validSuppliers.includes(s.supplier) ||
-          isNaN(parseFloat(s.amount)) ||
-          parseFloat(s.amount) <= 0 ||
-          !validSupplierPaymentMethods.includes(s.paymentMethod) ||
-          !validTransactionMethods.includes(s.transactionMethod)
-        ) {
-          return apiResponse.error(res, `Invalid supplier data for ${s.supplier}: must have valid supplier, amount, paymentMethod, and transactionMethod`, 400);
+      const validPaymentMethods = ['FULL', 'INTERNAL', 'REFUND', 'HUMM', 'FULL_HUMM', 'INTERNAL_HUMM'];
+      if (!validPaymentMethods.includes(req.body.paymentMethod)) {
+        throw new Error(`Invalid paymentMethod. Must be one of: ${validPaymentMethods.join(', ')}`);
+      }
+      const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+      if (req.body.transactionMethod && !validTransactionMethods.includes(req.body.transactionMethod)) {
+        throw new Error(`Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`);
+      }
+
+      // 3. Validate numPax
+      const numPax = parseInt(req.body.numPax);
+      if (isNaN(numPax) || numPax < 1) {
+        throw new Error('numPax must be a positive integer');
+      }
+
+      // 4. Validate prodCostBreakdown & Credit Notes
+      const prodCostBreakdown = req.body.prodCostBreakdown || [];
+      const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
+      const validSupplierPaymentMethods = [ 'BANK_TRANSFER', 'CREDIT', 'CREDIT_NOTES', 'BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES' ];
+
+      for (const item of prodCostBreakdown) {
+        if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
+          throw new Error('Each cost item must have a category and a positive amount');
         }
-        // Ensure paidAmount and pendingAmount are provided or default to 0
-        const paidAmount = parseFloat(s.paidAmount) || 0;
-        const pendingAmount = parseFloat(s.pendingAmount) || 0;
-        if (isNaN(paidAmount) || isNaN(pendingAmount)) {
-          return apiResponse.error(res, `Invalid paidAmount or pendingAmount for supplier ${s.supplier}`, 400);
+        if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
+          throw new Error('Each cost item must have at least one supplier allocation');
         }
-        if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(s.paymentMethod)) {
-          const firstAmount = parseFloat(s.firstMethodAmount) || 0;
-          const secondAmount = parseFloat(s.secondMethodAmount) || 0;
-          if (firstAmount <= 0 || secondAmount <= 0 || Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01) {
-            return apiResponse.error(res, `For supplier ${s.supplier}, combined payment method amounts must be positive and sum to the supplier amount`, 400);
+        const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+        if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
+          throw new Error('Supplier amounts must sum to the cost item amount');
+        }
+        for (const s of item.suppliers) {
+          if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0 || !validSupplierPaymentMethods.includes(s.paymentMethod) || !validTransactionMethods.includes(s.transactionMethod)) {
+            throw new Error(`Invalid supplier data for ${s.supplier}: must have valid supplier, amount, paymentMethod, and transactionMethod`);
           }
-          const firstMethod = s.paymentMethod.split('_AND_')[0].toUpperCase();
-          const secondMethod = s.paymentMethod.split('_AND_')[1].toUpperCase();
-          const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
-          const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
-          if (
-            Math.abs(paidAmount - ((isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0))) > 0.01 ||
-            Math.abs(pendingAmount - ((isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount))) > 0.01
-          ) {
-            return apiResponse.error(res, `Paid and pending amounts for supplier ${s.supplier} must match payment method logic`, 400);
+          const paidAmount = parseFloat(s.paidAmount) || 0;
+          const pendingAmount = parseFloat(s.pendingAmount) || 0;
+          if (isNaN(paidAmount) || isNaN(pendingAmount)) {
+            throw new Error(`Invalid paidAmount or pendingAmount for supplier ${s.supplier}`);
           }
-        } else {
-          const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(s.paymentMethod);
-          if (
-            Math.abs(paidAmount - (isPaid ? parseFloat(s.amount) : 0)) > 0.01 ||
-            Math.abs(pendingAmount - (isPaid ? 0 : parseFloat(s.amount))) > 0.01 ||
-            (s.firstMethodAmount && Math.abs(parseFloat(s.firstMethodAmount) - parseFloat(s.amount)) > 0.01) ||
-            (s.secondMethodAmount && parseFloat(s.secondMethodAmount) > 0)
-          ) {
-            return apiResponse.error(res, `Payment amounts for supplier ${s.supplier} must match payment method logic`, 400);
+          if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(s.paymentMethod)) {
+            const firstAmount = parseFloat(s.firstMethodAmount) || 0;
+            const secondAmount = parseFloat(s.secondMethodAmount) || 0;
+            if (firstAmount <= 0 || secondAmount <= 0 || Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01) {
+              throw new Error(`For supplier ${s.supplier}, combined payment method amounts must be positive and sum to the supplier amount`);
+            }
+            const firstMethod = s.paymentMethod.split('_AND_')[0].toUpperCase();
+            const secondMethod = s.paymentMethod.split('_AND_')[1].toUpperCase();
+            const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
+            const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
+            if (Math.abs(paidAmount - ((isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0))) > 0.01 || Math.abs(pendingAmount - ((isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount))) > 0.01) {
+              throw new Error(`Paid and pending amounts for supplier ${s.supplier} must match payment method logic`);
+            }
+          } else {
+            const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(s.paymentMethod);
+            if (Math.abs(paidAmount - (isPaid ? parseFloat(s.amount) : 0)) > 0.01 || Math.abs(pendingAmount - (isPaid ? 0 : parseFloat(s.amount))) > 0.01 || (s.firstMethodAmount && Math.abs(parseFloat(s.firstMethodAmount) - parseFloat(s.amount)) > 0.01) || (s.secondMethodAmount && parseFloat(s.secondMethodAmount) > 0)) {
+              throw new Error(`Payment amounts for supplier ${s.supplier} must match payment method logic`);
+            }
+          }
+          // --- CREDIT NOTE VALIDATION ---
+          if (s.paymentMethod === 'CREDIT_NOTES') {
+            if (!s.creditNoteId) {
+              throw new Error(`A Credit Note ID is required for supplier ${s.supplier} when using CREDIT_NOTES payment method.`);
+            }
+            const creditNote = await tx.supplierCreditNote.findUnique({ where: { id: parseInt(s.creditNoteId) } });
+            if (!creditNote) throw new Error(`Credit Note with ID ${s.creditNoteId} not found.`);
+            if (creditNote.supplier !== s.supplier) throw new Error(`Credit Note ID ${s.creditNoteId} does not belong to supplier ${s.supplier}.`);
+            if (creditNote.remainingAmount < parseFloat(s.amount)) {
+              throw new Error(`Credit Note ID ${s.creditNoteId} has insufficient funds (£${creditNote.remainingAmount.toFixed(2)}) to cover the cost of £${parseFloat(s.amount).toFixed(2)}.`);
+            }
           }
         }
       }
-    }
 
-    // Validate instalments
-    const instalments = req.body.instalments || [];
-    if (req.body.paymentMethod === 'INTERNAL' && instalments.length === 0) {
-      return apiResponse.error(res, 'Instalments are required for INTERNAL payment method', 400);
-    }
-    for (const inst of instalments) {
-      if (
-        !inst.dueDate ||
-        isNaN(parseFloat(inst.amount)) ||
-        parseFloat(inst.amount) <= 0 ||
-        !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')
-      ) {
-        return apiResponse.error(res, 'Each instalment must have a valid dueDate, positive amount, and valid status', 400);
+      // 5. Validate instalments
+      const instalments = req.body.instalments || [];
+      if (req.body.paymentMethod === 'INTERNAL' && instalments.length === 0) {
+        throw new Error('Instalments are required for INTERNAL payment method');
       }
-    }
-
-    // Validate passenger data
-    const passengers = req.body.passengers || [];
-    if (!Array.isArray(passengers) || passengers.length === 0) {
-      return apiResponse.error(res, 'Passengers must be a non-empty array', 400);
-    }
-
-    const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
-    const validGenders = ['MALE', 'FEMALE', 'OTHER'];
-    const validCategories = ['ADULT', 'CHILD', 'INFANT'];
-
-    for (const pax of passengers) {
-      console.log('Validating passenger:', JSON.stringify(pax, null, 2));
-      const validationErrors = [];
-      if (!pax.title || !validTitles.includes(pax.title)) validationErrors.push(`Invalid or missing title: ${pax.title}`);
-      if (!pax.firstName) validationErrors.push('Missing firstName');
-      if (!pax.lastName) validationErrors.push('Missing lastName');
-      if (!pax.gender || !validGenders.includes(pax.gender)) validationErrors.push(`Invalid or missing gender: ${pax.gender}`);
-      if (!pax.category || !validCategories.includes(pax.category)) validationErrors.push(`Invalid or missing category: ${pax.category}`);
-      if (pax.birthday && isNaN(new Date(pax.birthday))) validationErrors.push(`Invalid birthday: ${pax.birthday}`);
-      if (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) validationErrors.push(`Invalid email: ${pax.email}`);
-      if (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo)) validationErrors.push(`Invalid contactNo: ${pax.contactNo}`);
-
-      if (validationErrors.length > 0) {
-        console.error('Passenger validation failed:', validationErrors);
-        return apiResponse.error(res, `Passenger validation errors: ${validationErrors.join('; ')}`, 400);
+      for (const inst of instalments) {
+        if (!inst.dueDate || isNaN(parseFloat(inst.amount)) || parseFloat(inst.amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(inst.status || 'PENDING')) {
+          throw new Error('Each instalment must have a valid dueDate, positive amount, and valid status');
+        }
       }
-    }
 
-    // Validate numPax against passengers
-    if (numPax < passengers.length) {
-      return apiResponse.error(res, 'numPax cannot be less than the number of passengers provided', 400);
-    }
-
-    // Calculate prodCost from prodCostBreakdown
-    const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
-
-    // Verify provided prodCost matches calculatedProdCost
-    if (req.body.prodCost && Math.abs(parseFloat(req.body.prodCost) - calculatedProdCost) > 0.01) {
-      return apiResponse.error(res, 'Provided prodCost does not match the sum of prodCostBreakdown', 400);
-    }
-
-    // Verify instalments sum matches balance (for INTERNAL payment)
-    if (instalments.length > 0) {
-      const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
-      const revenue = parseFloat(req.body.revenue) || 0;
-      const received = parseFloat(req.body.received) || 0;
-      const expectedBalance = revenue - received;
-      if (Math.abs(totalInstalments - expectedBalance) > 0.01) {
-        return apiResponse.error(res, 'Sum of instalments must equal the balance (revenue - received)', 400);
+      // 6. Validate passenger data
+      const passengers = req.body.passengers || [];
+      if (!Array.isArray(passengers) || passengers.length === 0) {
+        throw new Error('Passengers must be a non-empty array');
       }
-    }
+      const validTitles = ['MR', 'MRS', 'MS', 'MASTER'];
+      const validGenders = ['MALE', 'FEMALE', 'OTHER'];
+      const validCategories = ['ADULT', 'CHILD', 'INFANT'];
+      for (const pax of passengers) {
+        const validationErrors = [];
+        if (!pax.title || !validTitles.includes(pax.title)) validationErrors.push('Invalid or missing title');
+        if (!pax.firstName) validationErrors.push('Missing firstName');
+        if (!pax.lastName) validationErrors.push('Missing lastName');
+        if (!pax.gender || !validGenders.includes(pax.gender)) validationErrors.push('Invalid or missing gender');
+        if (!pax.category || !validCategories.includes(pax.category)) validationErrors.push('Invalid or missing category');
+        if (pax.birthday && isNaN(new Date(pax.birthday))) validationErrors.push('Invalid birthday');
+        if (pax.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pax.email)) validationErrors.push('Invalid email');
+        if (pax.contactNo && !/^\+?\d{10,15}$/.test(pax.contactNo)) validationErrors.push('Invalid contactNo');
+        if (validationErrors.length > 0) {
+          throw new Error(`Passenger validation errors: ${validationErrors.join('; ')}`);
+        }
+      }
+      if (numPax < passengers.length) {
+        throw new Error('numPax cannot be less than the number of passengers provided');
+      }
 
-    // Prepare financial data
-    const financialData = {
-      revenue: req.body.revenue ? parseFloat(req.body.revenue) : null,
-      prodCost: calculatedProdCost || null,
-      transFee: req.body.transFee ? parseFloat(req.body.transFee) : null,
-      surcharge: req.body.surcharge ? parseFloat(req.body.surcharge) : null,
-      received: req.body.received ? parseFloat(req.body.received) : null,
-      balance: null, // Will be recalculated
-      profit: null, // Will be recalculated
-      invoiced: req.body.invoiced || null,
-    };
+      // 7. Calculate and Verify Financials
+      const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
+      if (req.body.prodCost && Math.abs(parseFloat(req.body.prodCost) - calculatedProdCost) > 0.01) {
+        throw new Error('Provided prodCost does not match the sum of prodCostBreakdown');
+      }
+      if (instalments.length > 0) {
+        const totalInstalments = instalments.reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+        const revenue = parseFloat(req.body.revenue) || 0;
+        const received = parseFloat(req.body.received) || 0;
+        const expectedBalance = revenue - received;
+        if (Math.abs(totalInstalments - expectedBalance) > 0.01) {
+          throw new Error('Sum of instalments must equal the balance (revenue - received)');
+        }
+      }
 
-    // Recalculate profit and balance
-    const revenue = financialData.revenue || 0;
-    const prodCost = financialData.prodCost || 0;
-    const transFee = financialData.transFee || 0;
-    const surcharge = financialData.surcharge || 0;
-    const received = financialData.received || 0;
-    financialData.profit = revenue - prodCost - transFee - surcharge;
-    financialData.balance = revenue - received;
+      // Prepare financial data for creation
+      const revenue = req.body.revenue ? parseFloat(req.body.revenue) : 0;
+      const received = req.body.received ? parseFloat(req.body.received) : 0;
+      const transFee = req.body.transFee ? parseFloat(req.body.transFee) : 0;
+      const surcharge = req.body.surcharge ? parseFloat(req.body.surcharge) : 0;
+      const profit = revenue - calculatedProdCost - transFee - surcharge;
+      const balance = revenue - received;
 
-    // Create pending booking
-    const pendingBooking = await prisma.pendingBooking.create({
-      data: {
-        refNo: req.body.ref_no,
-        paxName: req.body.pax_name,
-        agentName: req.body.agent_name,
-        teamName: req.body.team_name || null,
-        pnr: req.body.pnr,
-        airline: req.body.airline,
-        fromTo: req.body.from_to,
-        bookingType: req.body.bookingType,
-        bookingStatus: 'PENDING',
-        pcDate: new Date(req.body.pcDate),
-        issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : null,
-        paymentMethod: req.body.paymentMethod,
-        lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
-        travelDate: req.body.travelDate ? new Date(req.body.travelDate) : null,
-        // supplier: null, // Omitted as unused; uncomment if needed
-        transactionMethod: req.body.transactionMethod || null,
-        receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
-        description: req.body.description || null,
-        ...financialData,
-        status: 'PENDING',
-        costItems: {
-          create: prodCostBreakdown.map((item) => ({
-            category: item.category,
-            amount: parseFloat(item.amount),
-            suppliers: {
-              create: item.suppliers.map((s) => ({
-                supplier: s.supplier,
-                amount: parseFloat(s.amount),
-                paymentMethod: s.paymentMethod,
-                paidAmount: parseFloat(s.paidAmount) || 0,
-                pendingAmount: parseFloat(s.pendingAmount) || 0,
-                transactionMethod: s.transactionMethod,
-                firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-              })),
-            },
-          })),
+      // 8. Create pending booking
+      const newPendingBooking = await tx.pendingBooking.create({
+        data: {
+          refNo: req.body.ref_no,
+          paxName: req.body.pax_name,
+          agentName: req.body.agent_name,
+          teamName: req.body.team_name || null,
+          pnr: req.body.pnr,
+          airline: req.body.airline,
+          fromTo: req.body.from_to,
+          bookingType: req.body.bookingType,
+          bookingStatus: 'PENDING',
+          pcDate: new Date(req.body.pcDate),
+          issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : null,
+          paymentMethod: req.body.paymentMethod,
+          lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
+          travelDate: req.body.travelDate ? new Date(req.body.travelDate) : null,
+          transactionMethod: req.body.transactionMethod || null,
+          receivedDate: req.body.receivedDate ? new Date(req.body.receivedDate) : null,
+          description: req.body.description || null,
+          revenue: revenue || null,
+          prodCost: calculatedProdCost || null,
+          transFee: transFee || null,
+          surcharge: surcharge || null,
+          received: received || null,
+          balance: balance,
+          profit: profit,
+          invoiced: req.body.invoiced || null,
+          status: 'PENDING',
+          costItems: {
+            create: prodCostBreakdown.map((item) => ({
+              category: item.category,
+              amount: parseFloat(item.amount),
+              suppliers: {
+                create: item.suppliers.map((s) => ({
+                  supplier: s.supplier,
+                  amount: parseFloat(s.amount),
+                  paymentMethod: s.paymentMethod,
+                  paidAmount: parseFloat(s.paidAmount) || 0,
+                  pendingAmount: parseFloat(s.pendingAmount) || 0,
+                  transactionMethod: s.transactionMethod,
+                  firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
+                  secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+                })),
+              },
+            })),
+          },
+          instalments: {
+            create: (req.body.instalments || []).map((inst) => ({
+              dueDate: new Date(inst.dueDate),
+              amount: parseFloat(inst.amount),
+              status: inst.status || 'PENDING',
+            })),
+          },
+          passengers: {
+            create: (req.body.passengers || []).map((pax) => ({
+              title: pax.title,
+              firstName: pax.firstName,
+              middleName: pax.middleName || null,
+              lastName: pax.lastName,
+              gender: pax.gender,
+              email: pax.email || null,
+              contactNo: pax.contactNo || null,
+              nationality: pax.nationality || null,
+              birthday: pax.birthday ? new Date(pax.birthday) : null,
+              category: pax.category,
+            })),
+          },
+          numPax: numPax,
         },
-        instalments: {
-          create: instalments.map((inst) => ({
-            dueDate: new Date(inst.dueDate),
-            amount: parseFloat(inst.amount),
-            status: inst.status || 'PENDING',
-          })),
+        include: {
+          costItems: { include: { suppliers: true } },
         },
-        passengers: {
-          create: passengers.map((pax) => ({
-            title: pax.title,
-            firstName: pax.firstName,
-            middleName: pax.middleName || null,
-            lastName: pax.lastName,
-            gender: pax.gender,
-            email: pax.email || null,
-            contactNo: pax.contactNo || null,
-            nationality: pax.nationality || null,
-            birthday: pax.birthday ? new Date(pax.birthday) : null,
-            category: pax.category,
-          })),
-        },
-        numPax: numPax,
-      },
-      include: {
-        costItems: { include: { suppliers: true } },
-        instalments: true,
-        passengers: true,
-      },
+      });
+      
+      // 9. After booking is created, update credit note and create usage record
+      for (const [itemIndex, item] of prodCostBreakdown.entries()) {
+        for (const [supplierIndex, s] of item.suppliers.entries()) {
+          if (s.paymentMethod === 'CREDIT_NOTES' && s.creditNoteId) {
+            const createdCostItem = newPendingBooking.costItems[itemIndex];
+            const createdSupplier = createdCostItem.suppliers[supplierIndex];
+            const creditNoteToUpdate = await tx.supplierCreditNote.findUnique({ where: { id: parseInt(s.creditNoteId) } });
+            const newRemainingAmount = creditNoteToUpdate.remainingAmount - parseFloat(s.amount);
+
+            await tx.supplierCreditNote.update({
+              where: { id: parseInt(s.creditNoteId) },
+              data: {
+                remainingAmount: newRemainingAmount,
+                status: newRemainingAmount < 0.01 ? 'USED' : 'PARTIALLY_USED',
+              },
+            });
+
+            await tx.creditNoteUsage.create({
+              data: {
+                amountUsed: parseFloat(s.amount),
+                creditNoteId: parseInt(s.creditNoteId),
+                usedOnCostItemSupplierId: createdSupplier.id,
+              }
+            });
+          }
+        }
+      }
+
+      // Return the complete booking object
+      return tx.pendingBooking.findUnique({
+          where: { id: newPendingBooking.id },
+          include: {
+              costItems: { include: { suppliers: true } },
+              instalments: true,
+              passengers: true
+          }
+      });
     });
 
     return apiResponse.success(res, pendingBooking, 201);
   } catch (error) {
     console.error('Pending booking creation error:', error);
-    if (error.name === 'PrismaClientValidationError') {
-      return apiResponse.error(res, `Invalid data provided: ${error.message}`, 400);
+    if (error instanceof Error && (error.message.includes('Missing required fields') || error.message.includes('Invalid') || error.message.includes('must') || error.message.includes('Credit Note'))) {
+      return apiResponse.error(res, error.message, 400);
     }
     if (error.code === 'P2002') {
-      return apiResponse.error(res, 'Pending booking with this reference number already exists', 409);
+      return apiResponse.error(res, 'A booking with a similar unique identifier (e.g., Ref No) already exists.', 409);
     }
     if (error.code === 'P2003') {
-      return apiResponse.error(res, 'Invalid enum value provided', 400);
+      return apiResponse.error(res, 'Invalid enum value provided for a field.', 400);
     }
     return apiResponse.error(res, `Failed to create pending booking: ${error.message}`, 500);
   }
@@ -2048,6 +2035,37 @@ const createCancellation = async (req, res) => {
   }
 };
 
+const getAvailableCreditNotes = async (req, res) => {
+  try {
+    const { supplier } = req.params;
+
+    // A simple validation to ensure a supplier is provided
+    if (!supplier) {
+      return apiResponse.error(res, 'Supplier name is required', 400);
+    }
+    
+    const availableNotes = await prisma.supplierCreditNote.findMany({
+      where: {
+        supplier: supplier, // Prisma is case-insensitive for enums on PostgreSQL
+        // Only fetch notes that have a remaining balance
+        status: { in: ['AVAILABLE', 'PARTIALLY_USED'] },
+        remainingAmount: { gt: 0 }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    return apiResponse.success(res, availableNotes);
+
+  } catch (error) {
+    console.error('Error fetching available credit notes:', error);
+    return apiResponse.error(res, `Failed to fetch credit notes: ${error.message}`, 500);
+  }
+};
+
+
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -2065,5 +2083,7 @@ module.exports = {
   updatePendingBooking,
   recordSettlementPayment,
   getTransactions,
-  createCancellation
+  createCancellation,
+  getAvailableCreditNotes,
+  
 };

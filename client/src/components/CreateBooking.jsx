@@ -294,7 +294,13 @@ export default function CreateBooking({ onBookingCreated }) {
         travelDate: formData.travelDate || null,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
-        prodCostBreakdown: formData.prodCostBreakdown,
+        prodCostBreakdown: formData.prodCostBreakdown.map(item => ({ 
+                ...item,
+                suppliers: item.suppliers.map(s => ({
+                    ...s,
+                    creditNoteId: s.creditNoteId 
+                }))
+            })),
         transFee: formData.transFee ? parseFloat(formData.transFee) : 0, // Fix: Ensure number
         surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
         received: formData.received ? parseFloat(formData.received) : null,

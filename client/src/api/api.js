@@ -80,3 +80,7 @@ export const getTransactions = async () => {
 export const createCancellation = async (originalBookingId, data) => {
   return await api.post(`/bookings/${originalBookingId}/cancel`, data);
 };
+
+export const getAvailableCreditNotes = async (supplier) => {
+  return await api.get(`/bookings/credit-notes/available/${supplier}`);
+};

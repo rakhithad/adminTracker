@@ -1,4 +1,3 @@
-import React from 'react';
 
 // Helper function to format dates
 const formatDate = (dateStr) => {
