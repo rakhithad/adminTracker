@@ -1358,56 +1358,74 @@ const createSupplierPaymentSettlement = async (req, res) => {
   }
 };
 
+
 const getSuppliersInfo = async (req, res) => {
   try {
+    // This query is now less important, we get most data from the Credit Note query
     const bookings = await prisma.booking.findMany({
       select: {
-        id: true,
         refNo: true,
-        paxName: true,
-        agentName: true,
-        createdAt: true,
         costItems: {
-          include: {
+          select: {
+            category: true,
             suppliers: {
-              include: {
-                settlements: true,
-                paidByCreditNoteUsage: true,
-              },
-            },
-          },
-        },
-        cancellation: {
-          include: {
-            generatedCreditNote: true // We need the ID to match below
-          }
-        }
-      },
-    });
-
-    const allCreditNotes = await prisma.supplierCreditNote.findMany({
-      include: {
-        usageHistory: {
-          include: {
-            usedOnCostItemSupplier: {
-              include: { costItem: { include: { booking: { select: { refNo: true } } } } }
-            }
-          }
-        },
-        generatedFromCancellation: { // This relation is on SupplierCreditNote
-          include: {
-            originalBooking: { // This relation is on Cancellation
-              select: { refNo: true } 
+              select: {
+                id: true,
+                supplier: true,
+                amount: true,
+                paidAmount: true,
+                pendingAmount: true,
+                createdAt: true
+              }
             }
           }
         }
       }
     });
 
-    // We can simplify the data assembly now
+    // This is the CRITICAL query. We will fix the 'include' here.
+    const allCreditNotes = await prisma.supplierCreditNote.findMany({
+      include: {
+        // This gets the history of WHERE the note was CREATED
+        generatedFromCancellation: {
+          include: {
+            originalBooking: {
+              select: { refNo: true }
+            }
+          }
+        },
+        // This gets the history of WHERE the note was USED
+        usageHistory: {
+          include: {
+            usedOnCostItemSupplier: {
+              // We need to include the relations from here
+              include: {
+                // We need to fetch the approved booking's cost item
+                costItem: {
+                  include: {
+                    booking: {
+                      select: { refNo: true } // <<< THE GOAL
+                    }
+                  }
+                },
+                // And also the pending booking's cost item
+                pendingCostItem: {
+                    include: {
+                        pendingBooking: {
+                            select: { refNo: true } // <<< THE GOAL (for pending)
+                        }
+                    }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
     const supplierSummary = {};
 
-    // Process all bookings
+    // Process all bookings to get cost items
     bookings.forEach(booking => {
         booking.costItems.forEach(item => {
             item.suppliers.forEach(s => {
@@ -1417,7 +1435,18 @@ const getSuppliersInfo = async (req, res) => {
                 supplierSummary[s.supplier].totalAmount += parseFloat(s.amount);
                 supplierSummary[s.supplier].totalPaid += parseFloat(s.paidAmount) || 0;
                 supplierSummary[s.supplier].totalPending += parseFloat(s.pendingAmount) || 0;
-                supplierSummary[s.supplier].transactions.push({ type: 'Booking', data: { ...s, refNo: booking.refNo, paxName: booking.paxName } });
+                supplierSummary[s.supplier].transactions.push({
+                    type: 'Booking',
+                    data: {
+                        id: s.id,
+                        refNo: booking.refNo,
+                        category: item.category,
+                        amount: s.amount,
+                        paidAmount: s.paidAmount,
+                        pendingAmount: s.pendingAmount,
+                        createdAt: s.createdAt,
+                    }
+                });
             });
         });
     });
@@ -1427,10 +1456,23 @@ const getSuppliersInfo = async (req, res) => {
         if (!supplierSummary[note.supplier]) {
             supplierSummary[note.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
         }
+
+        // Now, we modify the usageHistory to have a consistent refNo
+        const modifiedUsageHistory = note.usageHistory.map(usage => {
+            // Find the refNo from either the approved booking or the pending one
+            const usedOnRefNo = usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || usage.usedOnCostItemSupplier?.pendingCostItem?.pendingBooking?.refNo || 'N/A';
+            return {
+                ...usage,
+                // We are adding a new, simplified property for easy access on the frontend
+                usedOnRefNo: usedOnRefNo
+            };
+        });
+        
         supplierSummary[note.supplier].transactions.push({
             type: 'CreditNote',
             data: {
                 ...note,
+                usageHistory: modifiedUsageHistory, // Use the modified history
                 generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'
             }
         });
@@ -1440,6 +1482,9 @@ const getSuppliersInfo = async (req, res) => {
     for (const supplier in supplierSummary) {
         supplierSummary[supplier].transactions.sort((a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt));
     }
+
+    // You can add this log again to verify the fix
+    // console.log('NEW DATA BEING SENT:', JSON.stringify(supplierSummary, null, 2));
 
     return apiResponse.success(res, supplierSummary);
   } catch (error) {
