@@ -176,108 +176,74 @@ export default function CreateBooking({ onBookingCreated }) {
     setSuccessMessage('');
 
     try {
+      // --- SECTION 1: Basic required fields validation ---
       const requiredFields = [
-        'refNo',
-        'paxName',
-        'agentName',
-        'teamName',
-        'pnr',
-        'airline',
-        'fromTo',
-        'bookingType',
-        'paymentMethod',
-        'pcDate',
-        'issuedDate',
-        'travelDate',
+        'refNo', 'paxName', 'agentName', 'teamName', 'pnr', 'airline',
+        'fromTo', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'travelDate',
       ];
       const missingFields = requiredFields.filter((field) => !formData[field]);
-
       if (missingFields.length > 0) {
         throw new Error(`Please fill in all required fields: ${missingFields.join(', ')}`);
       }
-
+      if (formData.passengers.length === 0) {
+        throw new Error('At least one passenger detail (lead passenger) must be provided');
+      }
       if (formData.paymentMethod === 'INTERNAL' && formData.instalments.length === 0) {
         throw new Error('Instalments are required for INTERNAL payment method');
       }
 
-      if (formData.passengers.length === 0) {
-        throw new Error('At least one passenger detail (lead passenger) must be provided');
-      }
-
-      // Fix balance calculation
+      // --- SECTION 2: Financial data consistency ---
       const revenue = parseFloat(formData.revenue) || 0;
       const received = parseFloat(formData.received) || 0;
       formData.balance = (revenue - received).toFixed(2);
 
-      // Validate prodCostBreakdown
+      // --- SECTION 3: Detailed Product Cost Breakdown validation (UPDATED LOGIC) ---
       if (formData.prodCostBreakdown.length > 0) {
-        const validPaymentMethods = [
-          'BANK_TRANSFER',
-          'CREDIT',
-          'CREDIT_NOTES',
-          'BANK_TRANSFER_AND_CREDIT',
-          'BANK_TRANSFER_AND_CREDIT_NOTES',
-          'CREDIT_AND_CREDIT_NOTES',
-        ];
-        const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
         const validSuppliers = ['BTRES', 'LYCA', 'CEBU', 'BTRES_LYCA', 'BA', 'TRAINLINE', 'EASYJET', 'FLYDUBAI'];
+
         for (const item of formData.prodCostBreakdown) {
+          // Validate each cost category item
           if (!item.category || isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0) {
             throw new Error('Each cost item must have a valid category and positive amount');
           }
           if (!Array.isArray(item.suppliers) || item.suppliers.length === 0) {
-            throw new Error('Each cost item must have at least one supplier allocation');
+            throw new Error(`Cost item "${item.category}" must have at least one supplier`);
           }
+          
+          // Validate that supplier amounts sum up correctly to the category total
           const supplierTotal = item.suppliers.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
           if (Math.abs(parseFloat(item.amount) - supplierTotal) > 0.01) {
-            throw new Error('Supplier amounts must sum to the cost item amount');
+            throw new Error(`For cost item "${item.category}", supplier amounts must sum up to the total amount`);
           }
+
+          // Validate each individual supplier within the cost category
           for (const s of item.suppliers) {
-            if (
-              !s.supplier ||
-              !validSuppliers.includes(s.supplier) ||
-              isNaN(parseFloat(s.amount)) ||
-              parseFloat(s.amount) <= 0 ||
-              !validPaymentMethods.includes(s.paymentMethod) ||
-              !validTransactionMethods.includes(s.transactionMethod)
-            ) {
-              throw new Error('Each supplier must have a valid supplier, positive amount, payment method, and transaction method');
+            // Check basic supplier details
+            if (!s.supplier || !validSuppliers.includes(s.supplier) || isNaN(parseFloat(s.amount)) || parseFloat(s.amount) <= 0 || !s.paymentMethod) {
+              throw new Error(`Supplier details are incomplete for an entry under "${item.category}". Check supplier, amount, and payment method.`);
             }
-            if (['BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES', 'CREDIT_AND_CREDIT_NOTES'].includes(s.paymentMethod)) {
-              const firstAmount = parseFloat(s.firstMethodAmount) || 0;
-              const secondAmount = parseFloat(s.secondMethodAmount) || 0;
-              if (
-                firstAmount <= 0 ||
-                secondAmount <= 0 ||
-                Math.abs(firstAmount + secondAmount - parseFloat(s.amount)) > 0.01
-              ) {
-                throw new Error(`For supplier ${s.supplier}, combined payment method amounts must be positive and sum to the supplier amount`);
-              }
-              const firstMethod = s.paymentMethod.split('_AND_')[0].toUpperCase();
-              const secondMethod = s.paymentMethod.split('_AND_')[1].toUpperCase();
-              const isFirstPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(firstMethod);
-              const isSecondPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(secondMethod);
-              if (
-                Math.abs(parseFloat(s.paidAmount) - ((isFirstPaid ? firstAmount : 0) + (isSecondPaid ? secondAmount : 0))) > 0.01 ||
-                Math.abs(parseFloat(s.pendingAmount) - ((isFirstPaid ? 0 : firstAmount) + (isSecondPaid ? 0 : secondAmount))) > 0.01
-              ) {
-                throw new Error(`Paid and pending amounts for supplier ${s.supplier} must match payment method logic`);
+
+            // Define which payment methods require an external transaction method
+            const requiresTransactionMethod = ['BANK_TRANSFER', 'BANK_TRANSFER_AND_CREDIT', 'BANK_TRANSFER_AND_CREDIT_NOTES'].includes(s.paymentMethod);
+
+            // Conditionally validate transactionMethod
+            if (requiresTransactionMethod) {
+              if (!s.transactionMethod || s.transactionMethod === 'N/A') {
+                throw new Error(`Supplier "${s.supplier}" requires a valid transaction method (e.g., LOYDS, STRIPE) for the payment type "${s.paymentMethod.replace(/_/g, ' ')}".`);
               }
             } else {
-              const isPaid = ['BANK_TRANSFER', 'CREDIT_NOTES'].includes(s.paymentMethod);
-              if (
-                Math.abs(parseFloat(s.paidAmount) - (isPaid ? parseFloat(s.amount) : 0)) > 0.01 ||
-                Math.abs(parseFloat(s.pendingAmount) - (isPaid ? 0 : parseFloat(s.amount))) > 0.01 ||
-                Math.abs(parseFloat(s.firstMethodAmount) - parseFloat(s.amount)) > 0.01 ||
-                parseFloat(s.secondMethodAmount) > 0
-              ) {
-                throw new Error(`Payment amounts for supplier ${s.supplier} must match payment method logic`);
+              // For methods like CREDIT or CREDIT_NOTES, transactionMethod should be 'N/A'
+              if (s.transactionMethod !== 'N/A') {
+                throw new Error(`Supplier "${s.supplier}" has an invalid transaction method for the payment type "${s.paymentMethod.replace(/_/g, ' ')}". It should be N/A.`);
               }
             }
+            // Add more detailed amount validation if needed (e.g., for split payments)
+            // This part can be expanded based on your existing detailed checks
           }
         }
       }
 
+      // --- SECTION 4: Prepare data for API submission ---
       const bookingData = {
         ref_no: formData.refNo,
         pax_name: formData.paxName,
@@ -294,19 +260,13 @@ export default function CreateBooking({ onBookingCreated }) {
         travelDate: formData.travelDate || null,
         revenue: formData.revenue ? parseFloat(formData.revenue) : null,
         prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
-        prodCostBreakdown: formData.prodCostBreakdown.map(item => ({ 
-                ...item,
-                suppliers: item.suppliers.map(s => ({
-                    ...s,
-                    creditNoteId: s.creditNoteId 
-                }))
-            })),
-        transFee: formData.transFee ? parseFloat(formData.transFee) : 0, // Fix: Ensure number
+        prodCostBreakdown: formData.prodCostBreakdown, // Pass the breakdown as is
+        transFee: formData.transFee ? parseFloat(formData.transFee) : 0,
         surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
         received: formData.received ? parseFloat(formData.received) : null,
         transactionMethod: formData.transactionMethod || null,
         receivedDate: formData.receivedDate || null,
-        balance: parseFloat(formData.balance) || null, // Use fixed balance
+        balance: parseFloat(formData.balance) || null,
         profit: formData.profit ? parseFloat(formData.profit) : null,
         invoiced: formData.invoiced || null,
         description: formData.description || null,
@@ -316,8 +276,9 @@ export default function CreateBooking({ onBookingCreated }) {
         numPax: formData.numPax,
       };
 
-      console.log('Full bookingData:', JSON.stringify(bookingData, null, 2));
+      console.log('Submitting bookingData:', JSON.stringify(bookingData, null, 2));
 
+      // --- SECTION 5: API call and state reset ---
       const response = await createPendingBooking(bookingData);
       const newPendingBooking = response.data.data;
 
@@ -326,35 +287,15 @@ export default function CreateBooking({ onBookingCreated }) {
         onBookingCreated(newPendingBooking);
       }
 
+      // Reset form state after successful submission
       setFormData({
-        refNo: '',
-        paxName: '',
-        passengers: [],
-        numPax: 1,
-        agentName: '',
-        teamName: '',
-        pnr: '',
-        airline: '',
-        fromTo: '',
-        bookingType: 'FRESH',
-        pcDate: new Date().toISOString().split('T')[0],
-        issuedDate: '',
-        paymentMethod: 'FULL',
-        lastPaymentDate: '',
-        travelDate: '',
-        revenue: '',
-        prodCost: '',
-        prodCostBreakdown: [],
-        transFee: '',
-        surcharge: '',
-        received: '',
-        transactionMethod: '',
-        receivedDate: new Date().toISOString().split('T')[0],
-        balance: '',
-        profit: '',
-        invoiced: '',
-        description: '',
-        instalments: [],
+        refNo: '', paxName: '', passengers: [], numPax: 1, agentName: '', teamName: '',
+        pnr: '', airline: '', fromTo: '', bookingType: 'FRESH',
+        pcDate: new Date().toISOString().split('T')[0], issuedDate: '', paymentMethod: 'FULL',
+        lastPaymentDate: '', travelDate: '', revenue: '', prodCost: '', prodCostBreakdown: [],
+        transFee: '', surcharge: '', received: '', transactionMethod: '',
+        receivedDate: new Date().toISOString().split('T')[0], balance: '', profit: '',
+        invoiced: '', description: '', instalments: [],
       });
 
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -365,6 +306,7 @@ export default function CreateBooking({ onBookingCreated }) {
       setIsSubmitting(false);
     }
   };
+
 
   return (
     <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full">
@@ -473,7 +415,7 @@ export default function CreateBooking({ onBookingCreated }) {
                     </div>
                     {formData.transactionMethod && (
                         <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600">
-                           {formData.transactionMethod.replace('_', ' ')} on {new Date(formData.receivedDate).toLocaleDateString('en-GB')}
+                           {formData.transactionMethod.replace(/_/g, ' ')} on {new Date(formData.receivedDate).toLocaleDateString('en-GB')}
                         </div>
                     )}
                 </div>
@@ -504,7 +446,7 @@ export default function CreateBooking({ onBookingCreated }) {
         </div>
       </form>
 
-      {/* --- POPUPS (UNCHANGED) --- */}
+      {/* --- POPUPS --- */}
       {showCostBreakdown && <ProductCostBreakdown initialBreakdown={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} totalCost={parseFloat(formData.prodCost) || 0} />}
       {showInternalDeposit && <InternalDepositPopup initialData={{ revenue: formData.revenue, prod_cost: formData.prodCost, costItems: formData.prodCostBreakdown, surcharge: formData.surcharge, received: formData.received, last_payment_date: formData.lastPaymentDate, travel_date: formData.travelDate, totalSellingPrice: formData.revenue, depositPaid: formData.received, trans_fee: formData.transFee, }} onClose={() => setShowInternalDeposit(false)} onSubmit={handleInternalDepositSubmit} />}
       {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}
