@@ -19,6 +19,7 @@ const {
   getTransactions,
   createCancellation,
   getAvailableCreditNotes,
+  createDateChangeBooking
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -39,6 +40,7 @@ router.get('/transactions', getTransactions);
 router.post('/:id/cancel', createCancellation);
 router.put('/:id', updateBooking);
 router.get('/credit-notes/available/:supplier', getAvailableCreditNotes);
+router.post('/:id/date-change', createDateChangeBooking);
 
 
 module.exports = router;

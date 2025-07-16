@@ -84,3 +84,7 @@ export const createCancellation = async (originalBookingId, data) => {
 export const getAvailableCreditNotes = async (supplier) => {
   return await api.get(`/bookings/credit-notes/available/${supplier}`);
 };
+
+export const createDateChangeBooking = async (originalBookingId, bookingData) => {
+  return await api.post(`/bookings/${originalBookingId}/date-change`, bookingData);
+};

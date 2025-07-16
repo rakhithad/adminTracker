@@ -10,7 +10,7 @@ datasource db {
 
 model Booking {
   id                Int             @id @default(autoincrement())
-  folderNo          Int             @unique @map("folder_no")
+  folderNo          String          @unique @map("folder_no")
   refNo             String          @map("ref_no") 
   paxName           String          @map("pax_name")
   agentName         String          @map("agent_name")  
@@ -43,6 +43,10 @@ model Booking {
   passengers        Passenger[]
   numPax            Int             @map("num_pax")
   initialDeposit    Float?          @map("initial_deposit")
+
+  originalBookingId Int?            @map("original_booking_id")
+  originalBooking   Booking?        @relation("BookingChain", fields: [originalBookingId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  followUpBookings  Booking[]       @relation("BookingChain")
 
   cancellation      Cancellation?   
 

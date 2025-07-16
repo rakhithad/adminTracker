@@ -1994,6 +1994,140 @@ const getAvailableCreditNotes = async (req, res) => {
   }
 };
 
+const createDateChangeBooking = async (req, res) => {
+  const originalBookingId = parseInt(req.params.id);
+  const data = req.body;
+
+  try {
+    const newBooking = await prisma.$transaction(async (tx) => {
+      // 1. Validate incoming data
+      if (!data.travelDate || !data.revenue) {
+        throw new Error('Travel Date and Revenue are required for a date change.');
+      }
+
+      // 2. Get the original booking
+      const originalBooking = await tx.booking.findUnique({
+        where: { id: originalBookingId },
+      });
+      if (!originalBooking) throw new Error('Original booking not found.');
+
+      // 3. Find related bookings to determine the next sub-index.
+      const baseFolderNo = originalBooking.folderNo.toString().split('.')[0];
+      const relatedBookings = await tx.booking.findMany({
+        where: {
+          folderNo: { startsWith: `${baseFolderNo}.` }
+        },
+      });
+
+      // 4. Calculate the new sub-folder number
+      const newIndex = relatedBookings.length + 1;
+      const newFolderNo = `${baseFolderNo}.${newIndex}`;
+      
+      // 5. Find the previous booking in the chain to mark as 'COMPLETED'.
+      let bookingToUpdateId;
+      if (relatedBookings.length > 0) {
+        const lastRelatedBooking = relatedBookings.sort((a, b) => {
+            const aIndex = parseInt(a.folderNo.split('.')[1] || 0);
+            const bIndex = parseInt(b.folderNo.split('.')[1] || 0);
+            return bIndex - aIndex;
+        })[0];
+        bookingToUpdateId = lastRelatedBooking.id;
+      } else {
+        bookingToUpdateId = originalBooking.id;
+      }
+
+      await tx.booking.update({
+        where: { id: bookingToUpdateId },
+        data: { bookingStatus: 'COMPLETED' },
+      });
+
+      // 6. Create the new date change booking record.
+      const createdBooking = await tx.booking.create({
+        data: {
+          folderNo: newFolderNo,
+          bookingStatus: 'CONFIRMED',
+          bookingType: 'DATE_CHANGE',
+          originalBookingId: (await tx.booking.findFirst({where: {folderNo: baseFolderNo}}))?.id,
+          refNo: data.ref_no, // Use snake_case from body
+          paxName: data.pax_name,
+          agentName: data.agent_name,
+          teamName: data.team_name,
+          pnr: data.pnr,
+          airline: data.airline,
+          fromTo: data.from_to,
+          pcDate: new Date(data.pcDate),
+          issuedDate: data.issuedDate ? new Date(data.issuedDate) : null,
+          paymentMethod: data.paymentMethod,
+          lastPaymentDate: data.lastPaymentDate ? new Date(data.lastPaymentDate) : null,
+          travelDate: new Date(data.travelDate),
+          revenue: data.revenue,
+          prodCost: data.prodCost,
+          transFee: data.transFee,
+          surcharge: data.surcharge,
+          received: data.received,
+          initialDeposit: (data.paymentMethod === 'INTERNAL' || data.paymentMethod === 'INTERNAL_HUMM') 
+              ? (parseFloat(data.received) || 0) 
+              : (parseFloat(data.revenue) || 0),
+          transactionMethod: data.transactionMethod,
+          receivedDate: data.receivedDate ? new Date(data.receivedDate) : null,
+          balance: data.balance,
+          profit: data.profit,
+          invoiced: data.invoiced,
+          description: data.description,
+          numPax: data.numPax,
+
+          // --- THIS IS THE CORRECTED PART ---
+          costItems: {
+            create: (data.prodCostBreakdown || []).map(item => ({
+              category: item.category,
+              amount: parseFloat(item.amount),
+              suppliers: {
+                create: (item.suppliers || []).map(s => ({
+                  supplier: s.supplier,
+                  amount: parseFloat(s.amount),
+                  paymentMethod: s.paymentMethod,
+                  paidAmount: parseFloat(s.paidAmount) || 0,
+                  pendingAmount: parseFloat(s.pendingAmount) || 0,
+                  transactionMethod: s.transactionMethod,
+                  firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
+                  secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+                })),
+              },
+            })),
+          },
+          instalments: {
+            create: (data.instalments || []).map(inst => ({
+              dueDate: new Date(inst.dueDate),
+              amount: parseFloat(inst.amount),
+              status: inst.status || 'PENDING',
+            })),
+          },
+          passengers: {
+            create: (data.passengers || []).map(pax => ({
+              title: pax.title,
+              firstName: pax.firstName,
+              middleName: pax.middleName || null,
+              lastName: pax.lastName,
+              gender: pax.gender,
+              email: pax.email || null,
+              contactNo: pax.contactNo || null,
+              nationality: pax.nationality || null,
+              birthday: pax.birthday ? new Date(pax.birthday) : null,
+              category: pax.category,
+            })),
+          },
+        },
+      });
+
+      return createdBooking;
+    });
+
+    return apiResponse.success(res, newBooking, 201);
+  } catch (error) {
+    console.error('Error creating date change booking:', error);
+    return apiResponse.error(res, `Failed to create date change booking: ${error.message}`, 500);
+  }
+};
 
 
 module.exports = {
@@ -2015,5 +2149,5 @@ module.exports = {
   getTransactions,
   createCancellation,
   getAvailableCreditNotes,
-  
+  createDateChangeBooking,
 };

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { FaUserPlus, FaCalculator, FaMoneyBillWave, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
-import { createPendingBooking } from '../api/api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { FaUserPlus, FaCalculator, FaMoneyBillWave, FaCheckCircle, FaTimesCircle, FaLock } from 'react-icons/fa';
+import { createPendingBooking, createDateChangeBooking  } from '../api/api';
 import ProductCostBreakdown from './ProductCostBreakdown';
 import InternalDepositPopup from './InternalDepositPopup';
 import PaxDetailsPopup from './PaxDetailsPopup';
@@ -40,7 +41,10 @@ const FormSelect = ({ label, name, required = false, children, ...props }) => (
 
 
 export default function CreateBooking({ onBookingCreated }) {
-  const [formData, setFormData] = useState({
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const getInitialFormData = () => ({ // Helper to reset the form
     refNo: '',
     paxName: '',
     passengers: [],
@@ -70,6 +74,34 @@ export default function CreateBooking({ onBookingCreated }) {
     description: '',
     instalments: [],
   });
+  
+  const [formData, setFormData] = useState(getInitialFormData());
+  const [originalBookingInfo, setOriginalBookingInfo] = useState(null);
+
+  useEffect(() => {
+    const originalBooking = location.state?.originalBookingForDateChange;
+    if (originalBooking) {
+      console.log("Date Change mode activated for booking:", originalBooking);
+      setOriginalBookingInfo({
+        id: originalBooking.id,
+        folderNo: originalBooking.folderNo,
+      });
+
+      setFormData({
+        ...getInitialFormData(), // Start with a fresh form
+        
+        paxName: originalBooking.paxName,
+        passengers: originalBooking.passengers,
+        numPax: originalBooking.numPax,
+        
+        bookingType: 'DATE_CHANGE',
+        // --- Financials and new dates are intentionally left blank ---
+      });
+
+      // Clear the state from navigation so a page refresh doesn't re-trigger this
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -246,59 +278,55 @@ export default function CreateBooking({ onBookingCreated }) {
       // --- SECTION 4: Prepare data for API submission ---
       const bookingData = {
         ref_no: formData.refNo,
-        pax_name: formData.paxName,
-        agent_name: formData.agentName,
-        team_name: formData.teamName || null,
-        pnr: formData.pnr,
-        airline: formData.airline,
-        from_to: formData.fromTo,
-        bookingType: formData.bookingType,
-        pcDate: formData.pcDate,
-        issuedDate: formData.issuedDate || null,
-        paymentMethod: formData.paymentMethod,
-        lastPaymentDate: formData.lastPaymentDate || null,
-        travelDate: formData.travelDate || null,
-        revenue: formData.revenue ? parseFloat(formData.revenue) : null,
-        prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
-        prodCostBreakdown: formData.prodCostBreakdown, // Pass the breakdown as is
-        transFee: formData.transFee ? parseFloat(formData.transFee) : 0,
-        surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
-        received: formData.received ? parseFloat(formData.received) : null,
-        transactionMethod: formData.transactionMethod || null,
-        receivedDate: formData.receivedDate || null,
-        balance: parseFloat(formData.balance) || null,
-        profit: formData.profit ? parseFloat(formData.profit) : null,
-        invoiced: formData.invoiced || null,
-        description: formData.description || null,
-        status: 'PENDING',
-        instalments: formData.instalments,
-        passengers: formData.passengers,
-        numPax: formData.numPax,
+    pax_name: formData.paxName,
+    agent_name: formData.agentName,
+    team_name: formData.teamName,
+    pnr: formData.pnr,
+    airline: formData.airline,
+    from_to: formData.fromTo,
+    // --- The rest can be camelCase as they are objects/arrays ---
+    bookingType: formData.bookingType,
+    pcDate: formData.pcDate,
+    issuedDate: formData.issuedDate,
+    paymentMethod: formData.paymentMethod,
+    lastPaymentDate: formData.lastPaymentDate,
+    travelDate: formData.travelDate,
+    revenue: formData.revenue ? parseFloat(formData.revenue) : null,
+    prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
+    transFee: formData.transFee ? parseFloat(formData.transFee) : 0,
+    surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
+    received: formData.received ? parseFloat(formData.received) : null,
+    transactionMethod: formData.transactionMethod,
+    receivedDate: formData.receivedDate,
+    balance: parseFloat(formData.balance),
+    profit: formData.profit ? parseFloat(formData.profit) : null,
+    invoiced: formData.invoiced,
+    description: formData.description,
+    numPax: formData.numPax,
+    prodCostBreakdown: formData.prodCostBreakdown,
+    instalments: formData.instalments,
+    passengers: formData.passengers,
       };
 
-      console.log('Submitting bookingData:', JSON.stringify(bookingData, null, 2));
-
-      // --- SECTION 5: API call and state reset ---
-      const response = await createPendingBooking(bookingData);
-      const newPendingBooking = response.data.data;
-
-      setSuccessMessage('Booking submitted for admin approval!');
-      if (onBookingCreated) {
-        onBookingCreated(newPendingBooking);
+      if (originalBookingInfo) {
+        // --- DATE CHANGE MODE ---
+        console.log(`Submitting DATE CHANGE for original booking ID: ${originalBookingInfo.id}`);
+        await createDateChangeBooking(originalBookingInfo.id, bookingData);
+        setSuccessMessage('Date change booking created successfully!');
+        // Redirect to the main bookings page after creation
+        setTimeout(() => navigate('/bookings'), 2000);
+      } else {
+        // --- NORMAL PENDING BOOKING MODE ---
+        console.log('Submitting new PENDING booking.');
+        const response = await createPendingBooking(bookingData);
+        if (onBookingCreated) {
+          onBookingCreated(response.data.data);
+        }
+        setSuccessMessage('Booking submitted for admin approval!');
+        setFormData(getInitialFormData()); // Reset form for next entry
+        setOriginalBookingInfo(null); // Ensure we exit date change mode
       }
 
-      // Reset form state after successful submission
-      setFormData({
-        refNo: '', paxName: '', passengers: [], numPax: 1, agentName: '', teamName: '',
-        pnr: '', airline: '', fromTo: '', bookingType: 'FRESH',
-        pcDate: new Date().toISOString().split('T')[0], issuedDate: '', paymentMethod: 'FULL',
-        lastPaymentDate: '', travelDate: '', revenue: '', prodCost: '', prodCostBreakdown: [],
-        transFee: '', surcharge: '', received: '', transactionMethod: '',
-        receivedDate: new Date().toISOString().split('T')[0], balance: '', profit: '',
-        invoiced: '', description: '', instalments: [],
-      });
-
-      setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Booking submission error:', error);
       setErrorMessage(error.response?.data?.message || error.message || 'Failed to submit booking. Please try again.');
@@ -310,9 +338,13 @@ export default function CreateBooking({ onBookingCreated }) {
 
   return (
     <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full">
-      <h3 className="text-2xl font-bold mb-1 text-gray-900">Create New Booking</h3>
-      <p className="text-gray-500 mb-6">Fill in the details below to create a booking pending for approval.</p>
-
+      <h3 className="text-2xl font-bold mb-1 text-gray-900">
+        {originalBookingInfo ? `Create Date Change for: ${originalBookingInfo.folderNo}` : 'Create New Booking'}
+      </h3>
+      <p className="text-gray-500 mb-6">
+        {originalBookingInfo ? 'Inherited data is locked. Please fill in the new dates and financials.' : 'Fill in the details below to create a booking pending for approval.'}
+      </p>
+      
       {successMessage && (
         <div className="flex items-center mb-6 p-4 bg-green-100 text-green-800 rounded-lg shadow-sm">
           <FaCheckCircle className="mr-3 h-5 w-5" />
@@ -327,17 +359,18 @@ export default function CreateBooking({ onBookingCreated }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-10">
-        {/* Section 1: Core Information */}
+        {/* Section 1: Core Booking Information */}
         <div className="border-t border-gray-200 pt-6">
           <h4 className="text-lg font-semibold text-gray-800 mb-4">Core Booking Information</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
-            <FormInput label="Reference No" name="refNo" value={formData.refNo} onChange={handleChange} required placeholder="e.g., IBE13260992" />
+            {/* 9. MODIFY JSX to lock fields in date change mode */}
+            <FormInput label="Reference No" name="refNo" value={formData.refNo} onChange={handleChange} required/>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Lead Passenger <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Lead Passenger {originalBookingInfo && <FaLock className="inline h-3 w-3 ml-1 text-gray-400"/>}</label>
               <div className="flex items-center">
-                <input name="paxName" type="text" value={formData.paxName} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly placeholder="Click Input button ->" />
-                <button type="button" onClick={() => setShowPaxDetails(true)} className="ml-2 px-4 h-[42px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0 transition" aria-label="Input Passenger Details">
+                <input name="paxName" type="text" value={formData.paxName} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly />
+                <button type="button" onClick={() => setShowPaxDetails(true)} disabled={!!originalBookingInfo} className="ml-2 px-4 h-[42px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
                   <FaUserPlus />
                 </button>
               </div>
@@ -350,30 +383,30 @@ export default function CreateBooking({ onBookingCreated }) {
             </div>
 
             <FormInput label="Agent Name" name="agentName" value={formData.agentName} onChange={handleChange} required />
-            <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required>
+            <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required >
               <option value="">Select Team</option>
               <option value="PH">PH</option>
               <option value="TOURS">TOURS</option>
             </FormSelect>
-            <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required placeholder="e.g., JJ55WW" />
-            <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required placeholder="e.g., QR, EK" />
-            <FormInput label="From/To" name="fromTo" value={formData.fromTo} onChange={handleChange} required placeholder="e.g., LHR-DXB" />
+            <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required />
+            <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required  />
+            <FormInput label="From/To" name="fromTo" value={formData.fromTo} onChange={handleChange} required />
           </div>
         </div>
 
         {/* Section 2: Dates & Payment Type */}
         <div className="border-t border-gray-200 pt-6">
-          <h4 className="text-lg font-semibold text-gray-800 mb-4">Dates & Payment</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
-            <FormSelect label="Booking Type" name="bookingType" value={formData.bookingType} onChange={handleChange} required>
-              <option value="FRESH">Fresh</option>
-              <option value="DATE_CHANGE">Date Change</option>
-              <option value="CANCELLATION">Cancellation</option>
-            </FormSelect>
-            <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
-            <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
-            <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
-            <FormSelect label="Payment Method" name="paymentMethod" value={formData.paymentMethod} onChange={(e) => { handleChange(e); if (e.target.value === 'INTERNAL' || e.target.value === 'INTERNAL_HUMM') { setShowInternalDeposit(true); } }} required>
+            <h4 className="text-lg font-semibold text-gray-800 mb-4">Dates & Payment</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                <FormSelect label="Booking Type" name="bookingType" value={formData.bookingType} onChange={handleChange} required disabled={!!originalBookingInfo}>
+                    <option value="FRESH">Fresh</option>
+                    <option value="DATE_CHANGE">Date Change</option>
+                    <option value="CANCELLATION">Cancellation</option>
+                </FormSelect>
+                <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
+                <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
+                <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
+                <FormSelect label="Payment Method" name="paymentMethod" value={formData.paymentMethod} onChange={(e) => { handleChange(e); if (e.target.value === 'INTERNAL' || e.target.value === 'INTERNAL_HUMM') { setShowInternalDeposit(true); } }} required>
               <option value="FULL">Full</option>
               <option value="INTERNAL">Internal (Instalments)</option>
               <option value="REFUND">Refund</option>
@@ -438,10 +471,10 @@ export default function CreateBooking({ onBookingCreated }) {
         <div className="flex justify-end pt-6 border-t border-gray-200">
           <button
             type="submit"
-            className="inline-flex items-center justify-center py-3 px-8 border border-transparent text-base font-semibold rounded-lg shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-blue-300 disabled:cursor-wait transition-colors"
+            className="..."
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
+            {isSubmitting ? 'Submitting...' : (originalBookingInfo ? 'Create Date Change Booking' : 'Submit Booking for Approval')}
           </button>
         </div>
       </form>

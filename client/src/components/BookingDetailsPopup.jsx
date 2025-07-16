@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FaTimes, FaPencilAlt, FaSave, FaBan } from 'react-icons/fa';
+import { useNavigate } from 'react-router-dom';
+import { FaTimes, FaPencilAlt, FaSave, FaBan, FaRandom  } from 'react-icons/fa';
 import { updateBooking, createCancellation  } from '../api/api';
 import CancellationPopup from './CancellationPopup'
 
@@ -26,6 +27,7 @@ const EditInput = ({ label, ...props }) => (
 );
 
 export default function BookingDetailsPopup({ booking, onClose, onSave }) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('details');
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({});
@@ -80,6 +82,11 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
       console.error("Update failed:", err);
       setError(err.response?.data?.message || "Failed to save changes.");
     }
+  };
+
+  const handleDateChange = () => {
+    navigate('/create-booking', { state: { originalBookingForDateChange: booking } });
+    onClose(); 
   };
   
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
@@ -215,11 +222,16 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                     <button onClick={() => setIsEditing(false)} className="flex items-center px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600"><FaBan className="mr-2"/>Cancel</button>
                 </>
             ) : (
-                <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><FaPencilAlt className="mr-2"/>Edit</button>
+                <> {/* 5. MODIFY this block to add the new button */}
+                    <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><FaPencilAlt className="mr-2"/>Edit</button>
+                    {booking.bookingStatus !== 'CANCELLED' && (
+                       <button onClick={handleDateChange} className="flex items-center px-3 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"><FaRandom className="mr-2"/>Date Change</button>
+                    )}
+                </>
             )}
             {!isEditing && booking.bookingStatus !== 'CANCELLED' && (
-         <button onClick={() => setShowCancelPopup(true)} className="flex items-center px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700">Cancel Booking</button>
-      )}
+                <button onClick={() => setShowCancelPopup(true)} className="flex items-center px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700">Cancel Booking</button>
+            )}
             <button onClick={onClose} className="p-2 rounded-full text-gray-500 hover:bg-gray-100"><FaTimes /></button>
           </div>
         </div>
