@@ -225,9 +225,9 @@ const approveBooking = async (req, res) => {
         },
       });
 
-      // 2. Calculate the new folder number. If no bookings exist, start at 1.
-      const newFolderNo = lastBooking ? lastBooking.folderNo + 1 : 1;
-      // --- END: NEW FOLDER NUMBER LOGIC ---
+      const newFolderNo = lastBooking
+  ? String(parseInt(lastBooking.folderNo, 10) + 1)
+  : '1';
 
 
       const newBooking = await tx.booking.create({

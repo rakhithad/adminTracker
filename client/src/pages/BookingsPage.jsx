@@ -1,15 +1,32 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FaSearch, FaSpinner, FaExclamationTriangle, FaFolderOpen } from 'react-icons/fa';
+import { FaSearch, FaSpinner, FaExclamationTriangle, FaFolderOpen, FaSort, FaSortUp, FaSortDown } from 'react-icons/fa';
 import { getBookings } from '../api/api';
 import BookingDetailsPopup from '../components/BookingDetailsPopup';
 
+const compareFolderNumbers = (a, b) => {
+  if (!a || !b) return 0;
+  const partsA = a.split('.').map(part => parseInt(part, 10));
+  const partsB = b.split('.').map(part => parseInt(part, 10));
+
+  const mainA = partsA[0];
+  const mainB = partsB[0];
+  if (mainA !== mainB) {
+    return mainA - mainB;
+  }
+  
+  const subA = partsA.length > 1 ? partsA[1] : 0;
+  const subB = partsB.length > 1 ? partsB[1] : 0;
+  return subA - subB;
+};
+
 export default function BookingsPage() {
-  const [allBookings, setAllBookings] = useState([]); // Holds the raw, flat list from the API
+  const [allBookings, setAllBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
+  const [sortConfig, setSortConfig] = useState({ key: 'travelDate', direction: 'descending' });
 
   const toggleExpandRow = (bookingId) => {
     setExpandedRows(prev => ({
@@ -44,23 +61,20 @@ export default function BookingsPage() {
 
   const handleBookingUpdate = () => {
     setSelectedBooking(null);
-    fetchBookings(); // Refetch all data on any update
+    fetchBookings();
   };
   
-  // This hook transforms the flat booking list into a grouped, hierarchical structure
-  const groupedBookings = useMemo(() => {
+  const groupedAndSortedBookings = useMemo(() => {
     if (!allBookings.length) return [];
 
     const bookingMap = new Map(allBookings.map(b => [b.id, { ...b, children: [] }]));
-    const topLevelBookings = [];
+    let topLevelBookings = [];
 
     for (const booking of allBookings) {
       const parentId = booking.originalBookingId;
       if (parentId && bookingMap.has(parentId)) {
-        // This is a date-change booking, add it to its parent's children
         bookingMap.get(parentId).children.push(booking);
       } else if (booking.cancellation) {
-        // This is a cancelled booking, add cancellation info as a child
         const parent = bookingMap.get(booking.id);
         if(parent) {
           parent.children.push({ ...booking.cancellation, isCancellation: true });
@@ -68,26 +82,48 @@ export default function BookingsPage() {
       }
     }
 
-    // Now, create the final list of only top-level bookings
     for (const booking of bookingMap.values()) {
         if (!booking.originalBookingId) {
-            // Sort children by creation date to ensure correct order (e.g., 101.1, then 101.2)
             booking.children.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
             topLevelBookings.push(booking);
         }
     }
     
-    // Finally, sort the top-level bookings themselves by pcDate
-    return topLevelBookings.sort((a,b) => new Date(b.pcDate) - new Date(a.pcDate));
+    if (sortConfig.key) {
+      topLevelBookings.sort((a, b) => {
+        let valA = a[sortConfig.key];
+        let valB = b[sortConfig.key];
+        let comparison = 0;
+        
+        if (sortConfig.key === 'folderNo') {
+          comparison = compareFolderNumbers(valA, valB);
+        } else if (['revenue', 'balance', 'profit'].includes(sortConfig.key)) {
+          comparison = (parseFloat(valA) || 0) - (parseFloat(valB) || 0);
+        } else if (sortConfig.key === 'travelDate') {
+          // --- FIX APPLIED HERE ---
+          // This correctly handles potentially invalid date strings
+          const timeA = new Date(valA).getTime();
+          const timeB = new Date(valB).getTime();
+          const validTimeA = !isNaN(timeA) ? timeA : 0;
+          const validTimeB = !isNaN(timeB) ? timeB : 0;
+          comparison = validTimeA - validTimeB;
+          // --- END FIX ---
+        } else {
+          // Default to locale-aware string comparison
+          comparison = String(valA || '').localeCompare(String(valB || ''));
+        }
+        
+        return sortConfig.direction === 'descending' ? -comparison : comparison;
+      });
+    }
 
-  }, [allBookings]);
+    return topLevelBookings;
+  }, [allBookings, sortConfig]);
 
-
-  const filteredBookings = groupedBookings.filter(booking => {
+  const filteredBookings = groupedAndSortedBookings.filter(booking => {
     if (!searchTerm) return true;
     const searchLower = searchTerm.toLowerCase();
     
-    // Search in the parent booking
     const inParent = 
       booking.folderNo?.toString().toLowerCase().includes(searchLower) ||
       booking.refNo?.toLowerCase().includes(searchLower) ||
@@ -97,12 +133,10 @@ export default function BookingsPage() {
 
     if (inParent) return true;
       
-    // Search in the child bookings (date changes and cancellations)
     const inChildren = booking.children?.some(child => {
         if (child.isCancellation) {
             return child.description?.toLowerCase().includes(searchLower);
         }
-        // It's a date-change booking
         return (
             child.folderNo?.toString().toLowerCase().includes(searchLower) ||
             child.refNo?.toLowerCase().includes(searchLower) ||
@@ -113,6 +147,23 @@ export default function BookingsPage() {
     return inChildren;
   });
 
+  const handleSort = (key) => {
+    let direction = 'ascending';
+    if (sortConfig.key === key && sortConfig.direction === 'ascending') {
+      direction = 'descending';
+    }
+    setSortConfig({ key, direction });
+  };
+  
+  const getSortIcon = (key) => {
+    if (sortConfig.key !== key) {
+      return <FaSort className="inline ml-1 text-gray-400 opacity-50" />;
+    }
+    return sortConfig.direction === 'ascending' ? 
+      <FaSortUp className="inline ml-1 text-white" /> : 
+      <FaSortDown className="inline ml-1 text-white" />;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -120,6 +171,16 @@ export default function BookingsPage() {
       </div>
     );
   }
+
+  const SortableHeader = ({ sortKey, title, className = '' }) => (
+    <th 
+      scope="col" 
+      className={`px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider cursor-pointer select-none transition-colors hover:bg-gray-700 ${className}`}
+      onClick={() => handleSort(sortKey)}
+    >
+      {title} {getSortIcon(sortKey)}
+    </th>
+  );
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-8">
@@ -146,26 +207,25 @@ export default function BookingsPage() {
               <thead className="bg-gray-800">
                 <tr>
                   <th scope="col" className="w-10 px-2 py-3"></th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">FolderNo</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Ref No</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Passenger</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Agent</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">PNR</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Airline</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Route</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Type</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Status</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Travel Date</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Revenue</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Balance</th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-bold text-white uppercase tracking-wider">Profit</th>
+                  <SortableHeader sortKey="folderNo" title="FolderNo" />
+                  <SortableHeader sortKey="refNo" title="Ref No" />
+                  <SortableHeader sortKey="paxName" title="Passenger" />
+                  <SortableHeader sortKey="agentName" title="Agent" />
+                  <SortableHeader sortKey="pnr" title="PNR" />
+                  <SortableHeader sortKey="airline" title="Airline" />
+                  <SortableHeader sortKey="fromTo" title="Route" />
+                  <SortableHeader sortKey="bookingType" title="Type" />
+                  <SortableHeader sortKey="bookingStatus" title="Status" />
+                  <SortableHeader sortKey="travelDate" title="Travel Date" />
+                  <SortableHeader sortKey="revenue" title="Revenue" />
+                  <SortableHeader sortKey="balance" title="Balance" />
+                  <SortableHeader sortKey="profit" title="Profit" />
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredBookings.length > 0 ? (
                   filteredBookings.map((booking) => (
                     <React.Fragment key={booking.id}>
-                      {/* --- MAIN ROW (Parent Booking) --- */}
                       <tr 
                         className="hover:bg-blue-50 cursor-pointer transition-colors duration-150"
                         onClick={() => setSelectedBooking(booking)}
@@ -194,39 +254,38 @@ export default function BookingsPage() {
                         </td>
                       </tr>
 
-                      {/* --- SUB-ROWS for Children (Date Changes & Cancellations) --- */}
                       {expandedRows[booking.id] && booking.children.map(child => (
                         child.isCancellation ? (
-                            <tr key={`${child.id}-cancel`} className="bg-red-50 text-xs">
-                               <td></td>
-                               <td className="px-4 py-2 whitespace-nowrap font-bold text-red-800">↳ {child.folderNo}</td>
-                               <td className="px-4 py-2 whitespace-nowrap text-red-800">{booking.refNo}-C</td>
-                               <td className="px-4 py-2 whitespace-nowrap" colSpan="5">{child.description}</td>
-                               <td className="px-4 py-2 whitespace-nowrap">CANCELLATION</td>
-                               <td className="px-4 py-2 whitespace-nowrap">COMPLETED</td>
-                               <td className="px-4 py-2 whitespace-nowrap">{formatDateDisplay(child.createdAt)}</td>
-                               <td className="px-4 py-2 whitespace-nowrap font-medium text-green-700" colSpan="2">
-                                  Refund via: {child.refundTransactionMethod.replace(/_/g, ' ')}
-                               </td>
-                               <td className="px-4 py-2 whitespace-nowrap font-bold text-red-700">£{child.profitOrLoss.toFixed(2)}</td>
-                            </tr>
+                          <tr key={`${child.id}-cancel`} className="bg-red-50 text-xs">
+                             <td></td>
+                             <td className="px-4 py-2 whitespace-nowrap font-bold text-red-800">↳ {child.folderNo}</td>
+                             <td className="px-4 py-2 whitespace-nowrap text-red-800">{booking.refNo}-C</td>
+                             <td className="px-4 py-2 whitespace-nowrap" colSpan="5">{child.description}</td>
+                             <td className="px-4 py-2 whitespace-nowrap">CANCELLATION</td>
+                             <td className="px-4 py-2 whitespace-nowrap">COMPLETED</td>
+                             <td className="px-4 py-2 whitespace-nowrap">{formatDateDisplay(child.createdAt)}</td>
+                             <td className="px-4 py-2 whitespace-nowrap font-medium text-green-700" colSpan="2">
+                                Refund via: {child.refundTransactionMethod.replace(/_/g, ' ')}
+                             </td>
+                             <td className="px-4 py-2 whitespace-nowrap font-bold text-red-700">£{child.profitOrLoss.toFixed(2)}</td>
+                          </tr>
                         ) : (
-                            <tr key={child.id} className="bg-yellow-50 text-xs hover:bg-yellow-100 cursor-pointer" onClick={() => setSelectedBooking(child)}>
-                                <td></td>
-                                <td className="px-4 py-2 font-bold text-yellow-800">↳ {child.folderNo}</td>
-                                <td className="px-4 py-2 text-gray-800">{child.refNo}</td>
-                                <td className="px-4 py-2 text-gray-800">{child.paxName}</td>
-                                <td className="px-4 py-2 text-gray-600">{child.agentName}</td>
-                                <td className="px-4 py-2 font-mono">{child.pnr}</td>
-                                <td className="px-4 py-2">{child.airline}</td>
-                                <td className="px-4 py-2">{child.fromTo}</td>
-                                <td className="px-4 py-2 font-semibold">DATE CHANGE</td>
-                                <td className="px-4 py-2"><span className={`px-2 py-1 font-semibold rounded-full text-xs ${ child.bookingStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800' }`}>{child.bookingStatus}</span></td>
-                                <td className="px-4 py-2">{formatDateDisplay(child.travelDate)}</td>
-                                <td className="px-4 py-2 font-medium text-green-700">{child.revenue != null ? `£${parseFloat(child.revenue).toFixed(2)}` : '—'}</td>
-                                <td className="px-4 py-2 font-medium text-red-700">{child.balance != null ? `£${parseFloat(child.balance).toFixed(2)}` : '—'}</td>
-                                <td className="px-4 py-2 font-bold text-green-700">{child.profit != null ? `£${parseFloat(child.profit).toFixed(2)}` : '—'}</td>
-                            </tr>
+                          <tr key={child.id} className="bg-yellow-50 text-xs hover:bg-yellow-100 cursor-pointer" onClick={() => setSelectedBooking(child)}>
+                              <td></td>
+                              <td className="px-4 py-2 font-bold text-yellow-800">↳ {child.folderNo}</td>
+                              <td className="px-4 py-2 text-gray-800">{child.refNo}</td>
+                              <td className="px-4 py-2 text-gray-800">{child.paxName}</td>
+                              <td className="px-4 py-2 text-gray-600">{child.agentName}</td>
+                              <td className="px-4 py-2 font-mono">{child.pnr}</td>
+                              <td className="px-4 py-2">{child.airline}</td>
+                              <td className="px-4 py-2">{child.fromTo}</td>
+                              <td className="px-4 py-2 font-semibold">DATE CHANGE</td>
+                              <td className="px-4 py-2"><span className={`px-2 py-1 font-semibold rounded-full text-xs ${ child.bookingStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800' }`}>{child.bookingStatus}</span></td>
+                              <td className="px-4 py-2">{formatDateDisplay(child.travelDate)}</td>
+                              <td className="px-4 py-2 font-medium text-green-700">{child.revenue != null ? `£${parseFloat(child.revenue).toFixed(2)}` : '—'}</td>
+                              <td className="px-4 py-2 font-medium text-red-700">{child.balance != null ? `£${parseFloat(child.balance).toFixed(2)}` : '—'}</td>
+                              <td className="px-4 py-2 font-bold text-green-700">{child.profit != null ? `£${parseFloat(child.profit).toFixed(2)}` : '—'}</td>
+                          </tr>
                         )
                       ))}
                     </React.Fragment>

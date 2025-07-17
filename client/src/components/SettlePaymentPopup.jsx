@@ -38,7 +38,7 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
       }
 
       const response = await createSupplierPaymentSettlement({
-        costItemSupplierId: booking.costItemSupplierId,
+        costItemSupplierId: booking.id,
         amount,
         transactionMethod: formData.transactionMethod,
         settlementDate: formData.settlementDate,
