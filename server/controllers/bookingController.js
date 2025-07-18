@@ -190,12 +190,16 @@ const approveBooking = async (req, res) => {
   }
 
   try {
-    // --- WRAP THE ENTIRE LOGIC IN A TRANSACTION ---
     const booking = await prisma.$transaction(async (tx) => {
+      // 1. Fetch the complete pending booking, including the suppliers. This is critical.
       const pendingBooking = await tx.pendingBooking.findUnique({
         where: { id: bookingId },
         include: {
-          costItems: { include: { suppliers: true } },
+          costItems: { 
+            include: { 
+              suppliers: true // We need the IDs of the existing suppliers
+            } 
+          },
           instalments: true,
           passengers: true,
         },
@@ -217,29 +221,18 @@ const approveBooking = async (req, res) => {
       // ... add any other validation you have ...
 
 
-      // --- START: NEW FOLDER NUMBER LOGIC ---
-      // 1. Find the booking with the highest folder number
-      const lastBooking = await tx.booking.findFirst({
-        orderBy: {
-          folderNo: 'desc',
-        },
-      });
-
-      const newFolderNo = lastBooking
-  ? String(parseInt(lastBooking.folderNo, 10) + 1)
-  : '1';
+      const lastBooking = await tx.booking.findFirst({ orderBy: { folderNo: 'desc' } });
+      const newFolderNo = lastBooking ? String(parseInt(lastBooking.folderNo, 10) + 1) : '1';
 
 
       const newBooking = await tx.booking.create({
         data: {
-          // --- ADD THE NEW FOLDER NUMBER HERE ---
           folderNo: newFolderNo,
-          
-          // --- The rest of your existing data mapping ---
+          // --- Map all top-level fields from pendingBooking to newBooking ---
           refNo: pendingBooking.refNo,
           paxName: pendingBooking.paxName,
+          // ... (all other fields like agentName, pnr, revenue, etc.)
           agentName: pendingBooking.agentName,
-          // ... copy all other fields from pendingBooking to booking
           teamName: pendingBooking.teamName || null,
           pnr: pendingBooking.pnr,
           airline: pendingBooking.airline,
@@ -257,8 +250,8 @@ const approveBooking = async (req, res) => {
           surcharge: pendingBooking.surcharge ? parseFloat(pendingBooking.surcharge) : null,
           received: pendingBooking.received ? parseFloat(pendingBooking.received) : null,
           initialDeposit: (pendingBooking.paymentMethod === 'INTERNAL' || pendingBooking.paymentMethod === 'INTERNAL_HUMM') 
-        ? (parseFloat(pendingBooking.received) || 0) 
-        : (parseFloat(pendingBooking.revenue) || 0),
+            ? (parseFloat(pendingBooking.received) || 0) 
+            : (parseFloat(pendingBooking.revenue) || 0),
           transactionMethod: pendingBooking.transactionMethod || null,
           receivedDate: pendingBooking.receivedDate || null,
           balance: pendingBooking.balance ? parseFloat(pendingBooking.balance) : null,
@@ -266,22 +259,12 @@ const approveBooking = async (req, res) => {
           invoiced: pendingBooking.invoiced || null,
           description: pendingBooking.description || null,
           numPax: pendingBooking.numPax,
+          // --- Create CostItems, but NOT their suppliers yet ---
           costItems: {
             create: pendingBooking.costItems.map((item) => ({
               category: item.category,
               amount: parseFloat(item.amount),
-              suppliers: {
-                create: item.suppliers.map((s) => ({
-                  supplier: s.supplier,
-                  amount: parseFloat(s.amount),
-                  paymentMethod: s.paymentMethod,
-                  paidAmount: parseFloat(s.paidAmount) || 0,
-                  pendingAmount: parseFloat(s.pendingAmount) || 0,
-                  transactionMethod: s.transactionMethod,
-                  firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                  secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                })),
-              },
+              // THE NESTED SUPPLIER CREATE IS REMOVED
             })),
           },
           instalments: {
@@ -307,27 +290,46 @@ const approveBooking = async (req, res) => {
           },
         },
         include: {
-            costItems: { include: { suppliers: true } },
+            costItems: true, 
             instalments: true,
             passengers: true,
         }
       });
 
+      for (const [index, pendingItem] of pendingBooking.costItems.entries()) {
+        const newCostItemId = newBooking.costItems[index].id;
+        for (const supplier of pendingItem.suppliers) {
+          await tx.costItemSupplier.update({
+            where: { id: supplier.id },
+            data: {
+              costItemId: newCostItemId, // Link to the new, approved cost item
+              pendingCostItemId: null,  // Unlink from the old, pending one
+            },
+          });
+        }
+      }
+
+      // 5. Mark the pending booking as processed
       await tx.pendingBooking.update({
         where: { id: bookingId },
         data: { status: 'APPROVED' },
       });
       
-      // Return the newly created booking from the transaction
-      return newBooking; 
+      // 6. Return the full, newly created and linked booking
+      return tx.booking.findUnique({
+          where: { id: newBooking.id },
+          include: {
+              costItems: { include: { suppliers: true } },
+              instalments: true,
+              passengers: true
+          }
+      });
     });
 
-    // If the transaction is successful, send the response
     return apiResponse.success(res, booking, 200);
 
   } catch (error) {
     console.error('Error approving booking:', error);
-    // Handle errors from the transaction
     if (error.message === 'Pending booking not found') {
         return apiResponse.error(res, 'Pending booking not found', 404);
     }
@@ -1233,10 +1235,10 @@ const createSupplierPaymentSettlement = async (req, res) => {
   }
 };
 
+// In controllers/bookingController.js
 
 const getSuppliersInfo = async (req, res) => {
   try {
-    // This query is now less important, we get most data from the Credit Note query
     const bookings = await prisma.booking.findMany({
       select: {
         refNo: true,
@@ -1244,13 +1246,25 @@ const getSuppliersInfo = async (req, res) => {
           select: {
             category: true,
             suppliers: {
+              // The query is correct and fetches all necessary data
               select: {
                 id: true,
                 supplier: true,
                 amount: true,
                 paidAmount: true,
                 pendingAmount: true,
-                createdAt: true
+                createdAt: true,
+                paymentMethod: true,
+                firstMethodAmount: true,
+                secondMethodAmount: true,
+                settlements: true,
+                paidByCreditNoteUsage: {
+                  include: {
+                    creditNote: {
+                      select: { id: true }
+                    }
+                  }
+                }
               }
             }
           }
@@ -1258,10 +1272,8 @@ const getSuppliersInfo = async (req, res) => {
       }
     });
 
-    // This is the CRITICAL query. We will fix the 'include' here.
     const allCreditNotes = await prisma.supplierCreditNote.findMany({
       include: {
-        // This gets the history of WHERE the note was CREATED
         generatedFromCancellation: {
           include: {
             originalBooking: {
@@ -1269,28 +1281,12 @@ const getSuppliersInfo = async (req, res) => {
             }
           }
         },
-        // This gets the history of WHERE the note was USED
         usageHistory: {
           include: {
             usedOnCostItemSupplier: {
-              // We need to include the relations from here
               include: {
-                // We need to fetch the approved booking's cost item
-                costItem: {
-                  include: {
-                    booking: {
-                      select: { refNo: true } // <<< THE GOAL
-                    }
-                  }
-                },
-                // And also the pending booking's cost item
-                pendingCostItem: {
-                    include: {
-                        pendingBooking: {
-                            select: { refNo: true } // <<< THE GOAL (for pending)
-                        }
-                    }
-                }
+                costItem: { include: { booking: { select: { refNo: true } } } },
+                pendingCostItem: { include: { pendingBooking: { select: { refNo: true } } } }
               }
             }
           }
@@ -1300,7 +1296,6 @@ const getSuppliersInfo = async (req, res) => {
 
     const supplierSummary = {};
 
-    // Process all bookings to get cost items
     bookings.forEach(booking => {
         booking.costItems.forEach(item => {
             item.suppliers.forEach(s => {
@@ -1310,56 +1305,57 @@ const getSuppliersInfo = async (req, res) => {
                 supplierSummary[s.supplier].totalAmount += parseFloat(s.amount);
                 supplierSummary[s.supplier].totalPaid += parseFloat(s.paidAmount) || 0;
                 supplierSummary[s.supplier].totalPending += parseFloat(s.pendingAmount) || 0;
+                
+                // --- THIS IS THE DEFINITIVE FIX ---
+                // Instead of using the spread operator (...s), we explicitly map each field.
+                // This guarantees that the 'settlements' and 'paidByCreditNoteUsage' arrays are included.
                 supplierSummary[s.supplier].transactions.push({
                     type: 'Booking',
                     data: {
                         id: s.id,
-                        refNo: booking.refNo,
-                        category: item.category,
+                        supplier: s.supplier,
                         amount: s.amount,
                         paidAmount: s.paidAmount,
                         pendingAmount: s.pendingAmount,
                         createdAt: s.createdAt,
+                        paymentMethod: s.paymentMethod,
+                        firstMethodAmount: s.firstMethodAmount,
+                        secondMethodAmount: s.secondMethodAmount,
+                        settlements: s.settlements, // Explicitly pass the settlements array
+                        paidByCreditNoteUsage: s.paidByCreditNoteUsage, // Explicitly pass the credit note usage array
+                        refNo: booking.refNo,
+                        category: item.category,
                     }
                 });
+                // --- END OF FIX ---
             });
         });
     });
 
-    // Process all credit notes and add them to the correct supplier
     allCreditNotes.forEach(note => {
         if (!supplierSummary[note.supplier]) {
             supplierSummary[note.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
         }
-
-        // Now, we modify the usageHistory to have a consistent refNo
         const modifiedUsageHistory = note.usageHistory.map(usage => {
-            // Find the refNo from either the approved booking or the pending one
             const usedOnRefNo = usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || usage.usedOnCostItemSupplier?.pendingCostItem?.pendingBooking?.refNo || 'N/A';
             return {
                 ...usage,
-                // We are adding a new, simplified property for easy access on the frontend
                 usedOnRefNo: usedOnRefNo
             };
         });
-        
         supplierSummary[note.supplier].transactions.push({
             type: 'CreditNote',
             data: {
                 ...note,
-                usageHistory: modifiedUsageHistory, // Use the modified history
+                usageHistory: modifiedUsageHistory,
                 generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'
             }
         });
     });
 
-    // Sort transactions within each supplier by date
     for (const supplier in supplierSummary) {
         supplierSummary[supplier].transactions.sort((a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt));
     }
-
-    // You can add this log again to verify the fix
-    // console.log('NEW DATA BEING SENT:', JSON.stringify(supplierSummary, null, 2));
 
     return apiResponse.success(res, supplierSummary);
   } catch (error) {
@@ -2047,7 +2043,7 @@ const createDateChangeBooking = async (req, res) => {
           folderNo: newFolderNo,
           bookingStatus: 'CONFIRMED',
           bookingType: 'DATE_CHANGE',
-          originalBookingId: (await tx.booking.findFirst({where: {folderNo: baseFolderNo}}))?.id,
+          
           refNo: data.ref_no, // Use snake_case from body
           paxName: data.pax_name,
           agentName: data.agent_name,
