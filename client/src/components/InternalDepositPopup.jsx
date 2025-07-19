@@ -496,7 +496,7 @@ export default function InternalDepositPopup({ initialData, onClose, onSubmit })
           <SegmentedControl
             options={[
               { value: 'within30days', label: 'Within 30 Days' },
-              { value: 'beyond30', label: 'Beyond 30 Days (Financed)' },
+              { value: 'beyond30', label: 'Beyond 30 Days' },
             ]}
             selectedValue={depositData.period}
             onChange={handlePeriodChange}

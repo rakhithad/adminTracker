@@ -5,8 +5,8 @@ import BookingDetailsPopup from '../components/BookingDetailsPopup';
 
 const compareFolderNumbers = (a, b) => {
   if (!a || !b) return 0;
-  const partsA = a.split('.').map(part => parseInt(part, 10));
-  const partsB = b.split('.').map(part => parseInt(part, 10));
+  const partsA = a.toString().split('.').map(part => parseInt(part, 10));
+  const partsB = b.toString().split('.').map(part => parseInt(part, 10));
 
   const mainA = partsA[0];
   const mainB = partsB[0];
@@ -64,33 +64,48 @@ export default function BookingsPage() {
     fetchBookings();
   };
   
+  // --- START OF CORRECTED LOGIC ---
   const groupedAndSortedBookings = useMemo(() => {
     if (!allBookings.length) return [];
 
-    const bookingMap = new Map(allBookings.map(b => [b.id, { ...b, children: [] }]));
-    let topLevelBookings = [];
+    const bookingMap = new Map();
+    const rootBookings = []; // This will hold ONLY the top-level bookings.
 
-    for (const booking of allBookings) {
-      const parentId = booking.originalBookingId;
+    // First pass: Prepare all bookings by adding a children array and putting them in the map.
+    allBookings.forEach(booking => {
+      bookingMap.set(booking.id, { ...booking, children: [] });
+    });
+
+    // Second pass: Link children to parents and identify the root bookings.
+    bookingMap.forEach(bookingNode => {
+      const parentId = bookingNode.originalBookingId;
+
       if (parentId && bookingMap.has(parentId)) {
-        bookingMap.get(parentId).children.push(booking);
-      } else if (booking.cancellation) {
-        const parent = bookingMap.get(booking.id);
-        if(parent) {
-          parent.children.push({ ...booking.cancellation, isCancellation: true });
+        // This is a child booking (like a Date Change).
+        // Find its parent in the map and add this booking to the parent's children.
+        const parentNode = bookingMap.get(parentId);
+        if (parentNode) {
+          parentNode.children.push(bookingNode);
         }
+      } else {
+        // This is a root booking (has no parent). Add it to our final list.
+        rootBookings.push(bookingNode);
       }
-    }
+    });
 
-    for (const booking of bookingMap.values()) {
-        if (!booking.originalBookingId) {
-            booking.children.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
-            topLevelBookings.push(booking);
+    // Third pass: Handle cancellations and sort children within each root booking.
+    rootBookings.forEach(root => {
+        // A cancellation is attached to a booking record. Add it as a special child.
+        if (root.cancellation) {
+            root.children.push({ ...root.cancellation, isCancellation: true });
         }
-    }
-    
+        // Sort all children (Date Changes and Cancellations) by their folder number.
+        root.children.sort((a, b) => compareFolderNumbers(a.folderNo, b.folderNo));
+    });
+
+    // Final step: Apply the top-level sorting to the root bookings.
     if (sortConfig.key) {
-      topLevelBookings.sort((a, b) => {
+      rootBookings.sort((a, b) => {
         let valA = a[sortConfig.key];
         let valB = b[sortConfig.key];
         let comparison = 0;
@@ -100,16 +115,12 @@ export default function BookingsPage() {
         } else if (['revenue', 'balance', 'profit'].includes(sortConfig.key)) {
           comparison = (parseFloat(valA) || 0) - (parseFloat(valB) || 0);
         } else if (sortConfig.key === 'travelDate') {
-          // --- FIX APPLIED HERE ---
-          // This correctly handles potentially invalid date strings
           const timeA = new Date(valA).getTime();
           const timeB = new Date(valB).getTime();
           const validTimeA = !isNaN(timeA) ? timeA : 0;
           const validTimeB = !isNaN(timeB) ? timeB : 0;
           comparison = validTimeA - validTimeB;
-          // --- END FIX ---
         } else {
-          // Default to locale-aware string comparison
           comparison = String(valA || '').localeCompare(String(valB || ''));
         }
         
@@ -117,8 +128,9 @@ export default function BookingsPage() {
       });
     }
 
-    return topLevelBookings;
+    return rootBookings;
   }, [allBookings, sortConfig]);
+  // --- END OF CORRECTED LOGIC ---
 
   const filteredBookings = groupedAndSortedBookings.filter(booking => {
     if (!searchTerm) return true;

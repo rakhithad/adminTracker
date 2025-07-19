@@ -1990,61 +1990,45 @@ const getAvailableCreditNotes = async (req, res) => {
   }
 };
 
+// In controllers/bookingController.js
+
 const createDateChangeBooking = async (req, res) => {
   const originalBookingId = parseInt(req.params.id);
   const data = req.body;
 
   try {
     const newBooking = await prisma.$transaction(async (tx) => {
-      // 1. Validate incoming data
+      // Step 1: Validation and Setup (Remains the same)
       if (!data.travelDate || !data.revenue) {
         throw new Error('Travel Date and Revenue are required for a date change.');
       }
-
-      // 2. Get the original booking
-      const originalBooking = await tx.booking.findUnique({
-        where: { id: originalBookingId },
-      });
+      const originalBooking = await tx.booking.findUnique({ where: { id: originalBookingId } });
       if (!originalBooking) throw new Error('Original booking not found.');
 
-      // 3. Find related bookings to determine the next sub-index.
       const baseFolderNo = originalBooking.folderNo.toString().split('.')[0];
-      const relatedBookings = await tx.booking.findMany({
-        where: {
-          folderNo: { startsWith: `${baseFolderNo}.` }
-        },
-      });
-
-      // 4. Calculate the new sub-folder number
+      const relatedBookings = await tx.booking.findMany({ where: { folderNo: { startsWith: `${baseFolderNo}.` } } });
       const newIndex = relatedBookings.length + 1;
       const newFolderNo = `${baseFolderNo}.${newIndex}`;
       
-      // 5. Find the previous booking in the chain to mark as 'COMPLETED'.
-      let bookingToUpdateId;
+      let bookingToUpdateId = originalBooking.id;
       if (relatedBookings.length > 0) {
-        const lastRelatedBooking = relatedBookings.sort((a, b) => {
-            const aIndex = parseInt(a.folderNo.split('.')[1] || 0);
-            const bIndex = parseInt(b.folderNo.split('.')[1] || 0);
-            return bIndex - aIndex;
-        })[0];
+        const lastRelatedBooking = relatedBookings.sort((a, b) => parseInt(b.folderNo.split('.')[1] || 0) - parseInt(a.folderNo.split('.')[1] || 0))[0];
         bookingToUpdateId = lastRelatedBooking.id;
-      } else {
-        bookingToUpdateId = originalBooking.id;
       }
+      await tx.booking.update({ where: { id: bookingToUpdateId }, data: { bookingStatus: 'COMPLETED' } });
 
-      await tx.booking.update({
-        where: { id: bookingToUpdateId },
-        data: { bookingStatus: 'COMPLETED' },
-      });
-
-      // 6. Create the new date change booking record.
-      const createdBooking = await tx.booking.create({
+      // Step 2: Create ONLY the top-level Booking record
+      const newBookingRecord = await tx.booking.create({
         data: {
+          // --- THIS IS THE MISSING LINE ---
+          originalBookingId: originalBooking.id, // Link back to the original booking
+          // ---------------------------------
+          
           folderNo: newFolderNo,
           bookingStatus: 'CONFIRMED',
           bookingType: 'DATE_CHANGE',
-          
-          refNo: data.ref_no, // Use snake_case from body
+          // ... all other top-level booking fields ...
+          refNo: data.ref_no,
           paxName: data.pax_name,
           agentName: data.agent_name,
           teamName: data.team_name,
@@ -2071,51 +2055,88 @@ const createDateChangeBooking = async (req, res) => {
           invoiced: data.invoiced,
           description: data.description,
           numPax: data.numPax,
-
-          // --- THIS IS THE CORRECTED PART ---
-          costItems: {
-            create: (data.prodCostBreakdown || []).map(item => ({
-              category: item.category,
-              amount: parseFloat(item.amount),
-              suppliers: {
-                create: (item.suppliers || []).map(s => ({
-                  supplier: s.supplier,
-                  amount: parseFloat(s.amount),
-                  paymentMethod: s.paymentMethod,
-                  paidAmount: parseFloat(s.paidAmount) || 0,
-                  pendingAmount: parseFloat(s.pendingAmount) || 0,
-                  transactionMethod: s.transactionMethod,
-                  firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                  secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                })),
-              },
-            })),
-          },
-          instalments: {
-            create: (data.instalments || []).map(inst => ({
-              dueDate: new Date(inst.dueDate),
-              amount: parseFloat(inst.amount),
-              status: inst.status || 'PENDING',
-            })),
-          },
-          passengers: {
-            create: (data.passengers || []).map(pax => ({
-              title: pax.title,
-              firstName: pax.firstName,
-              middleName: pax.middleName || null,
-              lastName: pax.lastName,
-              gender: pax.gender,
-              email: pax.email || null,
-              contactNo: pax.contactNo || null,
-              nationality: pax.nationality || null,
-              birthday: pax.birthday ? new Date(pax.birthday) : null,
-              category: pax.category,
-            })),
-          },
         },
       });
 
-      return createdBooking;
+      // Step 3: Sequentially create related records (Passengers, Instalments, etc.)
+      // This part of the logic is correct and remains the same.
+      // ... (create passengers) ...
+      if (data.passengers && data.passengers.length > 0) {
+        await tx.passenger.createMany({
+          data: data.passengers.map(pax => ({
+            title: pax.title,
+            firstName: pax.firstName,
+            middleName: pax.middleName,
+            lastName: pax.lastName,
+            gender: pax.gender,
+            email: pax.email,
+            contactNo: pax.contactNo,
+            nationality: pax.nationality,
+            birthday: pax.birthday ? new Date(pax.birthday) : null,
+            category: pax.category,
+            bookingId: newBookingRecord.id,
+          })),
+        });
+      }
+
+      // ... (create instalments) ...
+       if (data.instalments && data.instalments.length > 0) {
+        await tx.instalment.createMany({
+          data: data.instalments.map(inst => ({
+            dueDate: new Date(inst.dueDate),
+            amount: inst.amount,
+            status: inst.status,
+            bookingId: newBookingRecord.id,
+          })),
+        });
+      }
+
+      // ... (create cost items and process credit notes) ...
+      for (const item of (data.prodCostBreakdown || [])) {
+        const newCostItem = await tx.costItem.create({
+          data: {
+            category: item.category,
+            amount: parseFloat(item.amount),
+            bookingId: newBookingRecord.id,
+          },
+        });
+        
+        for (const s of (item.suppliers || [])) {
+          const createdSupplier = await tx.costItemSupplier.create({
+            data: {
+              costItemId: newCostItem.id,
+              supplier: s.supplier,
+              amount: parseFloat(s.amount),
+              paymentMethod: s.paymentMethod,
+              paidAmount: parseFloat(s.paidAmount) || 0,
+              pendingAmount: parseFloat(s.pendingAmount) || 0,
+              transactionMethod: s.transactionMethod,
+              firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
+              secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+            }
+          });
+
+          if ((s.selectedCreditNotes || []).length > 0) {
+            for (const usedNote of s.selectedCreditNotes) {
+              const creditNoteToUpdate = await tx.supplierCreditNote.findUnique({ where: { id: usedNote.id } });
+              if (!creditNoteToUpdate) throw new Error(`Credit Note ID ${usedNote.id} not found.`);
+              if (creditNoteToUpdate.remainingAmount < usedNote.amountToUse) throw new Error(`Credit Note ID ${usedNote.id} has insufficient funds.`);
+              await tx.supplierCreditNote.update({ where: { id: usedNote.id }, data: { remainingAmount: creditNoteToUpdate.remainingAmount - usedNote.amountToUse } });
+              await tx.creditNoteUsage.create({ data: { amountUsed: usedNote.amountToUse, creditNoteId: usedNote.id, usedOnCostItemSupplierId: createdSupplier.id } });
+            }
+          }
+        }
+      }
+
+      // Return the complete booking by re-fetching it
+      return tx.booking.findUnique({
+        where: { id: newBookingRecord.id },
+        include: {
+          costItems: { include: { suppliers: true } },
+          instalments: true,
+          passengers: true
+        }
+      });
     });
 
     return apiResponse.success(res, newBooking, 201);
