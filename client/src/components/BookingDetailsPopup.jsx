@@ -225,7 +225,16 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                 <> {/* 5. MODIFY this block to add the new button */}
                     <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><FaPencilAlt className="mr-2"/>Edit</button>
                     {booking.bookingStatus !== 'CANCELLED' && (
-                       <button onClick={handleDateChange} className="flex items-center px-3 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600"><FaRandom className="mr-2"/>Date Change</button>
+                       <button
+  onClick={handleDateChange}
+  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+  // THIS IS THE KEY CHANGE:
+  disabled={booking.isChainCancelled || booking.bookingStatus === 'CANCELLED'}
+  // Add a title to explain why it's disabled for a better user experience
+  title={booking.isChainCancelled ? "This booking chain has been cancelled and cannot be modified." : ""}
+>
+  Create Date Change
+</button>
                     )}
                 </>
             )}

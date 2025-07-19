@@ -2040,20 +2040,44 @@ const getAvailableCreditNotes = async (req, res) => {
 
 // In controllers/bookingController.js
 
+// In server/controllers/bookingController.js
+
 const createDateChangeBooking = async (req, res) => {
   const originalBookingId = parseInt(req.params.id);
   const data = req.body;
 
   try {
     const newBooking = await prisma.$transaction(async (tx) => {
-      // Step 1: Validation and Setup (Remains the same)
+      // Step 1: Validation and Setup
       if (!data.travelDate || !data.revenue) {
         throw new Error('Travel Date and Revenue are required for a date change.');
       }
       const originalBooking = await tx.booking.findUnique({ where: { id: originalBookingId } });
       if (!originalBooking) throw new Error('Original booking not found.');
 
+      // --- NEW: CANCELLATION CHECK ---
+      // 1. Find the base folder number (e.g., '2' from '2.1')
       const baseFolderNo = originalBooking.folderNo.toString().split('.')[0];
+
+      // 2. Check if any booking in this entire chain has been cancelled.
+      const isChainCancelled = await tx.booking.findFirst({
+        where: {
+          // Check for the base folder number OR any sub-folders
+          OR: [
+            { folderNo: baseFolderNo },
+            { folderNo: { startsWith: `${baseFolderNo}.` } }
+          ],
+          bookingStatus: 'CANCELLED',
+        },
+      });
+
+      // 3. If a cancelled booking is found, reject the request.
+      if (isChainCancelled) {
+        throw new Error('This booking chain has been cancelled and cannot be modified further.');
+      }
+      // --- END OF NEW CHECK ---
+
+      // Step 2: Folder Number and Status Update Logic (remains the same)
       const relatedBookings = await tx.booking.findMany({ where: { folderNo: { startsWith: `${baseFolderNo}.` } } });
       const newIndex = relatedBookings.length + 1;
       const newFolderNo = `${baseFolderNo}.${newIndex}`;
@@ -2065,17 +2089,13 @@ const createDateChangeBooking = async (req, res) => {
       }
       await tx.booking.update({ where: { id: bookingToUpdateId }, data: { bookingStatus: 'COMPLETED' } });
 
-      // Step 2: Create ONLY the top-level Booking record
+      // Step 3: Create ONLY the top-level Booking record (remains the same)
       const newBookingRecord = await tx.booking.create({
         data: {
-          // --- THIS IS THE MISSING LINE ---
-          originalBookingId: originalBooking.id, // Link back to the original booking
-          // ---------------------------------
-          
+          originalBookingId: originalBooking.id,
           folderNo: newFolderNo,
           bookingStatus: 'CONFIRMED',
           bookingType: 'DATE_CHANGE',
-          // ... all other top-level booking fields ...
           refNo: data.ref_no,
           paxName: data.pax_name,
           agentName: data.agent_name,
@@ -2106,61 +2126,32 @@ const createDateChangeBooking = async (req, res) => {
         },
       });
 
-      // Step 3: Sequentially create related records (Passengers, Instalments, etc.)
-      // This part of the logic is correct and remains the same.
-      // ... (create passengers) ...
+      // Step 4: Sequentially create related records (remains the same)
       if (data.passengers && data.passengers.length > 0) {
         await tx.passenger.createMany({
           data: data.passengers.map(pax => ({
-            title: pax.title,
-            firstName: pax.firstName,
-            middleName: pax.middleName,
-            lastName: pax.lastName,
-            gender: pax.gender,
-            email: pax.email,
-            contactNo: pax.contactNo,
-            nationality: pax.nationality,
-            birthday: pax.birthday ? new Date(pax.birthday) : null,
-            category: pax.category,
-            bookingId: newBookingRecord.id,
+            title: pax.title, firstName: pax.firstName, middleName: pax.middleName, lastName: pax.lastName, gender: pax.gender, email: pax.email, contactNo: pax.contactNo, nationality: pax.nationality, birthday: pax.birthday ? new Date(pax.birthday) : null, category: pax.category, bookingId: newBookingRecord.id,
           })),
         });
       }
 
-      // ... (create instalments) ...
        if (data.instalments && data.instalments.length > 0) {
         await tx.instalment.createMany({
           data: data.instalments.map(inst => ({
-            dueDate: new Date(inst.dueDate),
-            amount: inst.amount,
-            status: inst.status,
-            bookingId: newBookingRecord.id,
+            dueDate: new Date(inst.dueDate), amount: inst.amount, status: inst.status, bookingId: newBookingRecord.id,
           })),
         });
       }
 
-      // ... (create cost items and process credit notes) ...
       for (const item of (data.prodCostBreakdown || [])) {
         const newCostItem = await tx.costItem.create({
-          data: {
-            category: item.category,
-            amount: parseFloat(item.amount),
-            bookingId: newBookingRecord.id,
-          },
+          data: { category: item.category, amount: parseFloat(item.amount), bookingId: newBookingRecord.id },
         });
         
         for (const s of (item.suppliers || [])) {
           const createdSupplier = await tx.costItemSupplier.create({
             data: {
-              costItemId: newCostItem.id,
-              supplier: s.supplier,
-              amount: parseFloat(s.amount),
-              paymentMethod: s.paymentMethod,
-              paidAmount: parseFloat(s.paidAmount) || 0,
-              pendingAmount: parseFloat(s.pendingAmount) || 0,
-              transactionMethod: s.transactionMethod,
-              firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-              secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+              costItemId: newCostItem.id, supplier: s.supplier, amount: parseFloat(s.amount), paymentMethod: s.paymentMethod, paidAmount: parseFloat(s.paidAmount) || 0, pendingAmount: parseFloat(s.pendingAmount) || 0, transactionMethod: s.transactionMethod, firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null, secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
             }
           });
 
@@ -2176,7 +2167,7 @@ const createDateChangeBooking = async (req, res) => {
         }
       }
 
-      // Return the complete booking by re-fetching it
+      // Step 5: Return the complete booking by re-fetching it (remains the same)
       return tx.booking.findUnique({
         where: { id: newBookingRecord.id },
         include: {
@@ -2190,6 +2181,10 @@ const createDateChangeBooking = async (req, res) => {
     return apiResponse.success(res, newBooking, 201);
   } catch (error) {
     console.error('Error creating date change booking:', error);
+    // Add specific error handling for our new check
+    if (error.message.includes('booking chain has been cancelled')) {
+        return apiResponse.error(res, error.message, 409); // 409 Conflict is a good status code here
+    }
     return apiResponse.error(res, `Failed to create date change booking: ${error.message}`, 500);
   }
 };
