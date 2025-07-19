@@ -1781,73 +1781,121 @@ const recordSettlementPayment = async (req, res) => {
 };
 
 
-// controllers/bookingController.js
+// In controllers/bookingController.js
+
+// In controllers/bookingController.js
 
 const getTransactions = async (req, res) => {
   try {
-    // 1. Fetch all different types of financial transactions
+    // --- 1. FETCH ALL FINANCIAL EVENTS FROM THE DATABASE ---
 
-    // MONEY IN: Initial Deposits (from non-instalment bookings)
-    const initialDeposits = await prisma.booking.findMany({
+    // === MONEY IN ===
+
+    // A) Initial Payments for NON-INSTALMENT bookings (e.g., 'FULL' payment)
+    const nonInstalmentPayments = await prisma.booking.findMany({
       where: {
         received: { gt: 0 },
         paymentMethod: { notIn: ['INTERNAL', 'INTERNAL_HUMM'] },
       },
-      select: {
-        id: true, refNo: true, paxName: true, received: true, receivedDate: true, transactionMethod: true,
-      },
+      select: { id: true, refNo: true, paxName: true, received: true, receivedDate: true, transactionMethod: true },
     });
 
-    // MONEY IN: Instalment Payments
+    // B) Data for calculating Initial Deposits for INSTALMENT bookings
+    const internalBookings = await prisma.booking.findMany({
+        where: {
+            paymentMethod: { in: ['INTERNAL', 'INTERNAL_HUMM'] },
+            received: { gt: 0 }
+        },
+        include: {
+            instalments: {
+                where: { status: 'PAID' },
+                include: { payments: true }
+            }
+        }
+    });
+
+    // C) All Instalment Payments (this will be used for both deposits and regular instalments)
     const instalmentPayments = await prisma.instalmentPayment.findMany({
       include: { instalment: { select: { booking: { select: { refNo: true, paxName: true } } } } },
     });
 
-    // MONEY OUT: Supplier Payments
+
+    // === MONEY OUT ===
+
+    // D) Initial Supplier Payments (cash out at booking time)
+    const initialSupplierPayments = await prisma.costItemSupplier.findMany({
+      where: { paymentMethod: 'BANK_TRANSFER' },
+      include: { costItem: { include: { booking: { select: { refNo: true } } } } },
+    });
+
+    // E) Supplier Settlements (subsequent cash out)
     const supplierSettlements = await prisma.supplierPaymentSettlement.findMany({
       include: { costItemSupplier: { select: { supplier: true, costItem: { select: { booking: { select: { refNo: true } } } } } } },
     });
 
-    // --- NEW: MONEY OUT: Passenger Refunds from Cancellations ---
-    const passengerRefunds = await prisma.booking.findMany({
-      where: {
-        bookingType: 'CANCELLATION',
-        refundedAmount: { gt: 0 },
-      },
-      select: {
-        id: true, refNo: true, paxName: true, refundedAmount: true, createdAt: true,
-      }
+    // F) Passenger Refunds (cash out to customer on cancellation)
+    const passengerRefunds = await prisma.cancellation.findMany({
+      where: { refundToPassenger: { gt: 0 } },
+      include: { originalBooking: { select: { refNo: true, paxName: true } } },
     });
 
-    // 2. Map each type to a standardized format
+    // G) Credit Notes Issued (non-cash liability out)
+    const creditNotesIssued = await prisma.supplierCreditNote.findMany({
+      select: { id: true, supplier: true, initialAmount: true, createdAt: true, generatedFromCancellation: { include: { originalBooking: { select: { refNo: true } } } } },
+    });
 
-    const formattedInitialDeposits = initialDeposits.map(booking => ({
-      id: `booking-${booking.id}`, type: 'Incoming', category: 'Initial Deposit', date: booking.receivedDate, amount: booking.received, bookingRefNo: booking.refNo, method: booking.transactionMethod, details: `Passenger: ${booking.paxName}`,
-    }));
 
-    const formattedInstalmentPayments = instalmentPayments.map(payment => ({
-      id: `inst-${payment.id}`, type: 'Incoming', category: 'Instalment', date: payment.paymentDate, amount: payment.amount, bookingRefNo: payment.instalment.booking.refNo, method: payment.transactionMethod, details: `Passenger: ${payment.instalment.booking.paxName}`,
-    }));
+    // --- 2. MAP ALL EVENTS TO A STANDARDIZED FORMAT ---
 
-    const formattedSupplierPayments = supplierSettlements.map(settlement => ({
-      id: `supp-${settlement.id}`, type: 'Outgoing', category: 'Supplier Payment', date: settlement.settlementDate, amount: settlement.amount, bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A', method: settlement.transactionMethod, details: `Supplier: ${settlement.costItemSupplier?.supplier || 'Unknown'}`,
-    }));
+    const transactionsList = [];
 
-    // --- NEW: Map the refunds ---
-    const formattedRefunds = passengerRefunds.map(refund => ({
-      id: `refund-${refund.id}`, type: 'Outgoing', category: 'Passenger Refund', date: refund.createdAt, // Using createdAt as the refund date
-      amount: refund.refundedAmount, bookingRefNo: refund.refNo, method: 'Bank Transfer', // Assuming method, can be enhanced later
-      details: `Refund to: ${refund.paxName}`,
-    }));
+    // Map A) Non-Instalment Full Payments
+    nonInstalmentPayments.forEach(booking => {
+        transactionsList.push({ id: `fullpay-${booking.id}`, type: 'Incoming', category: 'Full Payment', date: booking.receivedDate, amount: booking.received, bookingRefNo: booking.refNo, method: booking.transactionMethod, details: `From: ${booking.paxName}` });
+    });
 
-    // 3. Combine, sort, calculate totals, and send
-    const allTransactions = [
-      ...formattedInitialDeposits,
-      ...formattedInstalmentPayments,
-      ...formattedSupplierPayments,
-      ...formattedRefunds, // Add refunds to the list
-    ].filter(t => t && t.id);
+    // Map B) Calculate and Map Initial Deposits from Instalment Bookings
+    internalBookings.forEach(booking => {
+        const totalReceived = parseFloat(booking.received || 0);
+        const sumOfPaidInstalments = booking.instalments.reduce((sum, inst) => {
+            const paymentTotal = inst.payments.reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
+            return sum + paymentTotal;
+        }, 0);
+        const initialDeposit = totalReceived - sumOfPaidInstalments;
 
+        if (initialDeposit > 0.01) {
+            transactionsList.push({ id: `deposit-${booking.id}`, type: 'Incoming', category: 'Customer Deposit', date: booking.createdAt, amount: initialDeposit, bookingRefNo: booking.refNo, method: booking.transactionMethod || 'N/A', details: `From: ${booking.paxName}` });
+        }
+    });
+
+    // Map C) All Instalment Payments
+    instalmentPayments.forEach(payment => {
+        transactionsList.push({ id: `inst-${payment.id}`, type: 'Incoming', category: 'Instalment', date: payment.paymentDate, amount: payment.amount, bookingRefNo: payment.instalment.booking.refNo, method: payment.transactionMethod, details: `From: ${payment.instalment.booking.paxName}` });
+    });
+    
+    // Map D) Initial Supplier Payments
+    initialSupplierPayments.forEach(payment => {
+        transactionsList.push({ id: `supp-initial-${payment.id}`, type: 'Outgoing', category: 'Initial Supplier Pmt', date: payment.createdAt, amount: payment.amount, bookingRefNo: payment.costItem?.booking?.refNo || 'N/A', method: payment.transactionMethod, details: `To: ${payment.supplier}` });
+    });
+    
+    // Map E) Supplier Settlements
+    supplierSettlements.forEach(settlement => {
+      transactionsList.push({ id: `supp-settle-${settlement.id}`, type: 'Outgoing', category: 'Supplier Settlement', date: settlement.settlementDate, amount: settlement.amount, bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A', method: settlement.transactionMethod, details: `To: ${settlement.costItemSupplier?.supplier || 'Unknown'}` });
+    });
+
+    // Map F) Passenger Refunds
+    passengerRefunds.forEach(cancellation => {
+      transactionsList.push({ id: `refund-${cancellation.id}`, type: 'Outgoing', category: 'Passenger Refund', date: cancellation.createdAt, amount: cancellation.refundToPassenger, bookingRefNo: cancellation.originalBooking.refNo, method: cancellation.refundTransactionMethod, details: `To: ${cancellation.originalBooking.paxName}` });
+    });
+
+    // Map G) Credit Notes Issued
+    creditNotesIssued.forEach(note => {
+        transactionsList.push({ id: `cn-issue-${note.id}`, type: 'Outgoing', category: 'Credit Note Issued', date: note.createdAt, amount: note.initialAmount, bookingRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A', method: 'Internal', details: `From Supplier: ${note.supplier}` });
+    });
+
+
+    // --- 3. COMBINE, SORT, AND CALCULATE TOTALS ---
+    const allTransactions = transactionsList.filter(t => t && t.id);
     allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     const totalIncoming = allTransactions.filter(t => t.type === 'Incoming').reduce((sum, t) => sum + (t.amount || 0), 0);
