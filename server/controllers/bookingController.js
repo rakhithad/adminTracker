@@ -1781,13 +1781,10 @@ const recordSettlementPayment = async (req, res) => {
 };
 
 
-// In controllers/bookingController.js
-
-// In controllers/bookingController.js
 
 const getTransactions = async (req, res) => {
   try {
-    // --- 1. FETCH ALL FINANCIAL EVENTS FROM THE DATABASE ---
+    // --- 1. FETCH ALL FINANCIAL EVENTS FROM APPROVED BOOKINGS ONLY ---
 
     // === MONEY IN ===
 
@@ -1819,29 +1816,42 @@ const getTransactions = async (req, res) => {
       include: { instalment: { select: { booking: { select: { refNo: true, paxName: true } } } } },
     });
 
+    // --- FIX #1: Credit Notes are now treated as INCOMING ---
+    // D) Credit Notes Received from a supplier
+    const creditNotesReceived = await prisma.supplierCreditNote.findMany({
+      select: { id: true, supplier: true, initialAmount: true, createdAt: true, generatedFromCancellation: { include: { originalBooking: { select: { refNo: true } } } } },
+    });
+
 
     // === MONEY OUT ===
 
-    // D) Initial Supplier Payments (cash out at booking time)
+    // --- FIX #2: Filter payments to only include those from APPROVED bookings ---
+    // E) Initial Supplier Payments (cash out at booking time)
     const initialSupplierPayments = await prisma.costItemSupplier.findMany({
-      where: { paymentMethod: 'BANK_TRANSFER' },
-      include: { costItem: { include: { booking: { select: { refNo: true } } } } },
+      where: {
+        paymentMethod: 'BANK_TRANSFER',
+        costItemId: { not: null } // This ensures it's linked to an approved booking's CostItem
+      },
+      include: {
+        costItem: { include: { booking: { select: { refNo: true } } } },
+      }
     });
 
-    // E) Supplier Settlements (subsequent cash out)
+    // F) Supplier Settlements (subsequent cash out)
     const supplierSettlements = await prisma.supplierPaymentSettlement.findMany({
+      where: {
+        costItemSupplier: {
+          costItemId: { not: null } // This ensures it's linked to an approved booking's CostItem
+        }
+      },
       include: { costItemSupplier: { select: { supplier: true, costItem: { select: { booking: { select: { refNo: true } } } } } } },
     });
+    // --- END OF FIX #2 ---
 
-    // F) Passenger Refunds (cash out to customer on cancellation)
+    // G) Passenger Refunds (cash out to customer on cancellation)
     const passengerRefunds = await prisma.cancellation.findMany({
       where: { refundToPassenger: { gt: 0 } },
       include: { originalBooking: { select: { refNo: true, paxName: true } } },
-    });
-
-    // G) Credit Notes Issued (non-cash liability out)
-    const creditNotesIssued = await prisma.supplierCreditNote.findMany({
-      select: { id: true, supplier: true, initialAmount: true, createdAt: true, generatedFromCancellation: { include: { originalBooking: { select: { refNo: true } } } } },
     });
 
 
@@ -1857,10 +1867,7 @@ const getTransactions = async (req, res) => {
     // Map B) Calculate and Map Initial Deposits from Instalment Bookings
     internalBookings.forEach(booking => {
         const totalReceived = parseFloat(booking.received || 0);
-        const sumOfPaidInstalments = booking.instalments.reduce((sum, inst) => {
-            const paymentTotal = inst.payments.reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
-            return sum + paymentTotal;
-        }, 0);
+        const sumOfPaidInstalments = booking.instalments.reduce((sum, inst) => sum + inst.payments.reduce((pSum, p) => pSum + parseFloat(p.amount), 0), 0);
         const initialDeposit = totalReceived - sumOfPaidInstalments;
 
         if (initialDeposit > 0.01) {
@@ -1872,25 +1879,25 @@ const getTransactions = async (req, res) => {
     instalmentPayments.forEach(payment => {
         transactionsList.push({ id: `inst-${payment.id}`, type: 'Incoming', category: 'Instalment', date: payment.paymentDate, amount: payment.amount, bookingRefNo: payment.instalment.booking.refNo, method: payment.transactionMethod, details: `From: ${payment.instalment.booking.paxName}` });
     });
+
+    // Map D) Credit Notes Received
+    creditNotesReceived.forEach(note => {
+        transactionsList.push({ id: `cn-recv-${note.id}`, type: 'Incoming', category: 'Credit Note Received', date: note.createdAt, amount: note.initialAmount, bookingRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A', method: 'Internal Credit', details: `From Supplier: ${note.supplier}` });
+    });
     
-    // Map D) Initial Supplier Payments
+    // Map E) Initial Supplier Payments
     initialSupplierPayments.forEach(payment => {
         transactionsList.push({ id: `supp-initial-${payment.id}`, type: 'Outgoing', category: 'Initial Supplier Pmt', date: payment.createdAt, amount: payment.amount, bookingRefNo: payment.costItem?.booking?.refNo || 'N/A', method: payment.transactionMethod, details: `To: ${payment.supplier}` });
     });
     
-    // Map E) Supplier Settlements
+    // Map F) Supplier Settlements
     supplierSettlements.forEach(settlement => {
       transactionsList.push({ id: `supp-settle-${settlement.id}`, type: 'Outgoing', category: 'Supplier Settlement', date: settlement.settlementDate, amount: settlement.amount, bookingRefNo: settlement.costItemSupplier?.costItem?.booking?.refNo || 'N/A', method: settlement.transactionMethod, details: `To: ${settlement.costItemSupplier?.supplier || 'Unknown'}` });
     });
 
-    // Map F) Passenger Refunds
+    // Map G) Passenger Refunds
     passengerRefunds.forEach(cancellation => {
       transactionsList.push({ id: `refund-${cancellation.id}`, type: 'Outgoing', category: 'Passenger Refund', date: cancellation.createdAt, amount: cancellation.refundToPassenger, bookingRefNo: cancellation.originalBooking.refNo, method: cancellation.refundTransactionMethod, details: `To: ${cancellation.originalBooking.paxName}` });
-    });
-
-    // Map G) Credit Notes Issued
-    creditNotesIssued.forEach(note => {
-        transactionsList.push({ id: `cn-issue-${note.id}`, type: 'Outgoing', category: 'Credit Note Issued', date: note.createdAt, amount: note.initialAmount, bookingRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A', method: 'Internal', details: `From Supplier: ${note.supplier}` });
     });
 
 
@@ -1915,8 +1922,10 @@ const getTransactions = async (req, res) => {
   }
 };
 
+
 const createCancellation = async (req, res) => {
-  const { id: originalBookingId } = req.params;
+  // This is the ID of the specific booking the user clicked "Cancel" on.
+  const { id: triggerBookingId } = req.params;
   const { supplierCancellationFee, refundToPassenger, refundTransactionMethod } = req.body;
 
   if (supplierCancellationFee === undefined || refundToPassenger === undefined || !refundTransactionMethod) {
@@ -1925,51 +1934,69 @@ const createCancellation = async (req, res) => {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // 1. Fetch Original Booking and its MAIN cost item supplier
-      const originalBooking = await tx.booking.findUnique({
-        where: { id: parseInt(originalBookingId) },
-        include: {
-          cancellation: true,
-          costItems: { include: { suppliers: true } }
+      // --- Step 1: Find the booking that triggered the cancellation ---
+      const triggerBooking = await tx.booking.findUnique({
+        where: { id: parseInt(triggerBookingId) },
+        include: { costItems: { include: { suppliers: true } } }
+      });
+
+      if (!triggerBooking) throw new Error('Booking to be cancelled not found.');
+
+      // --- Step 2: Identify the entire booking chain using the base folder number ---
+      const baseFolderNo = triggerBooking.folderNo.toString().split('.')[0];
+      
+      const chainBookings = await tx.booking.findMany({
+        where: {
+          OR: [
+            { folderNo: baseFolderNo },
+            { folderNo: { startsWith: `${baseFolderNo}.` } }
+          ]
         }
       });
 
-      if (!originalBooking) throw new Error('Original booking not found.');
-      if (originalBooking.cancellation) throw new Error('Booking already cancelled.');
+      // --- Step 3: Validate that the chain is not already cancelled ---
+      const isAlreadyCancelled = chainBookings.some(b => b.bookingStatus === 'CANCELLED');
+      if (isAlreadyCancelled) {
+        throw new Error('This booking chain has already been cancelled.');
+      }
 
-      const mainCostItem = [...originalBooking.costItems].sort((a, b) => b.amount - a.amount)[0];
+      // --- Step 4: Identify the root booking of the chain for consistent linking ---
+      const rootBookingInChain = chainBookings.find(b => b.folderNo === baseFolderNo);
+      if (!rootBookingInChain) {
+        throw new Error('Could not find the root booking for this chain.');
+      }
+
+      // --- Step 5: Perform the financial calculations and create ONE cancellation record ---
+      // We use the trigger booking's cost info, assuming it's the most relevant.
+      const mainCostItem = [...triggerBooking.costItems].sort((a, b) => b.amount - a.amount)[0];
       if (!mainCostItem || mainCostItem.suppliers.length === 0) {
         throw new Error('Could not determine primary supplier for cancellation.');
       }
       const supplierInfo = mainCostItem.suppliers[0];
       const amountPaidToSupplier = supplierInfo.paidAmount || 0;
       
-      // 2. Calculate Financials
       const fee = parseFloat(supplierCancellationFee);
       const refund = parseFloat(refundToPassenger);
       const profitOrLoss = (amountPaidToSupplier - fee) - refund;
       const creditOrDebt = amountPaidToSupplier - fee;
+      const newCancellationFolderNo = `${baseFolderNo}.C`; // A clear identifier
 
-      const existingCancellationsCount = await tx.cancellation.count({ where: { originalBookingId: originalBooking.id } });
-      const newCancellationFolderNo = `${originalBooking.folderNo}.${existingCancellationsCount + 1}`;
-
-      // 3. Create the Cancellation Record
       const newCancellationRecord = await tx.cancellation.create({
         data: {
-          originalBookingId: originalBooking.id,
+          originalBookingId: rootBookingInChain.id, // Always link to the root booking
           folderNo: newCancellationFolderNo,
           refundTransactionMethod: refundTransactionMethod,
-          originalRevenue: originalBooking.revenue || 0,
-          originalProdCost: originalBooking.prodCost || 0,
+          originalRevenue: rootBookingInChain.revenue || 0,
+          originalProdCost: rootBookingInChain.prodCost || 0,
           supplierCancellationFee: fee,
           refundToPassenger: refund,
           creditNoteAmount: creditOrDebt > 0 ? creditOrDebt : 0,
           profitOrLoss: profitOrLoss,
-          description: `Cancellation Processed. Outcome: ${creditOrDebt > 0 ? `£${creditOrDebt.toFixed(2)} Credit` : `£${Math.abs(creditOrDebt).toFixed(2)} Payable`}`,
+          description: `Cancellation for entire chain ${baseFolderNo} processed. Outcome: ${creditOrDebt > 0 ? `£${creditOrDebt.toFixed(2)} Credit` : `£${Math.abs(creditOrDebt).toFixed(2)} Payable`}`,
         },
       });
 
-      // 4. Create Credit Note if applicable
+      // Step 6: Create Credit Note if applicable
       if (creditOrDebt > 0) {
         await tx.supplierCreditNote.create({
           data: {
@@ -1980,11 +2007,13 @@ const createCancellation = async (req, res) => {
           }
         });
       }
-      // --- REMOVED THE LOGIC THAT CREATES A NEW PAYABLE. The original record remains untouched. ---
       
-      // 5. Finalize by updating original booking status
-      await tx.booking.update({
-        where: { id: originalBooking.id },
+      // --- Step 7: THIS IS THE KEY - Update ALL bookings in the chain to CANCELLED ---
+      const bookingIdsToCancel = chainBookings.map(b => b.id);
+      await tx.booking.updateMany({
+        where: {
+          id: { in: bookingIdsToCancel }
+        },
         data: { bookingStatus: 'CANCELLED' },
       });
 
@@ -1995,6 +2024,10 @@ const createCancellation = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating cancellation:', error);
+    // Add specific error handling for our new validation
+    if (error.message.includes('already been cancelled')) {
+        return apiResponse.error(res, error.message, 409); // 409 Conflict
+    }
     return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
   }
 };
