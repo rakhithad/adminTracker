@@ -2,6 +2,18 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const apiResponse = require('../utils/apiResponse');
 
+const compareFolderNumbers = (a, b) => {
+  if (!a || !b) return 0;
+  const partsA = a.toString().split('.').map(part => parseInt(part, 10));
+  const partsB = b.toString().split('.').map(part => parseInt(part, 10));
+  const mainA = partsA[0];
+  const mainB = partsB[0];
+  if (mainA !== mainB) return mainA - mainB;
+  const subA = partsA.length > 1 ? partsA[1] : 0;
+  const subB = partsB.length > 1 ? partsB[1] : 0;
+  return subA - subB;
+};
+
 // In controllers/bookingController.js
 
 const createPendingBooking = async (req, res) => {
@@ -1237,50 +1249,38 @@ const createSupplierPaymentSettlement = async (req, res) => {
 
 // In controllers/bookingController.js
 
+// In server/controllers/bookingController.js
+
 const getSuppliersInfo = async (req, res) => {
   try {
+    // --- 1. FETCH ALL DATA SOURCES ---
+
+    // Fetch all bookings and their supplier costs, INCLUDING bookingStatus
     const bookings = await prisma.booking.findMany({
       select: {
-        refNo: true,
+        id: true, refNo: true, bookingStatus: true, folderNo: true,
         costItems: {
           select: {
             category: true,
             suppliers: {
-              // The query is correct and fetches all necessary data
               select: {
-                id: true,
-                supplier: true,
-                amount: true,
-                paidAmount: true,
-                pendingAmount: true,
-                createdAt: true,
-                paymentMethod: true,
-                firstMethodAmount: true,
-                secondMethodAmount: true,
-                settlements: true,
-                paidByCreditNoteUsage: {
-                  include: {
-                    creditNote: {
-                      select: { id: true }
-                    }
-                  }
-                }
+                id: true, supplier: true, amount: true, paidAmount: true, pendingAmount: true, createdAt: true, paymentMethod: true, firstMethodAmount: true, secondMethodAmount: true,
+                settlements: true, paidByCreditNoteUsage: { include: { creditNote: { select: { id: true } } } }
               }
             }
           }
+        },
+        cancellation: { // <-- Include the cancellation if this booking is the root
+          include: { createdPayable: true }
         }
       }
     });
 
+
+    // Fetch all credit notes
     const allCreditNotes = await prisma.supplierCreditNote.findMany({
       include: {
-        generatedFromCancellation: {
-          include: {
-            originalBooking: {
-              select: { refNo: true }
-            }
-          }
-        },
+        generatedFromCancellation: { include: { originalBooking: { select: { refNo: true } } } },
         usageHistory: {
           include: {
             usedOnCostItemSupplier: {
@@ -1294,67 +1294,98 @@ const getSuppliersInfo = async (req, res) => {
       }
     });
 
+    // Fetch all pending payables from cancellations
+    const allPayables = await prisma.supplierPayable.findMany({ where: { status: 'PENDING' }, include: { settlements: true } });
+
+    const cancellationOutcomes = new Map();
+    bookings.forEach(booking => {
+        if (booking.cancellation) {
+            const baseFolderNo = booking.folderNo.toString().split('.')[0];
+            cancellationOutcomes.set(baseFolderNo, {
+                creditNoteAmount: booking.cancellation.creditNoteAmount,
+                payable: booking.cancellation.createdPayable
+            });
+        }
+    });
+
+    // --- 2. BUILD THE SUPPLIER SUMMARY OBJECT ---
     const supplierSummary = {};
 
+    const ensureSupplier = (supplierName) => {
+      if (!supplierSummary[supplierName]) {
+        supplierSummary[supplierName] = {
+          totalAmount: 0, totalPaid: 0, totalPending: 0,
+          transactions: [], payables: [],
+        };
+      }
+    };
+
     bookings.forEach(booking => {
-        booking.costItems.forEach(item => {
-            item.suppliers.forEach(s => {
-                if (!supplierSummary[s.supplier]) {
-                    supplierSummary[s.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
-                }
-                supplierSummary[s.supplier].totalAmount += parseFloat(s.amount);
-                supplierSummary[s.supplier].totalPaid += parseFloat(s.paidAmount) || 0;
-                supplierSummary[s.supplier].totalPending += parseFloat(s.pendingAmount) || 0;
-                
-                // --- THIS IS THE DEFINITIVE FIX ---
-                // Instead of using the spread operator (...s), we explicitly map each field.
-                // This guarantees that the 'settlements' and 'paidByCreditNoteUsage' arrays are included.
-                supplierSummary[s.supplier].transactions.push({
-                    type: 'Booking',
-                    data: {
-                        id: s.id,
-                        supplier: s.supplier,
-                        amount: s.amount,
-                        paidAmount: s.paidAmount,
-                        pendingAmount: s.pendingAmount,
-                        createdAt: s.createdAt,
-                        paymentMethod: s.paymentMethod,
-                        firstMethodAmount: s.firstMethodAmount,
-                        secondMethodAmount: s.secondMethodAmount,
-                        settlements: s.settlements, // Explicitly pass the settlements array
-                        paidByCreditNoteUsage: s.paidByCreditNoteUsage, // Explicitly pass the credit note usage array
-                        refNo: booking.refNo,
-                        category: item.category,
-                    }
-                });
-                // --- END OF FIX ---
-            });
-        });
-    });
+      const baseFolderNo = booking.folderNo.toString().split('.')[0];
+      const outcome = cancellationOutcomes.get(baseFolderNo); // Find the outcome for this booking's chain
 
-    allCreditNotes.forEach(note => {
-        if (!supplierSummary[note.supplier]) {
-            supplierSummary[note.supplier] = { totalAmount: 0, totalPaid: 0, totalPending: 0, transactions: [] };
-        }
-        const modifiedUsageHistory = note.usageHistory.map(usage => {
-            const usedOnRefNo = usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || usage.usedOnCostItemSupplier?.pendingCostItem?.pendingBooking?.refNo || 'N/A';
-            return {
-                ...usage,
-                usedOnRefNo: usedOnRefNo
-            };
-        });
-        supplierSummary[note.supplier].transactions.push({
-            type: 'CreditNote',
+      booking.costItems.forEach(item => {
+        item.suppliers.forEach(s => {
+          ensureSupplier(s.supplier);
+          supplierSummary[s.supplier].transactions.push({
+            type: 'Booking',
             data: {
-                ...note,
-                usageHistory: modifiedUsageHistory,
-                generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'
-            }
+              ...s,
+              refNo: booking.refNo,
+              category: item.category,
+              bookingStatus: booking.bookingStatus,
+              pendingAmount: booking.bookingStatus === 'CANCELLED' ? 0 : s.pendingAmount,
+              cancellationOutcome: outcome || null, // <-- Attach the outcome to every booking in the chain
+            },
+          });
         });
+      });
     });
 
-    for (const supplier in supplierSummary) {
-        supplierSummary[supplier].transactions.sort((a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt));
+    // Process all credit notes
+    allCreditNotes.forEach(note => {
+      ensureSupplier(note.supplier);
+      const modifiedUsageHistory = note.usageHistory.map(usage => ({
+        ...usage,
+        usedOnRefNo: usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || usage.usedOnCostItemSupplier?.pendingCostItem?.pendingBooking?.refNo || 'N/A',
+      }));
+      supplierSummary[note.supplier].transactions.push({
+        type: 'CreditNote',
+        data: {
+          ...note,
+          usageHistory: modifiedUsageHistory,
+          generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'
+        }
+      });
+    });
+    
+    // Process all payables
+    allPayables.forEach(payable => {
+      ensureSupplier(payable.supplier);
+      supplierSummary[payable.supplier].payables.push(payable);
+    });
+
+    // --- 3. FINAL CALCULATION AND SORTING ---
+    // This loop runs ONCE at the end, after all data has been processed.
+    for (const supplierName in supplierSummary) {
+      const supplier = supplierSummary[supplierName];
+      
+      const bookingTotals = supplier.transactions
+        .filter(t => t.type === 'Booking')
+        .reduce((acc, tx) => {
+          acc.totalAmount += tx.data.amount || 0;
+          acc.totalPaid += tx.data.paidAmount || 0;
+          acc.totalPending += tx.data.pendingAmount || 0;
+          return acc;
+        }, { totalAmount: 0, totalPaid: 0, totalPending: 0 });
+
+      const payablesPending = supplier.payables.reduce((sum, p) => sum + p.pendingAmount, 0);
+
+      supplier.totalAmount = bookingTotals.totalAmount;
+      supplier.totalPaid = bookingTotals.totalPaid;
+      supplier.totalPending = bookingTotals.totalPending + payablesPending;
+      
+      supplier.transactions.sort((a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt));
     }
 
     return apiResponse.success(res, supplierSummary);
@@ -1924,96 +1955,96 @@ const getTransactions = async (req, res) => {
 
 
 const createCancellation = async (req, res) => {
-  // This is the ID of the specific booking the user clicked "Cancel" on.
   const { id: triggerBookingId } = req.params;
+  // NOTE: Your cancellation form should now have an input for 'adminFee'.
   const { supplierCancellationFee, refundToPassenger, refundTransactionMethod } = req.body;
 
   if (supplierCancellationFee === undefined || refundToPassenger === undefined || !refundTransactionMethod) {
-    return apiResponse.error(res, 'All fields are required.', 400);
+    return apiResponse.error(res, 'Supplier Fee, Refund Amount, and Method are required.', 400);
   }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      // --- Step 1: Find the booking that triggered the cancellation ---
       const triggerBooking = await tx.booking.findUnique({
         where: { id: parseInt(triggerBookingId) },
-        include: { costItems: { include: { suppliers: true } } }
       });
-
       if (!triggerBooking) throw new Error('Booking to be cancelled not found.');
 
-      // --- Step 2: Identify the entire booking chain using the base folder number ---
       const baseFolderNo = triggerBooking.folderNo.toString().split('.')[0];
-      
       const chainBookings = await tx.booking.findMany({
         where: {
-          OR: [
-            { folderNo: baseFolderNo },
-            { folderNo: { startsWith: `${baseFolderNo}.` } }
-          ]
-        }
+          OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }],
+        },
+        include: { costItems: { include: { suppliers: true } } },
       });
 
-      // --- Step 3: Validate that the chain is not already cancelled ---
-      const isAlreadyCancelled = chainBookings.some(b => b.bookingStatus === 'CANCELLED');
-      if (isAlreadyCancelled) {
+      if (chainBookings.some(b => b.bookingStatus === 'CANCELLED')) {
         throw new Error('This booking chain has already been cancelled.');
       }
-
-      // --- Step 4: Identify the root booking of the chain for consistent linking ---
       const rootBookingInChain = chainBookings.find(b => b.folderNo === baseFolderNo);
-      if (!rootBookingInChain) {
-        throw new Error('Could not find the root booking for this chain.');
-      }
-
-      // --- Step 5: Perform the financial calculations and create ONE cancellation record ---
-      // We use the trigger booking's cost info, assuming it's the most relevant.
-      const mainCostItem = [...triggerBooking.costItems].sort((a, b) => b.amount - a.amount)[0];
-      if (!mainCostItem || mainCostItem.suppliers.length === 0) {
-        throw new Error('Could not determine primary supplier for cancellation.');
-      }
-      const supplierInfo = mainCostItem.suppliers[0];
-      const amountPaidToSupplier = supplierInfo.paidAmount || 0;
+      if (!rootBookingInChain) throw new Error('Could not find the root booking for this chain.');
       
-      const fee = parseFloat(supplierCancellationFee);
-      const refund = parseFloat(refundToPassenger);
-      const profitOrLoss = (amountPaidToSupplier - fee) - refund;
-      const creditOrDebt = amountPaidToSupplier - fee;
-      const newCancellationFolderNo = `${baseFolderNo}.C`; // A clear identifier
+      const lastBookingInChain = [...chainBookings].sort((a, b) => compareFolderNumbers(b.folderNo, a.folderNo))[0];
+      
+      const mainCostItem = lastBookingInChain.costItems.sort((a, b) => b.amount - a.amount)[0];
+      if (!mainCostItem || mainCostItem.suppliers.length === 0) throw new Error('Could not determine primary supplier for cancellation.');
+      
+      const supplierInfo = mainCostItem.suppliers[0];
+
+      const totalChainPaidToSupplier = chainBookings
+        .flatMap(b => b.costItems)
+        .flatMap(ci => ci.suppliers)
+        .filter(s => s.supplier === supplierInfo.supplier)
+        .reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+      
+      const supCancellationFee = parseFloat(supplierCancellationFee);
+      const customerRefund = parseFloat(refundToPassenger);
+
+      const supplierDifference = totalChainPaidToSupplier - supCancellationFee;
+      const profitOrLoss = supplierDifference - customerRefund;
+
+      const newCancellationFolderNo = `${baseFolderNo}.C`;
 
       const newCancellationRecord = await tx.cancellation.create({
         data: {
-          originalBookingId: rootBookingInChain.id, // Always link to the root booking
+          originalBookingId: rootBookingInChain.id,
           folderNo: newCancellationFolderNo,
-          refundTransactionMethod: refundTransactionMethod,
+          refundTransactionMethod,
           originalRevenue: rootBookingInChain.revenue || 0,
           originalProdCost: rootBookingInChain.prodCost || 0,
-          supplierCancellationFee: fee,
-          refundToPassenger: refund,
-          creditNoteAmount: creditOrDebt > 0 ? creditOrDebt : 0,
+          supplierCancellationFee: supCancellationFee,
+          refundToPassenger: customerRefund,
+          creditNoteAmount: supplierDifference > 0 ? supplierDifference : 0,
           profitOrLoss: profitOrLoss,
-          description: `Cancellation for entire chain ${baseFolderNo} processed. Outcome: ${creditOrDebt > 0 ? `£${creditOrDebt.toFixed(2)} Credit` : `£${Math.abs(creditOrDebt).toFixed(2)} Payable`}`,
+          description: `Cancellation for chain ${baseFolderNo}.`,
         },
       });
 
-      // Step 6: Create Credit Note if applicable
-      if (creditOrDebt > 0) {
+      if (supplierDifference > 0) {
         await tx.supplierCreditNote.create({
           data: {
             supplier: supplierInfo.supplier,
-            initialAmount: creditOrDebt,
-            remainingAmount: creditOrDebt,
+            initialAmount: supplierDifference,
+            remainingAmount: supplierDifference,
             generatedFromCancellationId: newCancellationRecord.id,
-          }
+          },
+        });
+      } else if (supplierDifference < 0) {
+        const amountPayable = Math.abs(supplierDifference);
+        await tx.supplierPayable.create({
+          data: {
+            supplier: supplierInfo.supplier,
+            totalAmount: amountPayable,
+            pendingAmount: amountPayable,
+            reason: `Cancellation fee for booking chain ${baseFolderNo}`,
+            createdFromCancellationId: newCancellationRecord.id,
+          },
         });
       }
       
-      // --- Step 7: THIS IS THE KEY - Update ALL bookings in the chain to CANCELLED ---
       const bookingIdsToCancel = chainBookings.map(b => b.id);
       await tx.booking.updateMany({
-        where: {
-          id: { in: bookingIdsToCancel }
-        },
+        where: { id: { in: bookingIdsToCancel } },
         data: { bookingStatus: 'CANCELLED' },
       });
 
@@ -2024,9 +2055,8 @@ const createCancellation = async (req, res) => {
 
   } catch (error) {
     console.error('Error creating cancellation:', error);
-    // Add specific error handling for our new validation
     if (error.message.includes('already been cancelled')) {
-        return apiResponse.error(res, error.message, 409); // 409 Conflict
+        return apiResponse.error(res, error.message, 409);
     }
     return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
   }
@@ -2222,6 +2252,79 @@ const createDateChangeBooking = async (req, res) => {
   }
 };
 
+const createSupplierPayableSettlement = async (req, res) => {
+    try {
+        const { payableId, amount, transactionMethod, settlementDate } = req.body;
+
+        // --- 1. Validation ---
+        if (!payableId || !amount || !transactionMethod || !settlementDate) {
+            return apiResponse.error(res, 'Missing required fields: payableId, amount, transactionMethod, settlementDate', 400);
+        }
+        const paymentAmount = parseFloat(amount);
+        if (isNaN(paymentAmount) || paymentAmount <= 0) {
+            return apiResponse.error(res, 'Amount must be a positive number', 400);
+        }
+        if (isNaN(new Date(settlementDate))) {
+            return apiResponse.error(res, 'Invalid settlement date', 400);
+        }
+
+        // --- 2. Database Operations within a Transaction ---
+        const result = await prisma.$transaction(async (tx) => {
+            // A. Find the parent payable record
+            const payable = await tx.supplierPayable.findUnique({
+                where: { id: parseInt(payableId) },
+            });
+            if (!payable) {
+                throw new Error('Payable record not found.');
+            }
+            // Check if the amount exceeds the pending balance (with a small tolerance)
+            if (paymentAmount > payable.pendingAmount + 0.01) {
+                throw new Error(`Settlement amount (£${paymentAmount.toFixed(2)}) exceeds pending amount (£${payable.pendingAmount.toFixed(2)}).`);
+            }
+
+            // B. Create the settlement history record
+            await tx.supplierPayableSettlement.create({
+                data: {
+                    supplierPayableId: parseInt(payableId),
+                    amount: paymentAmount,
+                    transactionMethod: transactionMethod,
+                    settlementDate: new Date(settlementDate),
+                },
+            });
+
+            // C. CRITICAL STEP: Update the parent payable record's amounts and status
+            const newPaidAmount = payable.paidAmount + paymentAmount;
+            const newPendingAmount = payable.pendingAmount - paymentAmount;
+            
+            const updatedPayable = await tx.supplierPayable.update({
+                where: { id: parseInt(payableId) },
+                data: {
+                    paidAmount: newPaidAmount,
+                    pendingAmount: newPendingAmount,
+                    status: newPendingAmount < 0.01 ? 'PAID' : 'PENDING',
+                },
+            });
+
+            return updatedPayable;
+        });
+
+        // --- 3. Send Success Response ---
+        return apiResponse.success(res, { updatedPayable: result }, 201);
+
+    } catch (error) {
+        console.error('Error creating supplier payable settlement:', error);
+        // Handle specific errors from the transaction
+        if (error.message.includes('Payable record not found')) {
+            return apiResponse.error(res, error.message, 404);
+        }
+        if (error.message.includes('exceeds pending amount')) {
+            return apiResponse.error(res, error.message, 400);
+        }
+        // Generic error
+        return apiResponse.error(res, `Failed to create payable settlement: ${error.message}`, 500);
+    }
+};
+
 
 module.exports = {
   createPendingBooking,
@@ -2243,4 +2346,5 @@ module.exports = {
   createCancellation,
   getAvailableCreditNotes,
   createDateChangeBooking,
+  createSupplierPayableSettlement,
 };

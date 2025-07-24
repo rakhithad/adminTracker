@@ -351,6 +351,7 @@ model Cancellation {
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
 
+  createdPayable          SupplierPayable?
   generatedCreditNote     SupplierCreditNote?
 
 
@@ -392,3 +393,37 @@ model CreditNoteUsage {
 
   @@map("credit_note_usage")
 } 
+
+model SupplierPayable {
+  id                      Int                 @id @default(autoincrement())
+  supplier                Suppliers
+  totalAmount             Float               @map("total_amount")
+  paidAmount              Float               @default(0.0) @map("paid_amount")
+  pendingAmount           Float               @map("pending_amount")
+  reason                  String
+  status                  String              @default("PENDING") // PENDING or PAID
+  
+  createdFromCancellationId Int                 @unique @map("created_from_cancellation_id")
+  createdFromCancellation Cancellation          @relation(fields: [createdFromCancellationId], references: [id])
+
+  settlements             SupplierPayableSettlement[]
+
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  @@map("supplier_payables")
+}
+
+model SupplierPayableSettlement {
+  id                Int              @id @default(autoincrement())
+  supplierPayableId Int              @map("supplier_payable_id")
+  amount            Float
+  transactionMethod String
+  settlementDate    DateTime
+
+  payable           SupplierPayable  @relation(fields: [supplierPayableId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  @@map("supplier_payable_settlements")
+}
+

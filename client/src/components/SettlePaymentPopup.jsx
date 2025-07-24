@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createSupplierPaymentSettlement } from '../api/api';
-import { FaTimes, FaPiggyBank, FaCreditCard, FaHandshake, FaCalendarAlt } from 'react-icons/fa';
+import { FaTimes, FaPiggyBank, FaCreditCard, FaHandshake, FaCalendarAlt, FaInfoCircle } from 'react-icons/fa';
 
 export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
@@ -10,6 +10,8 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const isCancelled = booking.bookingStatus === 'CANCELLED';
 
   const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
 
@@ -128,7 +130,9 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
     <div className="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-8 w-full max-w-3xl shadow-2xl transform transition-all max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-6 pb-4 border-b">
-            <h2 className="text-2xl font-bold text-gray-800">Payment Details for {supplier}</h2>
+            <h2 className="text-2xl font-bold text-gray-800">
+              {isCancelled ? 'Payment History' : 'Payment Details'} for {supplier}
+            </h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><FaTimes size={24} /></button>
         </div>
 
@@ -143,7 +147,25 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
                 </div>
             </div>
 
-            {booking.pendingAmount > 0.01 && (
+            {isCancelled && booking.cancellationOutcome && (
+                <div className="mb-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+                    <h3 className="text-lg font-semibold text-yellow-800 mb-2 flex items-center">
+                        <FaInfoCircle className="mr-3" />
+                        Cancellation Outcome
+                    </h3>
+                    <div className="text-sm text-yellow-900">
+                        {booking.cancellationOutcome.creditNoteAmount > 0 ? (
+                            <p>This cancellation resulted in a <strong>Credit Note of £{booking.cancellationOutcome.creditNoteAmount.toFixed(2)}</strong> from the supplier.</p>
+                        ) : booking.cancellationOutcome.payable ? (
+                            <p>This cancellation resulted in a <strong>New Payable of £{booking.cancellationOutcome.payable.totalAmount.toFixed(2)}</strong> to the supplier. You can find and settle this in the 'Outstanding Payables' table.</p>
+                        ) : (
+                            <p>This cancellation was settled with no outstanding credit or debt.</p>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {!isCancelled && booking.pendingAmount > 0.01 && (
             <div className="mb-6">
                 <h3 className="text-lg font-semibold mb-4 text-gray-700">Record New Settlement</h3>
                 {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">{error}</div>}
@@ -170,9 +192,18 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
                 </form>
             </div>
             )}
+
+            {isCancelled && (
+                 <div className="mb-6 p-4 rounded-lg bg-gray-100 text-center">
+                    <p className="text-sm font-medium text-gray-700">This booking is cancelled. No further settlements can be made on this transaction.</p>
+                 </div>
+            )}
         
             <div className="mt-6">
-                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center"><FaCalendarAlt className="mr-3 text-gray-400"/>Payment History</h3>
+                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center">
+                  <FaCalendarAlt className="mr-3 text-gray-400"/>
+                  Historical Payments
+                </h3>
                 <div className="overflow-x-auto rounded-lg border">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-100">

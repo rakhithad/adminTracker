@@ -3,6 +3,7 @@ import { getSuppliersInfo } from '../api/api';
 import SettlePaymentPopup from '../components/SettlePaymentPopup';
 import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup';
 import { FaExclamationTriangle, FaCreditCard, FaSyncAlt } from 'react-icons/fa';
+import SettlePayablePopup from '../components/SettlePayablePopup';
 
 export default function SuppliersInfo() {
   const [supplierData, setSupplierData] = useState({});
@@ -12,6 +13,7 @@ export default function SuppliersInfo() {
   const [filterPending, setFilterPending] = useState(false);
   const [settlePopup, setSettlePopup] = useState(null);
   const [selectedCreditNote, setSelectedCreditNote] = useState(null);
+  const [settlePayablePopup, setSettlePayablePopup] = useState(null);
 
   const fetchSuppliersInfo = async () => {
     try {
@@ -34,6 +36,16 @@ export default function SuppliersInfo() {
   useEffect(() => {
     fetchSuppliersInfo();
   }, []);
+  
+  const handlePayableSettleSubmit = () => {
+    fetchSuppliersInfo();
+    setSettlePayablePopup(null);
+  };
+
+  const handleSettleSubmit = () => {
+    fetchSuppliersInfo();
+    setSettlePopup(null);
+  };
 
   const totalOverallPending = useMemo(() => {
     return Object.values(supplierData).reduce((sum, supplier) => sum + (supplier.totalPending || 0), 0);
@@ -47,16 +59,13 @@ export default function SuppliersInfo() {
     }, 0);
   }, [supplierData]);
 
-  // Pre-processes the data to link credit notes directly to their source bookings
   const processedSupplierData = useMemo(() => {
-    // Create a deep copy to avoid mutating the original state
     const processedData = JSON.parse(JSON.stringify(supplierData));
 
     for (const supplierName in processedData) {
       const supplier = processedData[supplierName];
       if (!supplier.transactions) continue;
 
-      // Create a map of credit notes keyed by their original booking reference number
       const creditNoteMap = supplier.transactions
         .filter(tx => tx.type === 'CreditNote')
         .reduce((map, tx) => {
@@ -66,19 +75,16 @@ export default function SuppliersInfo() {
           return map;
         }, {});
 
-      // Attach credit note data to bookings and filter out the separate credit note transactions
       supplier.transactions = supplier.transactions
-        .filter(tx => tx.type === 'Booking') // We only want to display booking rows
+        .filter(tx => tx.type === 'Booking')
         .map(tx => ({
             ...tx,
-            // Add a new 'creditNote' property to the booking transaction object
             creditNote: creditNoteMap[tx.data.refNo] || null,
         }));
     }
     return processedData;
   }, [supplierData]);
 
-  // Filters the new, processed data
   const filteredSuppliers = useMemo(() => {
     if (filterPending) {
       return Object.fromEntries(Object.entries(processedSupplierData).filter(([, data]) => data.totalPending > 0));
@@ -90,15 +96,9 @@ export default function SuppliersInfo() {
     setExpandedSuppliers((prev) => ({ ...prev, [supplier]: !prev[supplier] }));
   };
 
-  const handleSettleSubmit = () => {
-    fetchSuppliersInfo();
-    setSettlePopup(null);
-  };
-
   const getPaymentStatus = (paid, pending) => {
-    const total = paid + pending;
-    if (pending <= 0.01 && total > 0) return 'Fully Paid';
-    if (paid < 0.01 && total > 0) return 'Unpaid';
+    if (pending <= 0.01 && (paid > 0 || pending > -0.01)) return 'Fully Paid';
+    if (paid < 0.01 && pending > 0) return 'Unpaid';
     if (paid > 0 && pending > 0) return 'Partially Paid';
     return 'N/A';
   };
@@ -198,7 +198,9 @@ export default function SuppliersInfo() {
 
                 {expandedSuppliers[supplier] && (
                   <tr>
-                    <td colSpan="7" className="p-4 bg-gray-50">
+                    <td colSpan="7" className="p-4 bg-gray-50 space-y-4">
+                      
+                      {/* --- TABLE 1: TRANSACTION DETAILS (BOOKINGS) --- */}
                       <div className="bg-white p-4 rounded-lg border">
                         <h3 className="text-sm font-semibold text-gray-800 mb-2">Transaction Details for {supplier}</h3>
                         <div className="overflow-x-auto">
@@ -215,32 +217,47 @@ export default function SuppliersInfo() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {(data.transactions || []).map((tx, index) => {
+                                {(data.transactions || []).map((tx) => {
                                     const booking = tx.data;
-                                    const creditNote = tx.creditNote; // Access the linked credit note
-
+                                    const creditNote = tx.creditNote;
+                                    const isCancelled = booking.bookingStatus === 'CANCELLED';
+                                    
                                     return (
-                                    <tr key={`${booking.bookingId}-${booking.category}-${index}`} onClick={() => setSettlePopup({ supplier, booking })} className="hover:bg-blue-50 cursor-pointer">
+                                    <tr 
+                                      key={`${booking.id}-${booking.refNo}`} 
+                                      onClick={() => setSettlePopup({ supplier, booking })} 
+                                      className={`${isCancelled ? 'bg-gray-100 text-gray-500 line-through opacity-70 cursor-pointer' : 'hover:bg-blue-50 cursor-pointer'}`}
+                                    >
                                         <td className="px-4 py-2 text-sm">{booking.refNo}</td>
                                         <td className="px-4 py-2 text-sm">{booking.category}</td>
-                                        <td className="px-4 py-2 text-sm text-right">£{booking.amount.toFixed(2)}</td>
-                                        <td className="px-4 py-2 text-sm text-green-600 text-right">£{booking.paidAmount.toFixed(2)}</td>
-                                        <td className="px-4 py-2 text-sm text-red-600 text-right">£{booking.pendingAmount.toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-sm text-right">£{(booking.amount || 0).toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-sm text-green-600 text-right">£{(booking.paidAmount || 0).toFixed(2)}</td>
+                                        <td className="px-4 py-2 text-sm text-red-600 text-right">£{(booking.pendingAmount || 0).toFixed(2)}</td>
+                                        
                                         <td className="px-4 py-2 text-sm font-medium text-right">
                                           {creditNote ? (
-                                            <button
-                                              onClick={(e) => {
-                                                e.stopPropagation(); // Stop row click from firing
-                                                setSelectedCreditNote(creditNote);
-                                              }}
-                                              className="text-blue-600 hover:text-blue-800 hover:underline"
-                                            >
-                                              £{creditNote.remainingAmount.toFixed(2)}
-                                            </button>
+                                            creditNote.remainingAmount > 0.01 ? (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(creditNote); }}
+                                                className="text-blue-600 hover:text-blue-800 hover:underline"
+                                                title="View details and usage history"
+                                              >
+                                                £{creditNote.remainingAmount.toFixed(2)}
+                                              </button>
+                                            ) : (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(creditNote); }}
+                                                className="text-gray-500 hover:text-gray-700 hover:underline text-xs"
+                                                title="This credit note is fully used. Click to view history."
+                                              >
+                                                View History
+                                              </button>
+                                            )
                                           ) : (
                                             '-'
                                           )}
                                         </td>
+                                        
                                         <td className="px-4 py-2 text-sm">{formatDate(booking.createdAt)}</td>
                                     </tr>
                                     );
@@ -249,6 +266,44 @@ export default function SuppliersInfo() {
                             </table>
                         </div>
                       </div>
+                      
+                      {/* --- TABLE 2: OUTSTANDING PAYABLES (CANCELLATIONS) --- */}
+                      {(data.payables && data.payables.length > 0) && (
+                        <div className="bg-white p-4 rounded-lg border border-red-200">
+                          <h3 className="text-sm font-semibold text-red-800 mb-2">Outstanding Payables for {supplier}</h3>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200">
+                              <thead className="bg-red-50">
+                                <tr>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-red-700 uppercase">Reason</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Total Payable (£)</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Paid (£)</th>
+                                  <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Pending (£)</th>
+                                  <th className="px-4 py-2 text-center text-xs font-medium text-red-700 uppercase">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-200">
+                                {data.payables.map((payable) => (
+                                  <tr key={payable.id} className="hover:bg-red-50">
+                                    <td className="px-4 py-2 text-sm text-gray-700">{payable.reason}</td>
+                                    <td className="px-4 py-2 text-sm text-gray-600 text-right">£{payable.totalAmount.toFixed(2)}</td>
+                                    <td className="px-4 py-2 text-sm text-green-600 text-right">£{payable.paidAmount.toFixed(2)}</td>
+                                    <td className="px-4 py-2 text-sm text-red-600 font-bold text-right">£{payable.pendingAmount.toFixed(2)}</td>
+                                    <td className="px-4 py-2 text-center">
+                                      <button 
+                                        onClick={() => setSettlePayablePopup({ payable, supplier })} 
+                                        className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-semibold"
+                                      >
+                                        Settle
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
@@ -259,10 +314,28 @@ export default function SuppliersInfo() {
       </div>
       
       {settlePopup && (
-        <SettlePaymentPopup booking={settlePopup.booking} supplier={settlePopup.supplier} onClose={() => setSettlePopup(null)} onSubmit={handleSettleSubmit} />
+        <SettlePaymentPopup 
+          booking={settlePopup.booking} 
+          supplier={settlePopup.supplier} 
+          onClose={() => setSettlePopup(null)} 
+          onSubmit={handleSettleSubmit} 
+        />
       )}
+
       {selectedCreditNote && (
-          <CreditNoteDetailsPopup note={selectedCreditNote} onClose={() => setSelectedCreditNote(null)} />
+          <CreditNoteDetailsPopup 
+            note={selectedCreditNote} 
+            onClose={() => setSelectedCreditNote(null)} 
+          />
+      )}
+
+      {settlePayablePopup && (
+        <SettlePayablePopup
+          payable={settlePayablePopup.payable}
+          supplier={settlePayablePopup.supplier}
+          onClose={() => setSettlePayablePopup(null)}
+          onSubmit={handlePayableSettleSubmit}
+        />
       )}
     </div>
   );

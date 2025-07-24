@@ -88,3 +88,7 @@ export const getAvailableCreditNotes = async (supplier) => {
 export const createDateChangeBooking = async (originalBookingId, bookingData) => {
   return await api.post(`/bookings/${originalBookingId}/date-change`, bookingData);
 };
+
+export const createSupplierPayableSettlement = async(data) => {
+  return await api.post(`/bookings/supplier-payable/settle`, data);
+}
