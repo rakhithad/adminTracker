@@ -1118,7 +1118,11 @@ const getCustomerDeposits = async (req, res) => {
             select: {
                 refundToPassenger: true,
                 profitOrLoss: true,
-                createdCustomerPayable: true
+                createdCustomerPayable: {
+                    include: {
+                        settlements: true // <-- THIS FETCHES THE PAYMENT HISTORY
+                    }
+                }
             }
         }
       },
@@ -1160,6 +1164,31 @@ const getCustomerDeposits = async (req, res) => {
           });
         });
       });
+
+      (booking.instalments || []).forEach(instalment => {
+        (instalment.payments || []).forEach(payment => {
+          paymentHistory.push({
+            type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
+            date: payment.paymentDate,
+            amount: parseFloat(payment.amount),
+            method: payment.transactionMethod,
+            status: 'Paid',
+          });
+        });
+      });
+
+      const payableSettlements = booking.cancellation?.createdCustomerPayable?.settlements || [];
+      if (payableSettlements.length > 0) {
+        payableSettlements.forEach(settlement => {
+          paymentHistory.push({
+            type: 'Cancellation Balance Payment',
+            date: settlement.paymentDate,
+            amount: parseFloat(settlement.amount),
+            method: settlement.transactionMethod,
+            status: 'Paid'
+          });
+        });
+      }
       
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
@@ -2332,6 +2361,74 @@ const createSupplierPayableSettlement = async (req, res) => {
     }
 };
 
+const settleCustomerPayable = async (req, res) => {
+    try {
+        const { id: payableId } = req.params;
+        const { amount, transactionMethod, paymentDate } = req.body;
+
+        // --- 1. Validation ---
+        if (!payableId || !amount || !transactionMethod || !paymentDate) {
+            return apiResponse.error(res, 'Missing required fields.', 400);
+        }
+        const paymentAmount = parseFloat(amount);
+        if (isNaN(paymentAmount) || paymentAmount <= 0) {
+            return apiResponse.error(res, 'Amount must be a positive number.', 400);
+        }
+
+        // --- 2. Database operations in a transaction ---
+        const result = await prisma.$transaction(async (tx) => {
+            const payable = await tx.customerPayable.findUnique({
+                where: { id: parseInt(payableId) },
+                include: { booking: true } // Need the parent booking for updating its totals
+            });
+
+            if (!payable) throw new Error('Payable record not found.');
+            if (paymentAmount > payable.pendingAmount + 0.01) {
+                throw new Error(`Payment amount exceeds pending balance.`);
+            }
+
+            // A. Create the settlement history record
+            await tx.customerPayableSettlement.create({
+                data: {
+                    customerPayableId: parseInt(payableId),
+                    amount: paymentAmount,
+                    transactionMethod,
+                    paymentDate: new Date(paymentDate),
+                },
+            });
+
+            // B. Update the CustomerPayable record itself
+            const newPaidAmount = payable.paidAmount + paymentAmount;
+            const newPendingAmount = payable.pendingAmount - paymentAmount;
+            await tx.customerPayable.update({
+                where: { id: parseInt(payableId) },
+                data: {
+                    paidAmount: newPaidAmount,
+                    pendingAmount: newPendingAmount,
+                    status: newPendingAmount < 0.01 ? 'PAID' : 'PENDING',
+                },
+            });
+
+            // C. CRITICAL: Update the parent Booking's totals
+            const updatedBooking = await tx.booking.update({
+                where: { id: payable.bookingId },
+                data: {
+                    received: (payable.booking.received || 0) + paymentAmount,
+                    balance: (payable.booking.balance || 0) - paymentAmount,
+                    lastPaymentDate: new Date(paymentDate),
+                }
+            });
+
+            return updatedBooking;
+        });
+
+        return apiResponse.success(res, { bookingUpdate: result }, 201);
+    } catch (error) {
+        console.error("Error settling customer payable:", error);
+        return apiResponse.error(res, `Failed to settle payable: ${error.message}`, 500);
+    }
+};
+
 
 module.exports = {
   createPendingBooking,
@@ -2354,4 +2451,5 @@ module.exports = {
   getAvailableCreditNotes,
   createDateChangeBooking,
   createSupplierPayableSettlement,
+  settleCustomerPayable
 };

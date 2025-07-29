@@ -442,6 +442,7 @@ model CustomerPayable {
   pendingAmount           Float               @map("pending_amount")
   reason                  String
   status                  String              @default("PENDING") // PENDING or PAID
+  settlements             CustomerPayableSettlement[]
   
   // Link back to the cancellation event that created this payable
   createdFromCancellationId Int                 @unique @map("created_from_cancellation_id")
@@ -456,4 +457,17 @@ model CustomerPayable {
   updatedAt               DateTime            @updatedAt @map("updated_at")
 
   @@map("customer_payables")
+}
+
+model CustomerPayableSettlement {
+  id                Int              @id @default(autoincrement())
+  customerPayableId Int              @map("customer_payable_id")
+  amount            Float
+  transactionMethod String
+  paymentDate       DateTime
+
+  payable           CustomerPayable  @relation(fields: [customerPayableId], references: [id], onDelete: Cascade)
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  @@map("customer_payable_settlements")
 }

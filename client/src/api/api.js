@@ -92,3 +92,7 @@ export const createDateChangeBooking = async (originalBookingId, bookingData) =>
 export const createSupplierPayableSettlement = async(data) => {
   return await api.post(`/bookings/supplier-payable/settle`, data);
 }
+
+export const settleCustomerPayable = async(payableId, data) => {
+  return await api.post(`/bookings/customer-payable/${payableId}/settle`, data);
+}

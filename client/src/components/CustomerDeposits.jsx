@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { getCustomerDeposits, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
-import PaymentHistoryPopup from './PaymentHistoryPopup'; // Make sure this is imported
+import PaymentHistoryPopup from './PaymentHistoryPopup';
 import { FaSearch, FaExclamationCircle } from 'react-icons/fa';
+import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
 
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
@@ -15,6 +16,7 @@ export default function CustomerDeposits() {
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
+  const [customerPayablePopup, setCustomerPayablePopup] = useState(null);
 
   useEffect(() => {
     fetchBookings();
@@ -222,15 +224,25 @@ return (
                     </td>
                     <td className="py-4 px-6 text-sm">
                       {isCancelled ? (
-                        <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-center">
-                          <span className="font-bold text-red-700 block text-xs uppercase">Cancelled</span>
-                          <div className="text-xs mt-1 text-gray-700">
-                            {customerPayable ? (
-                              <span>Customer Owes: <strong className="text-red-600">£{customerPayable.pendingAmount.toFixed(2)}</strong></span>
-                            ) : (
-                              <span>Refunded: <strong className="text-green-600">£{(booking.cancellation?.refundToPassenger || 0).toFixed(2)}</strong></span>
-                            )}
-                          </div>
+                        <div className="text-center">
+                          {customerPayable ? (
+                            // --- THIS IS THE UPDATED SECTION ---
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation(); // Prevent row click
+                                setCustomerPayablePopup({ payable: customerPayable, booking });
+                              }}
+                              className="w-full p-2 bg-red-100 border border-red-200 rounded-lg hover:bg-red-200 transition-colors"
+                            >
+                              <span className="font-bold text-red-700 block text-xs uppercase">Action Required</span>
+                              <span className="text-xs mt-1 text-gray-700">Customer Owes: <strong className="text-red-600">£{customerPayable.pendingAmount.toFixed(2)}</strong></span>
+                            </button>
+                          ) : (
+                            <div className="p-2 bg-gray-50 border rounded-lg">
+                               <span className="font-bold text-gray-600 block text-xs uppercase">Cancelled</span>
+                               <span className="text-xs mt-1 text-green-600">Refunded: £{(booking.cancellation?.refundToPassenger || 0).toFixed(2)}</span>
+                            </div>
+                          )}
                         </div>
                       ) : isFinalSettlementMode ? (
                         // --- THIS IS THE CORRECTED SECTION ---
@@ -298,6 +310,14 @@ return (
         <PaymentHistoryPopup 
           booking={historyPopupBooking}
           onClose={() => setHistoryPopupBooking(null)}
+        />
+      )}
+      {customerPayablePopup && (
+        <SettleCustomerPayablePopup
+            payable={customerPayablePopup.payable}
+            booking={customerPayablePopup.booking}
+            onClose={() => setCustomerPayablePopup(null)}
+            onSubmit={fetchBookings}
         />
       )}
     </div>
