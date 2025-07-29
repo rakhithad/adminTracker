@@ -1094,6 +1094,7 @@ const getCustomerDeposits = async (req, res) => {
         received: true,
         transactionMethod: true,
         receivedDate: true,
+        bookingStatus: true, // <-- ADDED: To identify cancelled bookings
         instalments: {
           select: {
             id: true,
@@ -1112,6 +1113,14 @@ const getCustomerDeposits = async (req, res) => {
             },
           },
         },
+        // <-- ADDED: To get the final outcome of a cancellation
+        cancellation: {
+            select: {
+                refundToPassenger: true,
+                profitOrLoss: true,
+                createdCustomerPayable: true
+            }
+        }
       },
     });
 
@@ -1119,32 +1128,29 @@ const getCustomerDeposits = async (req, res) => {
       const totalReceivedFromDb = parseFloat(booking.received || 0);
       const revenue = parseFloat(booking.revenue || 0);
 
-      const sumOfPaidInstalments = booking.instalments
+      const sumOfPaidInstalments = (booking.instalments || [])
         .filter((inst) => inst.status === 'PAID')
         .reduce((sum, inst) => {
-            const paymentTotal = inst.payments.reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
+            const paymentTotal = (inst.payments || []).reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
             return sum + paymentTotal;
         }, 0);
       
       const initialDeposit = totalReceivedFromDb - sumOfPaidInstalments;
 
-      // --- NEW: Assembling the Unified Payment History ---
+      // Assembling the Unified Payment History
       const paymentHistory = [];
-
-      // 1. Add the Initial Deposit to the history
-      if (initialDeposit > 0) {
+      if (initialDeposit > 0.01) {
         paymentHistory.push({
           type: 'Initial Deposit',
-          date: booking.receivedDate || booking.pcDate, // Fallback to pcDate
+          date: booking.receivedDate || booking.pcDate,
           amount: initialDeposit,
           method: booking.transactionMethod || 'N/A',
           status: 'Paid',
         });
       }
 
-      // 2. Add all instalment and settlement payments
-      booking.instalments.forEach(instalment => {
-        instalment.payments.forEach(payment => {
+      (booking.instalments || []).forEach(instalment => {
+        (instalment.payments || []).forEach(payment => {
           paymentHistory.push({
             type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
             date: payment.paymentDate,
@@ -1155,22 +1161,23 @@ const getCustomerDeposits = async (req, res) => {
         });
       });
       
-      // 3. Sort the entire history chronologically
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
       return {
-        // Return all original fields plus the new calculated ones
+        // Return all original fields from the query, including the new 'bookingStatus' and 'cancellation'
         ...booking,
+        // Return all calculated fields
         revenue: revenue.toFixed(2),
         received: totalReceivedFromDb.toFixed(2),
         balance: (revenue - totalReceivedFromDb).toFixed(2),
         initialDeposit: initialDeposit.toFixed(2),
-        paymentHistory: paymentHistory, // Attach the new history array
+        paymentHistory: paymentHistory,
       };
     });
 
     return apiResponse.success(res, formattedBookings);
-  } catch (error) {
+  } catch (error)
+ {
     console.error('Error fetching customer deposits:', error);
     return apiResponse.error(res, `Failed to fetch customer deposits: ${error.message}`, 500);
   }
@@ -1885,6 +1892,15 @@ const getTransactions = async (req, res) => {
       include: { originalBooking: { select: { refNo: true, paxName: true } } },
     });
 
+    const adminFees = await prisma.cancellation.findMany({
+      where: {
+        adminFee: { gt: 0 }
+      },
+      include: {
+        originalBooking: { select: { refNo: true } }
+      }
+    });
+
 
     // --- 2. MAP ALL EVENTS TO A STANDARDIZED FORMAT ---
 
@@ -1931,6 +1947,19 @@ const getTransactions = async (req, res) => {
       transactionsList.push({ id: `refund-${cancellation.id}`, type: 'Outgoing', category: 'Passenger Refund', date: cancellation.createdAt, amount: cancellation.refundToPassenger, bookingRefNo: cancellation.originalBooking.refNo, method: cancellation.refundTransactionMethod, details: `To: ${cancellation.originalBooking.paxName}` });
     });
 
+    adminFees.forEach(cancellation => {
+      transactionsList.push({
+        id: `adminfee-${cancellation.id}`,
+        type: 'Incoming',
+        category: 'Admin Fee',
+        date: cancellation.createdAt,
+        amount: cancellation.adminFee,
+        bookingRefNo: cancellation.originalBooking.refNo,
+        method: 'Internal',
+        details: `Cancellation Admin Fee`
+      });
+    });
+
 
     // --- 3. COMBINE, SORT, AND CALCULATE TOTALS ---
     const allTransactions = transactionsList.filter(t => t && t.id);
@@ -1956,25 +1985,21 @@ const getTransactions = async (req, res) => {
 
 const createCancellation = async (req, res) => {
   const { id: triggerBookingId } = req.params;
-  // NOTE: Your cancellation form should now have an input for 'adminFee'.
-  const { supplierCancellationFee, refundToPassenger, refundTransactionMethod } = req.body;
+  // --- CORRECTED: Accepting adminFee, NOT refundToPassenger ---
+  const { supplierCancellationFee, adminFee, refundTransactionMethod } = req.body;
 
-  if (supplierCancellationFee === undefined || refundToPassenger === undefined || !refundTransactionMethod) {
-    return apiResponse.error(res, 'Supplier Fee, Refund Amount, and Method are required.', 400);
+  if (supplierCancellationFee === undefined || adminFee === undefined || !refundTransactionMethod) {
+    return apiResponse.error(res, 'Supplier Fee, Admin Fee, and Method are required.', 400);
   }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const triggerBooking = await tx.booking.findUnique({
-        where: { id: parseInt(triggerBookingId) },
-      });
-      if (!triggerBooking) throw new Error('Booking to be cancelled not found.');
+      const triggerBooking = await tx.booking.findUnique({ where: { id: parseInt(triggerBookingId) } });
+      if (!triggerBooking) throw new Error('Booking not found.');
 
       const baseFolderNo = triggerBooking.folderNo.toString().split('.')[0];
       const chainBookings = await tx.booking.findMany({
-        where: {
-          OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }],
-        },
+        where: { OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }] },
         include: { costItems: { include: { suppliers: true } } },
       });
 
@@ -1982,85 +2007,67 @@ const createCancellation = async (req, res) => {
         throw new Error('This booking chain has already been cancelled.');
       }
       const rootBookingInChain = chainBookings.find(b => b.folderNo === baseFolderNo);
-      if (!rootBookingInChain) throw new Error('Could not find the root booking for this chain.');
-      
-      const lastBookingInChain = [...chainBookings].sort((a, b) => compareFolderNumbers(b.folderNo, a.folderNo))[0];
-      
-      const mainCostItem = lastBookingInChain.costItems.sort((a, b) => b.amount - a.amount)[0];
-      if (!mainCostItem || mainCostItem.suppliers.length === 0) throw new Error('Could not determine primary supplier for cancellation.');
-      
-      const supplierInfo = mainCostItem.suppliers[0];
+      if (!rootBookingInChain) throw new Error('Could not find root booking.');
 
-      const totalChainPaidToSupplier = chainBookings
-        .flatMap(b => b.costItems)
-        .flatMap(ci => ci.suppliers)
-        .filter(s => s.supplier === supplierInfo.supplier)
-        .reduce((sum, s) => sum + (s.paidAmount || 0), 0);
-      
+      // --- AGGREGATE FINANCIALS ---
+      const totalChainPaidToSupplier = chainBookings.flatMap(b => b.costItems).flatMap(ci => ci.suppliers).reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+      const totalChainReceivedFromCustomer = chainBookings.reduce((sum, b) => sum + (b.received || 0), 0);
+
       const supCancellationFee = parseFloat(supplierCancellationFee);
-      const customerRefund = parseFloat(refundToPassenger);
+      const customerTotalCancellationFee = supCancellationFee + parseFloat(adminFee);
 
+      // --- CALCULATE OUTCOMES AUTOMATICALLY ---
       const supplierDifference = totalChainPaidToSupplier - supCancellationFee;
-      const profitOrLoss = supplierDifference - customerRefund;
+      const customerDifference = totalChainReceivedFromCustomer - customerTotalCancellationFee;
+      
+      const refundToPassenger = customerDifference > 0 ? customerDifference : 0;
+      const payableByCustomer = customerDifference < 0 ? Math.abs(customerDifference) : 0;
+      
+      const profitOrLoss = (totalChainReceivedFromCustomer - totalChainPaidToSupplier) - refundToPassenger + payableByCustomer;
 
-      const newCancellationFolderNo = `${baseFolderNo}.C`;
-
+      // --- CREATE CANCELLATION RECORD ---
       const newCancellationRecord = await tx.cancellation.create({
         data: {
-          originalBookingId: rootBookingInChain.id,
-          folderNo: newCancellationFolderNo,
-          refundTransactionMethod,
-          originalRevenue: rootBookingInChain.revenue || 0,
-          originalProdCost: rootBookingInChain.prodCost || 0,
+          originalBookingId: rootBookingInChain.id, folderNo: `${baseFolderNo}.C`, refundTransactionMethod,
+          originalRevenue: rootBookingInChain.revenue || 0, originalProdCost: rootBookingInChain.prodCost || 0,
           supplierCancellationFee: supCancellationFee,
-          refundToPassenger: customerRefund,
+          refundToPassenger: refundToPassenger, // The calculated refund amount
           creditNoteAmount: supplierDifference > 0 ? supplierDifference : 0,
           profitOrLoss: profitOrLoss,
           description: `Cancellation for chain ${baseFolderNo}.`,
         },
       });
 
+      // --- CREATE PAYABLES OR CREDIT NOTES ---
       if (supplierDifference > 0) {
-        await tx.supplierCreditNote.create({
-          data: {
-            supplier: supplierInfo.supplier,
-            initialAmount: supplierDifference,
-            remainingAmount: supplierDifference,
-            generatedFromCancellationId: newCancellationRecord.id,
-          },
-        });
+        await tx.supplierCreditNote.create({ data: { supplier: chainBookings[0].costItems[0].suppliers[0].supplier, initialAmount: supplierDifference, remainingAmount: supplierDifference, generatedFromCancellationId: newCancellationRecord.id } });
       } else if (supplierDifference < 0) {
-        const amountPayable = Math.abs(supplierDifference);
-        await tx.supplierPayable.create({
+        await tx.supplierPayable.create({ data: { supplier: chainBookings[0].costItems[0].suppliers[0].supplier, totalAmount: Math.abs(supplierDifference), pendingAmount: Math.abs(supplierDifference), reason: `Cancellation fee for booking chain ${baseFolderNo}`, createdFromCancellationId: newCancellationRecord.id } });
+      }
+
+      if (payableByCustomer > 0) {
+        await tx.customerPayable.create({
           data: {
-            supplier: supplierInfo.supplier,
-            totalAmount: amountPayable,
-            pendingAmount: amountPayable,
-            reason: `Cancellation fee for booking chain ${baseFolderNo}`,
+            totalAmount: payableByCustomer, pendingAmount: payableByCustomer,
+            reason: `Outstanding balance for cancelled chain ${baseFolderNo}`,
             createdFromCancellationId: newCancellationRecord.id,
+            bookingId: rootBookingInChain.id,
           },
         });
       }
-      
-      const bookingIdsToCancel = chainBookings.map(b => b.id);
-      await tx.booking.updateMany({
-        where: { id: { in: bookingIdsToCancel } },
-        data: { bookingStatus: 'CANCELLED' },
-      });
 
+      await tx.booking.updateMany({ where: { id: { in: chainBookings.map(b => b.id) } }, data: { bookingStatus: 'CANCELLED' } });
       return newCancellationRecord;
     });
 
     return apiResponse.success(res, result, 201);
-
   } catch (error) {
-    console.error('Error creating cancellation:', error);
-    if (error.message.includes('already been cancelled')) {
-        return apiResponse.error(res, error.message, 409);
-    }
+    console.error("Error creating cancellation:", error);
+    if (error.message.includes('already been cancelled')) return apiResponse.error(res, error.message, 409);
     return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
   }
 };
+
 
 const getAvailableCreditNotes = async (req, res) => {
   try {

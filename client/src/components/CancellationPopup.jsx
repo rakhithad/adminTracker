@@ -1,29 +1,26 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 export default function CancellationPopup({ booking, onClose, onConfirm }) {
   const [supplierCancellationFee, setSupplierCancellationFee] = useState('');
-  const [refundToPassenger, setRefundToPassenger] = useState('');
-  // --- ADD STATE FOR THE NEW FIELD ---
+  const [adminFee, setAdminFee] = useState(''); // New state for Admin Fee
   const [refundTransactionMethod, setRefundTransactionMethod] = useState('LOYDS');
-  
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM'];
 
   const handleSubmit = async () => {
-    // Add validation for the new field
-    if (!supplierCancellationFee || !refundToPassenger || !refundTransactionMethod) {
+    // Updated validation
+    if (!supplierCancellationFee || !adminFee || !refundTransactionMethod) {
       setError('All fields are required.');
       return;
     }
     setIsSubmitting(true);
     setError('');
     try {
-      // Pass the new field in the payload
+      // Updated payload: Sending fees, not the refund amount
       await onConfirm({
         supplierCancellationFee: parseFloat(supplierCancellationFee),
-        refundToPassenger: parseFloat(refundToPassenger),
+        adminFee: parseFloat(adminFee),
         refundTransactionMethod: refundTransactionMethod,
       });
       onClose();
@@ -44,14 +41,16 @@ export default function CancellationPopup({ booking, onClose, onConfirm }) {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium">Supplier Cancellation Fee (£)</label>
-            <input type="number" step="0.01" value={supplierCancellationFee} onChange={e => setSupplierCancellationFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 300" />
-            <p className="text-xs text-gray-500 mt-1">This is the non-refundable amount kept by the supplier. Original Product Cost was £{(booking.prodCost || 0).toFixed(2)}.</p>
+            <input type="number" step="0.01" value={supplierCancellationFee} onChange={e => setSupplierCancellationFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 500" required />
+            <p className="text-xs text-gray-500 mt-1">The non-refundable amount kept by the supplier.</p>
           </div>
+          
           <div>
-            <label className="block text-sm font-medium">Refund to Passenger (£)</label>
-            <input type="number" step="0.01" value={refundToPassenger} onChange={e => setRefundToPassenger(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 200" />
+            <label className="block text-sm font-medium">Your Admin Fee (£)</label>
+            <input type="number" step="0.01" value={adminFee} onChange={e => setAdminFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 50" required />
+             <p className="text-xs text-gray-500 mt-1">Your company's fee for this cancellation.</p>
           </div>
-          {/* --- ADD THE NEW INPUT FIELD --- */}
+
           <div>
             <label className="block text-sm font-medium">Refund Transaction Method</label>
             <select
@@ -63,6 +62,7 @@ export default function CancellationPopup({ booking, onClose, onConfirm }) {
                 <option key={method} value={method}>{method.replace(/_/g, ' ')}</option>
               ))}
             </select>
+            <p className="text-xs text-gray-500 mt-1">Method for refunding the passenger, if applicable.</p>
           </div>
         </div>
 

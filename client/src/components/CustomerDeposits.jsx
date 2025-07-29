@@ -14,8 +14,6 @@ export default function CustomerDeposits() {
   const [expandedRows, setExpandedRows] = useState({});
   const [filter, setFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // State for the new history popup
   const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
 
   useEffect(() => {
@@ -40,6 +38,7 @@ export default function CustomerDeposits() {
     setPaymentPopup({ instalment, booking });
   };
 
+  // This function is now correctly used in the JSX
   const handleOpenSettlementPopup = (booking) => {
     setSettlementPopup(booking);
   };
@@ -61,11 +60,13 @@ export default function CustomerDeposits() {
         };
       })
     );
+    setPaymentPopup(null);
   };
 
   const handleSaveSettlement = async (bookingId, paymentData) => {
     await recordSettlementPayment(bookingId, paymentData);
     fetchBookings();
+    setSettlementPopup(null);
   };
 
   const formatDate = (dateStr) => {
@@ -81,7 +82,7 @@ export default function CustomerDeposits() {
   };
 
   const getNextUnpaidInstalment = (instalments) => {
-    return instalments.find((inst) => inst.status === 'PENDING' || inst.status === 'OVERDUE') || null;
+    return (instalments || []).find((inst) => inst.status === 'PENDING' || inst.status === 'OVERDUE') || null;
   };
 
   const calculateDaysLeft = (travelDate) => {
@@ -95,34 +96,32 @@ export default function CustomerDeposits() {
 
   const getTransactionMethod = (instalment) => {
     if (!instalment.payments || instalment.payments.length === 0) return 'N/A';
-    const latestPayment = instalment.payments.reduce((latest, payment) =>
-      new Date(payment.createdAt) > new Date(latest.createdAt) ? payment : latest
-    );
+    const latestPayment = [...instalment.payments].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
     return latestPayment.transactionMethod.replace('_', ' ');
   };
 
   const filteredBookings = bookings.filter((booking) => {
     const balance = parseFloat(booking.balance);
-    const statusMatch =
-      (filter === 'ongoing' && balance > 0) ||
-      (filter === 'completed' && balance <= 0) ||
-      filter === 'all';
-    
-    if (!statusMatch) {
-      return false;
-    }
+    let statusMatch = true;
 
-    if (searchTerm.trim() === '') {
-      return true;
+    if (filter === 'ongoing') {
+        statusMatch = balance > 0 && booking.bookingStatus !== 'CANCELLED';
+    } else if (filter === 'completed') {
+        statusMatch = balance <= 0 && booking.bookingStatus !== 'CANCELLED';
+    } else if (filter === 'cancelled') {
+        statusMatch = booking.bookingStatus === 'CANCELLED';
     }
+    
+    if (!statusMatch) return false;
+
+    if (searchTerm.trim() === '') return true;
 
     const searchLower = searchTerm.toLowerCase();
-
-    const refNoMatch = booking.refNo.toLowerCase().includes(searchLower);
-    const paxNameMatch = booking.paxName.toLowerCase().includes(searchLower);
-    const agentNameMatch = booking.agentName.toLowerCase().includes(searchLower);
-
-    return refNoMatch || paxNameMatch || agentNameMatch;
+    return (
+        (booking.refNo || '').toLowerCase().includes(searchLower) ||
+        (booking.paxName || '').toLowerCase().includes(searchLower) ||
+        (booking.agentName || '').toLowerCase().includes(searchLower)
+    );
   });
 
   if (loading) {
@@ -155,27 +154,23 @@ export default function CustomerDeposits() {
     );
   }
 
-  return (
+  // Paste this entire block into your CustomerDeposits.jsx file, replacing the existing return statement.
+
+return (
     <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
         <div className="flex items-center gap-4">
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <FaSearch className="h-4 w-4 text-gray-400" />
-            </div>
-            <input type="text" placeholder="Search by Ref, Passenger, Agent..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="block w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" />
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
           </div>
-          <div className="relative">
-            <select value={filter} onChange={(e) => setFilter(e.target.value)} className="appearance-none p-2 border border-gray-300 rounded-lg bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 pr-8">
-              <option value="all">All Bookings</option>
-              <option value="ongoing">Ongoing</option>
-              <option value="completed">Completed</option>
-            </select>
-            <svg className="absolute right-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </div>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="p-2 border rounded-lg">
+            <option value="all">All Bookings</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </div>
       </div>
       
@@ -186,45 +181,59 @@ export default function CustomerDeposits() {
               <tr>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Ref No</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger Name</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Revenue (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Initial Deposit (£)</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Deposit (£)</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Paid (£)</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Balance (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Instalments</th>
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Action / Outcome</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredBookings.map((booking) => {
-                const hasPendingInstalments = booking.instalments.some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
-                const isFinalSettlementMode = parseFloat(booking.balance) > 0 && !hasPendingInstalments;
+                const isCancelled = booking.bookingStatus === 'CANCELLED';
+                const customerPayable = booking.cancellation?.createdCustomerPayable;
+                const hasPendingInstalments = !isCancelled && (booking.instalments || []).some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
+                const isFinalSettlementMode = !isCancelled && parseFloat(booking.balance) > 0 && !hasPendingInstalments;
                 const nextUnpaidInstalment = getNextUnpaidInstalment(booking.instalments);
                 const isExpanded = expandedRows[booking.id] || false;
                 const daysLeft = calculateDaysLeft(booking.travelDate);
                 const balance = parseFloat(booking.balance);
 
                 return (
-                  <tr key={booking.id} className="hover:bg-blue-50 transition-colors duration-150 cursor-pointer" onClick={() => setHistoryPopupBooking(booking)}>
-                    <td className="py-4 px-6 text-sm text-gray-600">{formatDate(booking.pcDate)}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">{booking.refNo}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">{booking.paxName}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">{booking.agentName}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
+                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-100' : 'hover:bg-blue-50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-600'}`}>
                       {formatDate(booking.travelDate)}
-                      <br />
-                      {daysLeft !== null && (<span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
+                      {!isCancelled && daysLeft !== null && (<br />)}
+                      {!isCancelled && daysLeft !== null && (<span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
                     </td>
-                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">{parseFloat(booking.revenue).toFixed(2)}</td>
-                    <td className="py-4 px-6 text-sm text-gray-600">{parseFloat(booking.initialDeposit).toFixed(2)}</td>
-                    <td className="py-4 px-6 text-sm text-gray-800 font-medium">{parseFloat(booking.received).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm font-bold ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm font-bold ${isCancelled ? 'text-gray-500 line-through' : (balance > 0 ? 'text-red-600' : 'text-green-600')}`}>
                         {balance.toFixed(2)}
-                        {balance < 0 && (<span className="block text-xs font-normal">(Overpaid by {Math.abs(balance).toFixed(2)})</span>)}
+                        {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid by {Math.abs(balance).toFixed(2)})</span>)}
                     </td>
-                    <td className="py-4 px-6 text-sm text-gray-600">
-                      {isFinalSettlementMode ? (
+                    <td className="py-4 px-6 text-sm">
+                      {isCancelled ? (
+                        <div className="p-2 bg-red-50 border border-red-200 rounded-lg text-center">
+                          <span className="font-bold text-red-700 block text-xs uppercase">Cancelled</span>
+                          <div className="text-xs mt-1 text-gray-700">
+                            {customerPayable ? (
+                              <span>Customer Owes: <strong className="text-red-600">£{customerPayable.pendingAmount.toFixed(2)}</strong></span>
+                            ) : (
+                              <span>Refunded: <strong className="text-green-600">£{(booking.cancellation?.refundToPassenger || 0).toFixed(2)}</strong></span>
+                            )}
+                          </div>
+                        </div>
+                      ) : isFinalSettlementMode ? (
+                        // --- THIS IS THE CORRECTED SECTION ---
                         <div onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center space-x-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
                            <FaExclamationCircle className="h-5 w-5 text-yellow-500 flex-shrink-0"/>
@@ -240,18 +249,16 @@ export default function CustomerDeposits() {
                             (instalment) => (
                               <div key={instalment.id} className="flex items-center space-x-3">
                                   <span className={`${instalment.status === 'OVERDUE' ? 'text-red-500' : instalment.status === 'PAID' ? 'text-green-500' : 'text-gray-600'}`}>
-                                    Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} ({instalment.status}) - {getTransactionMethod(instalment)}
+                                    Due: {formatDate(instalment.dueDate)} - £{parseFloat(instalment.amount).toFixed(2)} ({instalment.status}) {instalment.status === 'PAID' && `- ${getTransactionMethod(instalment)}`}
                                   </span>
                                   {instalment.status !== 'PAID' && (
-                                    <button onClick={() => handleOpenPaymentPopup(instalment, booking)} className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">Pay</button>
+                                    <button onClick={() => handleOpenPaymentPopup(instalment, booking)} className="px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-xs">Pay</button>
                                   )}
                               </div>
                             )
                           )}
-                          {booking.instalments.length > 1 && (
-                            <button onClick={(e) => { e.stopPropagation(); toggleExpand(booking.id); }} className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium">
-                              {isExpanded ? 'Collapse' : 'Show All Instalments'}
-                            </button>
+                          {(booking.instalments || []).length > 1 && (
+                            <button onClick={(e) => { e.stopPropagation(); toggleExpand(booking.id); }} className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium">{isExpanded ? 'Collapse' : 'Show All'}</button>
                           )}
                         </div>
                       )}
@@ -272,7 +279,6 @@ export default function CustomerDeposits() {
         </div>
       )}
 
-      {/* RENDER POPUPS CONDITIONALLY */}
       {paymentPopup && (
         <InstalmentPaymentPopup
           instalment={paymentPopup.instalment}
@@ -288,7 +294,6 @@ export default function CustomerDeposits() {
           onSubmit={handleSaveSettlement}
         />
       )}
-      {/* THIS IS THE FIX: Use the state variable to conditionally render the popup */}
       {historyPopupBooking && (
         <PaymentHistoryPopup 
           booking={historyPopupBooking}

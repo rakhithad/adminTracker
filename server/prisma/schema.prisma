@@ -48,6 +48,8 @@ model Booking {
   originalBooking   Booking?        @relation("BookingChain", fields: [originalBookingId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   followUpBookings  Booking[]       @relation("BookingChain")
 
+  customerPayables        CustomerPayable[]
+
   cancellation      Cancellation?   
 
   @@map("bookings")
@@ -342,6 +344,8 @@ model Cancellation {
   // The new transaction details you input
   supplierCancellationFee Float    @map("supplier_cancellation_fee")
   refundToPassenger       Float    @map("refund_to_passenger")
+
+  adminFee                Float    @default(0.0) @map("admin_fee")
   
   // The results of this transaction
   creditNoteAmount        Float?   @map("credit_note_amount")
@@ -350,6 +354,8 @@ model Cancellation {
   description             String?
   createdAt               DateTime @default(now()) @map("created_at")
   updatedAt               DateTime @updatedAt @map("updated_at")
+
+  createdCustomerPayable  CustomerPayable?
 
   createdPayable          SupplierPayable?
   generatedCreditNote     SupplierCreditNote?
@@ -427,3 +433,27 @@ model SupplierPayableSettlement {
   @@map("supplier_payable_settlements")
 }
 
+
+
+model CustomerPayable {
+  id                      Int                 @id @default(autoincrement())
+  totalAmount             Float               @map("total_amount")
+  paidAmount              Float               @default(0.0) @map("paid_amount")
+  pendingAmount           Float               @map("pending_amount")
+  reason                  String
+  status                  String              @default("PENDING") // PENDING or PAID
+  
+  // Link back to the cancellation event that created this payable
+  createdFromCancellationId Int                 @unique @map("created_from_cancellation_id")
+  createdFromCancellation Cancellation          @relation(fields: [createdFromCancellationId], references: [id])
+
+  bookingId               Int                 @map("booking_id")
+  booking                 Booking             @relation(fields: [bookingId], references: [id])
+
+  // You can add settlements for this later if needed
+
+  createdAt               DateTime            @default(now()) @map("created_at")
+  updatedAt               DateTime            @updatedAt @map("updated_at")
+
+  @@map("customer_payables")
+}
