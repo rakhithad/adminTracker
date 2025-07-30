@@ -5,6 +5,8 @@ import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
 import { FaSearch, FaExclamationCircle } from 'react-icons/fa';
 import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
+import RecordRefundPopup from '../components/RecordRefundPopup'; 
+
 
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
@@ -17,6 +19,8 @@ export default function CustomerDeposits() {
   const [searchTerm, setSearchTerm] = useState('');
   const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
   const [customerPayablePopup, setCustomerPayablePopup] = useState(null);
+  const [recordRefundPopup, setRecordRefundPopup] = useState(null);
+
 
   useEffect(() => {
     fetchBookings();
@@ -196,7 +200,8 @@ return (
             <tbody className="divide-y divide-gray-200">
               {filteredBookings.map((booking) => {
                 const isCancelled = booking.bookingStatus === 'CANCELLED';
-                const customerPayable = booking.cancellation?.createdCustomerPayable;
+                const cancellation = booking.cancellation;
+                const customerPayable = cancellation?.createdCustomerPayable;
                 const hasPendingInstalments = !isCancelled && (booking.instalments || []).some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
                 const isFinalSettlementMode = !isCancelled && parseFloat(booking.balance) > 0 && !hasPendingInstalments;
                 const nextUnpaidInstalment = getNextUnpaidInstalment(booking.instalments);
@@ -226,26 +231,30 @@ return (
                       {isCancelled ? (
                         <div className="text-center">
                           {customerPayable ? (
-                            // --- THIS IS THE UPDATED SECTION ---
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation(); // Prevent row click
-                                setCustomerPayablePopup({ payable: customerPayable, booking });
-                              }}
-                              className="w-full p-2 bg-red-100 border border-red-200 rounded-lg hover:bg-red-200 transition-colors"
-                            >
+                            <button onClick={(e) => { e.stopPropagation(); setCustomerPayablePopup({ payable: customerPayable, booking }); }} className="w-full p-2 bg-red-100 border border-red-200 rounded-lg hover:bg-red-200 transition-colors">
                               <span className="font-bold text-red-700 block text-xs uppercase">Action Required</span>
                               <span className="text-xs mt-1 text-gray-700">Customer Owes: <strong className="text-red-600">£{customerPayable.pendingAmount.toFixed(2)}</strong></span>
                             </button>
+                          ) : cancellation?.refundToPassenger > 0 ? (
+                            cancellation.refundStatus === 'PENDING' ? (
+                              <button onClick={(e) => { e.stopPropagation(); setRecordRefundPopup({ cancellation, booking }); }} className="w-full p-2 bg-green-100 border border-green-200 rounded-lg hover:bg-green-200 transition-colors">
+                                <span className="font-bold text-green-700 block text-xs uppercase">Refund Due</span>
+                                <span className="text-xs mt-1 text-gray-700">To Passenger: <strong className="text-green-600">£{cancellation.refundToPassenger.toFixed(2)}</strong></span>
+                              </button>
+                            ) : (
+                              <div className="p-2 bg-gray-50 border rounded-lg">
+                                <span className="font-bold text-gray-600 block text-xs uppercase">Cancelled</span>
+                                <span className="text-xs mt-1 text-green-600">Refund Paid: £{cancellation.refundToPassenger.toFixed(2)}</span>
+                              </div>
+                            )
                           ) : (
                             <div className="p-2 bg-gray-50 border rounded-lg">
-                               <span className="font-bold text-gray-600 block text-xs uppercase">Cancelled</span>
-                               <span className="text-xs mt-1 text-green-600">Refunded: £{(booking.cancellation?.refundToPassenger || 0).toFixed(2)}</span>
+                              <span className="font-bold text-gray-600 block text-xs uppercase">Cancelled</span>
+                              <span className="text-xs mt-1 text-gray-700">No Refund Due</span>
                             </div>
                           )}
                         </div>
                       ) : isFinalSettlementMode ? (
-                        // --- THIS IS THE CORRECTED SECTION ---
                         <div onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center space-x-3 p-2 bg-yellow-50 border border-yellow-200 rounded-lg">
                            <FaExclamationCircle className="h-5 w-5 text-yellow-500 flex-shrink-0"/>
@@ -257,7 +266,7 @@ return (
                         </div>
                       ) : (
                         <div onClick={(e) => e.stopPropagation()}>
-                          {(isExpanded ? booking.instalments : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
+                          {(isExpanded ? (booking.instalments || []) : nextUnpaidInstalment ? [nextUnpaidInstalment] : []).map(
                             (instalment) => (
                               <div key={instalment.id} className="flex items-center space-x-3">
                                   <span className={`${instalment.status === 'OVERDUE' ? 'text-red-500' : instalment.status === 'PAID' ? 'text-green-500' : 'text-gray-600'}`}>
@@ -281,44 +290,13 @@ return (
             </tbody>
           </table>
         </div>
-      ) : (
-        <div className="text-center py-12">
-          <svg className="h-16 w-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Customer Deposits Found</h3>
-          <p className="text-gray-500">Create a booking with INTERNAL payment method to get started.</p>
-        </div>
-      )}
-
-      {paymentPopup && (
-        <InstalmentPaymentPopup
-          instalment={paymentPopup.instalment}
-          booking={paymentPopup.booking}
-          onClose={() => setPaymentPopup(null)}
-          onSubmit={handleSavePayment}
-        />
-      )}
-      {settlementPopup && (
-        <FinalSettlementPopup
-          booking={settlementPopup}
-          onClose={() => setSettlementPopup(null)}
-          onSubmit={handleSaveSettlement}
-        />
-      )}
-      {historyPopupBooking && (
-        <PaymentHistoryPopup 
-          booking={historyPopupBooking}
-          onClose={() => setHistoryPopupBooking(null)}
-        />
-      )}
-      {customerPayablePopup && (
-        <SettleCustomerPayablePopup
-            payable={customerPayablePopup.payable}
-            booking={customerPayablePopup.booking}
-            onClose={() => setCustomerPayablePopup(null)}
-            onSubmit={fetchBookings}
-        />
+      ) : ( "Nothing" )}
+      {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
+      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}
+      {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
+      {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={fetchBookings} /> )}
+      {recordRefundPopup && (
+        <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={fetchBookings} />
       )}
     </div>
   );

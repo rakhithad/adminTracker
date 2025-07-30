@@ -21,7 +21,8 @@ const {
   getAvailableCreditNotes,
   createDateChangeBooking,
   createSupplierPayableSettlement,
-  settleCustomerPayable
+  settleCustomerPayable,
+  recordPassengerRefund
 } = require('../controllers/bookingController');
 
 router.post('/pending', createPendingBooking);
@@ -45,6 +46,8 @@ router.get('/credit-notes/available/:supplier', getAvailableCreditNotes);
 router.post('/:id/date-change', createDateChangeBooking);
 router.post('/supplier-payable/settle', createSupplierPayableSettlement);
 router.post('/customer-payable/:id/settle', settleCustomerPayable);
+router.post('/cancellations/:id/record-refund', recordPassengerRefund);
+
 
 
 module.exports = router;

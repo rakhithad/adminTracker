@@ -96,3 +96,7 @@ export const createSupplierPayableSettlement = async(data) => {
 export const settleCustomerPayable = async(payableId, data) => {
   return await api.post(`/bookings/customer-payable/${payableId}/settle`, data);
 }
+
+export const recordPassengerRefund = async(cancellationId, data) => {
+  return await api.post(`/bookings/cancellations/${cancellationId}/record-refund`, data);
+}

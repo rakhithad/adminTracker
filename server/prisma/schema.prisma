@@ -346,6 +346,8 @@ model Cancellation {
   refundToPassenger       Float    @map("refund_to_passenger")
 
   adminFee                Float    @default(0.0) @map("admin_fee")
+  refundStatus            String   @default("N/A") @map("refund_status")
+  refundPayment           PassengerRefundPayment?
   
   // The results of this transaction
   creditNoteAmount        Float?   @map("credit_note_amount")
@@ -470,4 +472,18 @@ model CustomerPayableSettlement {
   createdAt         DateTime         @default(now()) @map("created_at")
 
   @@map("customer_payable_settlements")
+}
+
+model PassengerRefundPayment {
+  id                      Int          @id @default(autoincrement())
+  amount                  Float
+  transactionMethod       String       @map("transaction_method")
+  refundDate              DateTime     @map("refund_date")
+
+  cancellationId          Int          @unique // A cancellation can only have one refund payment
+  cancellation            Cancellation @relation(fields: [cancellationId], references: [id])
+
+  createdAt               DateTime     @default(now()) @map("created_at")
+
+  @@map("passenger_refund_payments")
 }

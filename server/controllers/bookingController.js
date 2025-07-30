@@ -195,6 +195,8 @@ const getPendingBookings = async (req, res) => {
   }
 };
 
+// In server/controllers/bookingController.js
+
 const approveBooking = async (req, res) => {
   const bookingId = parseInt(req.params.id);
   if (isNaN(bookingId)) {
@@ -203,47 +205,48 @@ const approveBooking = async (req, res) => {
 
   try {
     const booking = await prisma.$transaction(async (tx) => {
-      // 1. Fetch the complete pending booking, including the suppliers. This is critical.
+      // 1. Fetch the complete pending booking
       const pendingBooking = await tx.pendingBooking.findUnique({
         where: { id: bookingId },
         include: {
-          costItems: { 
-            include: { 
-              suppliers: true // We need the IDs of the existing suppliers
-            } 
-          },
+          costItems: { include: { suppliers: true } },
           instalments: true,
           passengers: true,
         },
       });
 
       if (!pendingBooking) {
-        // We throw an error inside the transaction to cause a rollback
         throw new Error('Pending booking not found');
       }
-
       if (pendingBooking.status !== 'PENDING') {
         throw new Error('Pending booking already processed');
       }
 
-      // --- VALIDATION (Keep your existing validation logic here) ---
-      if (pendingBooking.paymentMethod.includes('INTERNAL') && (!Array.isArray(pendingBooking.instalments) || pendingBooking.instalments.length === 0)) {
-        throw new Error('Instalments are required for INTERNAL payment method');
-      }
-      // ... add any other validation you have ...
+      // --- START OF CORRECTED FOLDER NUMBER LOGIC ---
+      
+      // A. Fetch all existing folder numbers from the database.
+      const allBookings = await tx.booking.findMany({
+        select: { folderNo: true },
+      });
 
+      // B. In our application code, find the true highest MAIN folder number.
+      //    We extract the part before the '.', convert to an integer, and find the max.
+      const maxFolderNo = Math.max(
+        0, // Start with 0 in case there are no bookings yet
+        ...allBookings.map(b => parseInt(b.folderNo.split('.')[0], 10))
+      );
 
-      const lastBooking = await tx.booking.findFirst({ orderBy: { folderNo: 'desc' } });
-      const newFolderNo = lastBooking ? String(parseInt(lastBooking.folderNo, 10) + 1) : '1';
+      // C. The new folder number is guaranteed to be unique.
+      const newFolderNo = String(maxFolderNo + 1);
 
+      // --- END OF CORRECTED LOGIC ---
 
+      // 2. Create the new Booking and its direct children (but NOT suppliers)
       const newBooking = await tx.booking.create({
         data: {
           folderNo: newFolderNo,
-          // --- Map all top-level fields from pendingBooking to newBooking ---
           refNo: pendingBooking.refNo,
           paxName: pendingBooking.paxName,
-          // ... (all other fields like agentName, pnr, revenue, etc.)
           agentName: pendingBooking.agentName,
           teamName: pendingBooking.teamName || null,
           pnr: pendingBooking.pnr,
@@ -271,12 +274,10 @@ const approveBooking = async (req, res) => {
           invoiced: pendingBooking.invoiced || null,
           description: pendingBooking.description || null,
           numPax: pendingBooking.numPax,
-          // --- Create CostItems, but NOT their suppliers yet ---
           costItems: {
             create: pendingBooking.costItems.map((item) => ({
               category: item.category,
               amount: parseFloat(item.amount),
-              // THE NESTED SUPPLIER CREATE IS REMOVED
             })),
           },
           instalments: {
@@ -302,32 +303,31 @@ const approveBooking = async (req, res) => {
           },
         },
         include: {
-            costItems: true, 
-            instalments: true,
-            passengers: true,
+            costItems: true, // Need the new costItem IDs for the next step
         }
       });
 
+      // 3. "Graduate" the suppliers by linking them to the new CostItems
       for (const [index, pendingItem] of pendingBooking.costItems.entries()) {
         const newCostItemId = newBooking.costItems[index].id;
         for (const supplier of pendingItem.suppliers) {
           await tx.costItemSupplier.update({
             where: { id: supplier.id },
             data: {
-              costItemId: newCostItemId, // Link to the new, approved cost item
-              pendingCostItemId: null,  // Unlink from the old, pending one
+              costItemId: newCostItemId,
+              pendingCostItemId: null,
             },
           });
         }
       }
 
-      // 5. Mark the pending booking as processed
+      // 4. Mark the pending booking as processed
       await tx.pendingBooking.update({
         where: { id: bookingId },
         data: { status: 'APPROVED' },
       });
       
-      // 6. Return the full, newly created and linked booking
+      // 5. Return the full, newly created and linked booking
       return tx.booking.findUnique({
           where: { id: newBooking.id },
           include: {
@@ -348,8 +348,8 @@ const approveBooking = async (req, res) => {
     if (error.message === 'Pending booking already processed') {
         return apiResponse.error(res, 'Pending booking already processed', 409);
     }
-    if (error.code === 'P2002') { // Unique constraint failed
-      return apiResponse.error(res, 'Booking with this reference number or folder number already exists', 409);
+    if (error.code === 'P2002') {
+      return apiResponse.error(res, 'A booking with this unique identifier (e.g., folder number) already exists.', 409);
     }
     return apiResponse.error(res, `Failed to approve booking: ${error.message}`, 500);
   }
@@ -984,91 +984,70 @@ const updateInstalment = async (req, res) => {
     const { id } = req.params;
     const { amount, status, transactionMethod, paymentDate } = req.body;
 
-    // ... (Your existing validation logic is good, keep it here)
-    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) { /* ... */ }
-    if (!['PENDING', 'PAID', 'OVERDUE'].includes(status)) { /* ... */ }
-    // ... etc.
+    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(status)) {
+        return apiResponse.error(res, 'Invalid amount or status.', 400);
+    }
 
     const instalmentToUpdate = await prisma.instalment.findUnique({
       where: { id: parseInt(id) },
-      include: { 
-        booking: {
-            include: {
-                instalments: true // Fetch all instalments for the booking
-            }
-        } 
-      },
+      include: { booking: true },
     });
-
 
     if (!instalmentToUpdate) {
       return apiResponse.error(res, 'Instalment not found', 404);
     }
-    
-    const currentTotalReceived = parseFloat(instalmentToUpdate.booking.received || 0);
-    const sumOfPaidInstalments_beforeUpdate = instalmentToUpdate.booking.instalments
-      .filter(inst => inst.status === 'PAID')
-      .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
-    const initialDeposit = currentTotalReceived - sumOfPaidInstalments_beforeUpdate;
 
+    const result = await prisma.$transaction(async (tx) => {
+        // Step 1: Create the payment record if the instalment is being marked as PAID.
+        if (status === 'PAID') {
+            await tx.instalmentPayment.create({
+                data: {
+                    instalmentId: parseInt(id),
+                    amount: parseFloat(amount),
+                    transactionMethod,
+                    paymentDate: new Date(paymentDate),
+                },
+            });
+        }
 
-
-    
-    if (status === 'PAID') {
-        await prisma.instalmentPayment.create({
-            data: {
-                instalmentId: parseInt(id),
-                amount: parseFloat(amount),
-                transactionMethod,
-                paymentDate: new Date(paymentDate),
-            },
+        // Step 2: Update the instalment itself.
+        const updatedInstalment = await tx.instalment.update({
+          where: { id: parseInt(id) },
+          data: { amount: parseFloat(amount), status },
+          include: { payments: true }
         });
-    }
 
-    const updatedInstalment = await prisma.instalment.update({
-      where: { id: parseInt(id) },
-      data: { 
-          amount: parseFloat(amount), 
-          status 
-      },
-      include: { payments: true } // Include payments in the returned instalment
-    });
-    
-    // --- START: CRITICAL RECALCULATION LOGIC ---
-    // Recalculate the total received amount for the entire booking from scratch
-    const allInstalments_afterUpdate = await prisma.instalment.findMany({
-        where: { bookingId: instalmentToUpdate.bookingId },
-    });
+        // Step 3: Recalculate the booking's totals from the single source of truth: actual payments.
+        const allPaymentsForBooking = await tx.instalmentPayment.findMany({
+            where: { instalment: { bookingId: instalmentToUpdate.bookingId } }
+        });
+        const totalPaidViaInstalments = allPaymentsForBooking.reduce((sum, p) => sum + p.amount, 0);
 
-    const sumOfPaidInstalments_afterUpdate = allInstalments_afterUpdate
-        .filter(inst => inst.status === 'PAID')
-        .reduce((sum, inst) => sum + parseFloat(inst.amount), 0);
+        // The new total received is the static initial deposit plus all instalment payments.
+        const newTotalReceived = (instalmentToUpdate.booking.initialDeposit || 0) + totalPaidViaInstalments;
+        const newBalance = (instalmentToUpdate.booking.revenue || 0) - newTotalReceived;
+        
+        // Step 4: Update the parent booking.
+        const updatedBooking = await tx.booking.update({
+            where: { id: instalmentToUpdate.bookingId },
+            data: {
+                received: newTotalReceived,
+                balance: newBalance,
+                lastPaymentDate: status === 'PAID' ? new Date(paymentDate) : instalmentToUpdate.booking.lastPaymentDate,
+            }
+        });
 
-    const newTotalReceived = initialDeposit + sumOfPaidInstalments_afterUpdate;
-    const bookingRevenue = parseFloat(instalmentToUpdate.booking.revenue || 0);
-    const newBalance = bookingRevenue - newTotalReceived;
-    
-    const updatedBooking = await prisma.booking.update({
-        where: { id: instalmentToUpdate.bookingId },
-        data: {
-            received: newTotalReceived,
-            balance: newBalance,
-            lastPaymentDate: status === 'PAID' ? new Date(paymentDate) : instalmentToUpdate.booking.lastPaymentDate,
-        }
-    });
-    
-    // --- END: CRITICAL RECALCULATION LOGIC ---
-
-    // Return a comprehensive payload to the frontend
-    return apiResponse.success(res, {
-        updatedInstalment,
-        bookingUpdate: {
-            id: updatedBooking.id,
-            received: updatedBooking.received,
-            balance: updatedBooking.balance
-        }
+        return {
+            updatedInstalment,
+            bookingUpdate: {
+                id: updatedBooking.id,
+                received: updatedBooking.received,
+                balance: updatedBooking.balance
+            }
+        };
     });
 
+    return apiResponse.success(res, result);
   } catch (error) {
     console.error('Error updating instalment:', error);
     return apiResponse.error(res, `Failed to update instalment: ${error.message}`, 500);
@@ -2062,6 +2041,7 @@ const createCancellation = async (req, res) => {
           supplierCancellationFee: supCancellationFee,
           refundToPassenger: refundToPassenger, // The calculated refund amount
           creditNoteAmount: supplierDifference > 0 ? supplierDifference : 0,
+          refundStatus: refundToPassenger > 0 ? 'PENDING' : 'N/A',
           profitOrLoss: profitOrLoss,
           description: `Cancellation for chain ${baseFolderNo}.`,
         },
@@ -2429,6 +2409,49 @@ const settleCustomerPayable = async (req, res) => {
     }
 };
 
+const recordPassengerRefund = async (req, res) => {
+    try {
+        const { id: cancellationId } = req.params;
+        const { amount, transactionMethod, refundDate } = req.body;
+
+        if (!cancellationId || !amount || !transactionMethod || !refundDate) {
+            return apiResponse.error(res, 'Missing required fields.', 400);
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const cancellation = await tx.cancellation.findUnique({
+                where: { id: parseInt(cancellationId) },
+            });
+
+            if (!cancellation) throw new Error('Cancellation record not found.');
+            if (cancellation.refundStatus === 'PAID') throw new Error('This refund has already been paid.');
+
+            // 1. Create the payment record
+            const refundPayment = await tx.passengerRefundPayment.create({
+                data: {
+                    cancellationId: parseInt(cancellationId),
+                    amount: parseFloat(amount),
+                    transactionMethod,
+                    refundDate: new Date(refundDate),
+                },
+            });
+
+            // 2. Update the cancellation status
+            await tx.cancellation.update({
+                where: { id: parseInt(cancellationId) },
+                data: { refundStatus: 'PAID' },
+            });
+
+            return refundPayment;
+        });
+
+        return apiResponse.success(res, { refundPayment: result }, 201);
+    } catch (error) {
+        console.error("Error recording passenger refund:", error);
+        return apiResponse.error(res, `Failed to record refund: ${error.message}`, 500);
+    }
+};
+
 
 module.exports = {
   createPendingBooking,
@@ -2451,5 +2474,6 @@ module.exports = {
   getAvailableCreditNotes,
   createDateChangeBooking,
   createSupplierPayableSettlement,
-  settleCustomerPayable
+  settleCustomerPayable,
+  recordPassengerRefund
 };
