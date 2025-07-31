@@ -1257,7 +1257,6 @@ const getSuppliersInfo = async (req, res) => {
   try {
     // --- 1. FETCH ALL DATA SOURCES ---
 
-    // Fetch all bookings and their supplier costs, INCLUDING bookingStatus
     const bookings = await prisma.booking.findMany({
       select: {
         id: true, refNo: true, bookingStatus: true, folderNo: true,
@@ -1272,14 +1271,13 @@ const getSuppliersInfo = async (req, res) => {
             }
           }
         },
-        cancellation: { // <-- Include the cancellation if this booking is the root
+        cancellation: {
           include: { createdPayable: true }
         }
       }
     });
 
 
-    // Fetch all credit notes
     const allCreditNotes = await prisma.supplierCreditNote.findMany({
       include: {
         generatedFromCancellation: { include: { originalBooking: { select: { refNo: true } } } },
@@ -1296,8 +1294,22 @@ const getSuppliersInfo = async (req, res) => {
       }
     });
 
-    // Fetch all pending payables from cancellations
-    const allPayables = await prisma.supplierPayable.findMany({ where: { status: 'PENDING' }, include: { settlements: true } });
+    // --- FIX #1: Use 'include' to traverse relationships instead of a non-existent direct field ---
+    const allPayables = await prisma.supplierPayable.findMany({
+      where: { status: 'PENDING' },
+      include: { // Use include to fetch related data
+        settlements: true,
+        createdFromCancellation: { // The link to the cancellation
+          select: {
+            originalBooking: { // The link from cancellation to the root booking
+              select: {
+                folderNo: true // The field we need!
+              }
+            }
+          }
+        }
+      }
+    });
 
     const cancellationOutcomes = new Map();
     bookings.forEach(booking => {
@@ -1324,7 +1336,7 @@ const getSuppliersInfo = async (req, res) => {
 
     bookings.forEach(booking => {
       const baseFolderNo = booking.folderNo.toString().split('.')[0];
-      const outcome = cancellationOutcomes.get(baseFolderNo); // Find the outcome for this booking's chain
+      const outcome = cancellationOutcomes.get(baseFolderNo);
 
       booking.costItems.forEach(item => {
         item.suppliers.forEach(s => {
@@ -1333,18 +1345,18 @@ const getSuppliersInfo = async (req, res) => {
             type: 'Booking',
             data: {
               ...s,
+              folderNo: booking.folderNo, // This part for bookings is correct.
               refNo: booking.refNo,
               category: item.category,
               bookingStatus: booking.bookingStatus,
               pendingAmount: booking.bookingStatus === 'CANCELLED' ? 0 : s.pendingAmount,
-              cancellationOutcome: outcome || null, // <-- Attach the outcome to every booking in the chain
+              cancellationOutcome: outcome || null,
             },
           });
         });
       });
     });
 
-    // Process all credit notes
     allCreditNotes.forEach(note => {
       ensureSupplier(note.supplier);
       const modifiedUsageHistory = note.usageHistory.map(usage => ({
@@ -1364,11 +1376,17 @@ const getSuppliersInfo = async (req, res) => {
     // Process all payables
     allPayables.forEach(payable => {
       ensureSupplier(payable.supplier);
-      supplierSummary[payable.supplier].payables.push(payable);
+
+      // --- FIX #2: Extract the folder number from the included relationship and add it ---
+      const originatingFolderNo = payable.createdFromCancellation?.originalBooking?.folderNo || 'N/A';
+
+      supplierSummary[payable.supplier].payables.push({
+        ...payable, // keep all original payable fields
+        originatingFolderNo: originatingFolderNo, // add the field the frontend expects
+      });
     });
 
     // --- 3. FINAL CALCULATION AND SORTING ---
-    // This loop runs ONCE at the end, after all data has been processed.
     for (const supplierName in supplierSummary) {
       const supplier = supplierSummary[supplierName];
       
