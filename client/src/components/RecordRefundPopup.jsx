@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { recordPassengerRefund } from '../api/api';
 import { FaTimes, FaMoneyBillWave } from 'react-icons/fa';
 

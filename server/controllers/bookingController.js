@@ -1096,6 +1096,9 @@ const getCustomerDeposits = async (req, res) => {
         cancellation: {
             select: {
                 id: true,
+                adminFee: true,
+                supplierCancellationFee: true,
+                refundToPassenger: true,
                 refundToPassenger: true,
                 profitOrLoss: true,
                 refundStatus: true, // It's good practice to select this too
@@ -1107,6 +1110,7 @@ const getCustomerDeposits = async (req, res) => {
             }
         }
       },
+      
     });
 
     const formattedBookings = bookings.map((booking) => {
