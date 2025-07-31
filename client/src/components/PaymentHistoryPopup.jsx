@@ -41,7 +41,10 @@ export default function PaymentHistoryPopup({ booking, onClose }) {
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 uppercase font-semibold">Pre-Cancellation Balance</p>
-            <p className="text-lg font-bold text-red-600">£{balance.toFixed(2)}</p>
+            {/* --- CHANGE 1: Remove color if cancelled --- */}
+            <p className={`text-lg font-bold ${cancellation ? 'text-gray-700' : 'text-red-600'}`}>
+                £{balance.toFixed(2)}
+            </p>
           </div>
         </div>
 
@@ -67,9 +70,14 @@ export default function PaymentHistoryPopup({ booking, onClose }) {
             {/* Final Outcome */}
             <div className="grid grid-cols-1 gap-4 pt-3 mt-2 border-t">
                 {parseFloat(cancellation.refundToPassenger || 0) > 0 && (
-                    <div className="text-center p-3 bg-blue-50 rounded-lg">
-                        <p className="text-sm text-blue-800 uppercase font-bold">Final Refund Due to Passenger</p>
-                        <p className="text-2xl font-extrabold text-blue-600">£{parseFloat(cancellation.refundToPassenger).toFixed(2)}</p>
+                    <div className={`text-center p-3 rounded-lg ${cancellation.refundPayment ? 'bg-green-50' : 'bg-red-50'}`}>
+                        <p className={`text-sm uppercase font-bold ${cancellation.refundPayment ? 'text-green-800' : 'text-red-800'}`}>
+                           {cancellation.refundPayment ? 'Final Refund Paid to Passenger' : 'Final Refund Due to Passenger'}
+                        </p>
+                        {/* --- CHANGE 2: Color-code the refund amount --- */}
+                        <p className={`text-2xl font-extrabold ${cancellation.refundPayment ? 'text-green-600' : 'text-red-600'}`}>
+                            £{parseFloat(cancellation.refundToPassenger).toFixed(2)}
+                        </p>
                     </div>
                 )}
                 {(cancellation.createdCustomerPayable?.pendingAmount || 0) > 0 && (

@@ -1101,6 +1101,13 @@ const getCustomerDeposits = async (req, res) => {
                 refundToPassenger: true,
                 refundToPassenger: true,
                 profitOrLoss: true,
+                refundPayment: { 
+                    select: {
+                        amount: true,
+                        transactionMethod: true,
+                        refundDate: true
+                    }
+                },
                 refundStatus: true, // It's good practice to select this too
                 createdCustomerPayable: {
                     include: {
@@ -1110,7 +1117,6 @@ const getCustomerDeposits = async (req, res) => {
             }
         }
       },
-      
     });
 
     const formattedBookings = bookings.map((booking) => {
@@ -1126,7 +1132,6 @@ const getCustomerDeposits = async (req, res) => {
       
       const initialDeposit = totalReceivedFromDb - sumOfPaidInstalments;
 
-      // Assembling the Unified Payment History
       const paymentHistory = [];
       if (initialDeposit > 0.01) {
         paymentHistory.push({
@@ -1134,35 +1139,31 @@ const getCustomerDeposits = async (req, res) => {
           date: booking.receivedDate || booking.pcDate,
           amount: initialDeposit,
           method: booking.transactionMethod || 'N/A',
-          status: 'Paid',
         });
       }
 
       (booking.instalments || []).forEach(instalment => {
         (instalment.payments || []).forEach(payment => {
           paymentHistory.push({
-            type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
+            type: `Instalment Payment`,
             date: payment.paymentDate,
             amount: parseFloat(payment.amount),
-            method: payment.transactionMethod.replace(/_/g, ' '),
-            status: 'Paid',
+            method: payment.transactionMethod,
           });
         });
       });
       
-      const payableSettlements = booking.cancellation?.createdCustomerPayable?.settlements || [];
-      if (payableSettlements.length > 0) {
-        payableSettlements.forEach(settlement => {
+      // --- STEP 2: ADD THE REFUND PAYMENT TO THE HISTORY IF IT EXISTS ---
+      if (booking.cancellation && booking.cancellation.refundPayment) {
           paymentHistory.push({
-            type: 'Cancellation Balance Payment',
-            date: settlement.paymentDate,
-            amount: parseFloat(settlement.amount),
-            method: settlement.transactionMethod.replace(/_/g, ' '),
-            status: 'Paid'
+              type: 'Passenger Refund Paid', // A clear description for the table
+              date: booking.cancellation.refundPayment.refundDate,
+              amount: booking.cancellation.refundPayment.amount,
+              method: booking.cancellation.refundPayment.transactionMethod,
           });
-        });
       }
       
+      // Sort all transactions chronologically
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
       // Because we use the spread operator '...booking', the new 'folderNo' field will automatically be included here.
