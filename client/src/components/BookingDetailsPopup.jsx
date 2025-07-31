@@ -52,14 +52,18 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [error, setError] = useState('');
   const [showCancelPopup, setShowCancelPopup] = useState(false);
 
+  const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'];
+  const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
+
   useEffect(() => {
-    setEditData({
-      ...booking,
-      pcDate: booking.pcDate?.split('T')[0] || '',
-      issuedDate: booking.issuedDate?.split('T')[0] || '',
-      lastPaymentDate: booking.lastPaymentDate?.split('T')[0] || '',
-      travelDate: booking.travelDate?.split('T')[0] || '',
+    // Initialize editData with formatted values for form inputs
+    const initialEditData = { ...booking };
+    dateFields.forEach(field => {
+        if (booking[field]) {
+            initialEditData[field] = booking[field].split('T')[0];
+        }
     });
+    setEditData(initialEditData);
     setIsEditing(false);
     setActiveTab('details');
   }, [booking]);
@@ -78,21 +82,44 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const handleSave = async () => {
     setError('');
     try {
-      const { ...dataToUpdate } = editData;
-      const payload = Object.fromEntries(
-          Object.entries(dataToUpdate).map(([key, value]) => {
-              if (['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'].includes(key)) {
-                  return [key, value === '' || value === null ? null : parseFloat(value)];
-              }
-              return [key, value];
-          })
-      );
-      await updateBooking(booking.id, payload);
-      onSave();
-      setIsEditing(false);
+        // --- MODIFIED LOGIC: Build a payload with ONLY the changed fields ---
+        const changedFields = {};
+
+        Object.keys(editData).forEach(key => {
+            const originalValue = booking[key];
+            let editedValue = editData[key];
+
+            // Normalize values for accurate comparison
+            let comparableOriginal = originalValue;
+            if (dateFields.includes(key) && originalValue) {
+                comparableOriginal = originalValue.split('T')[0];
+            }
+            if (numberFields.includes(key)) {
+                // Treat null/undefined/empty string as 0 for comparison if original is 0
+                const originalNum = originalValue ?? 0;
+                const editedNum = parseFloat(editedValue) || 0;
+                if (originalNum !== editedNum) {
+                    changedFields[key] = editedValue === '' || editedValue === null ? null : parseFloat(editedValue);
+                }
+            } else if (comparableOriginal !== editedValue) {
+                 // For other fields, if they are different, add to payload
+                 changedFields[key] = editedValue === '' ? null : editedValue;
+            }
+        });
+
+        // If nothing changed, don't make an API call
+        if (Object.keys(changedFields).length === 0) {
+            setIsEditing(false);
+            return;
+        }
+
+        // Send only the changed fields to the backend
+        await updateBooking(booking.id, changedFields);
+        onSave();
+        setIsEditing(false);
     } catch (err) {
-      console.error("Update failed:", err);
-      setError(err.response?.data?.message || "Failed to save changes.");
+        console.error("Update failed:", err);
+        setError(err.response?.data?.error || "Failed to save changes. Please try again.");
     }
   };
 
@@ -137,13 +164,13 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const renderFinancialsTab = () => (
     isEditing ? (
         <form className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <EditInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={editData.revenue || ''} onChange={handleEditChange} />
-            <EditInput label="Product Cost (£)" name="prodCost" type="number" step="0.01" value={editData.prodCost || ''} onChange={handleEditChange} />
-            <EditInput label="Trans. Fee (£)" name="transFee" type="number" step="0.01" value={editData.transFee || ''} onChange={handleEditChange} />
-            <EditInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={editData.surcharge || ''} onChange={handleEditChange} />
-            <EditInput label="Total Received (£)" name="received" type="number" step="0.01" value={editData.received || ''} onChange={handleEditChange} />
-            <EditInput label="Balance Due (£)" name="balance" type="number" step="0.01" value={editData.balance || ''} onChange={handleEditChange} />
-            <EditInput label="Profit (£)" name="profit" type="number" step="0.01" value={editData.profit || ''} onChange={handleEditChange} />
+            <EditInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={editData.revenue ?? ''} onChange={handleEditChange} />
+            <EditInput label="Product Cost (£)" name="prodCost" type="number" step="0.01" value={editData.prodCost ?? ''} onChange={handleEditChange} />
+            <EditInput label="Trans. Fee (£)" name="transFee" type="number" step="0.01" value={editData.transFee ?? ''} onChange={handleEditChange} />
+            <EditInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={editData.surcharge ?? ''} onChange={handleEditChange} />
+            <EditInput label="Total Received (£)" name="received" type="number" step="0.01" value={editData.received ?? ''} onChange={handleEditChange} />
+            <EditInput label="Balance Due (£)" name="balance" type="number" step="0.01" value={editData.balance ?? ''} onChange={handleEditChange} />
+            <EditInput label="Profit (£)" name="profit" type="number" step="0.01" value={editData.profit ?? ''} onChange={handleEditChange} />
             <EditInput label="Invoice #" name="invoiced" value={editData.invoiced || ''} onChange={handleEditChange} />
         </form>
     ) : (

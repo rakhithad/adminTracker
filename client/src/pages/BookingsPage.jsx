@@ -6,7 +6,9 @@ import {
   FaFolderOpen, 
   FaSort, 
   FaSortUp, 
-  FaSortDown 
+  FaSortDown,
+  FaChevronRight,
+  FaChevronDown
 } from 'react-icons/fa';
 import { getBookings } from '../api/api';
 import BookingDetailsPopup from '../components/BookingDetailsPopup';
@@ -224,7 +226,8 @@ export default function BookingsPage() {
               <thead className="bg-slate-800">
                 <tr>
                   <th scope="col" className="w-12 px-3 py-3.5"></th>
-                  <SortableHeader sortKey="folderNo" title="FolderNo" />
+                  <SortableHeader sortKey="folderNo" title="Folder #" />
+                  <SortableHeader sortKey="refNo" title="Reference No." />
                   <SortableHeader sortKey="paxName" title="Passenger" />
                   <SortableHeader sortKey="agentName" title="Agent" />
                   <SortableHeader sortKey="pnr" title="PNR" />
@@ -241,6 +244,7 @@ export default function BookingsPage() {
                   filteredBookings.map((booking) => {
                     const isCancelled = !!booking.cancellation;
                     const rowClasses = isCancelled ? "bg-red-50/50" : "hover:bg-slate-50";
+                    const isExpanded = expandedRows[booking.id];
 
                     return (
                       <React.Fragment key={booking.id}>
@@ -250,15 +254,17 @@ export default function BookingsPage() {
                         >
                           <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle">
                             {booking.children && booking.children.length > 0 && (
-                              <button onClick={() => toggleExpandRow(booking.id)} className="p-1 w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-300 text-slate-600 font-bold text-lg">
-                                {expandedRows[booking.id] ? '−' : '+'}
+                              <button 
+                                onClick={() => toggleExpandRow(booking.id)} 
+                                className="p-1 w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-500"
+                                aria-label={isExpanded ? 'Collapse row' : 'Expand row'}
+                              >
+                                {isExpanded ? <FaChevronDown className="h-3 w-3" /> : <FaChevronRight className="h-3 w-3" />}
                               </button>
                             )}
                           </td>
-                          <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-600">
-                              <div>{booking.folderNo}</div>
-                              <div className="font-mono text-xs text-slate-500">{booking.refNo}</div>
-                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-bold text-blue-600">{booking.folderNo}</td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-slate-500">{booking.refNo}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-slate-800">{booking.paxName}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-600">{booking.agentName}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-slate-700">{booking.pnr}</td>
@@ -272,11 +278,12 @@ export default function BookingsPage() {
                           </td>
                         </tr>
 
-                        {expandedRows[booking.id] && booking.children.map(child => (
+                        {isExpanded && booking.children.map(child => (
                           child.isCancellation ? (
-                            <tr key={`${child.id}-cancel`} className="bg-red-50 text-xs border-b border-red-200">
+                            <tr key={`${booking.id}-cancel`} className="bg-red-50 text-xs border-b border-red-200">
                                <td className="px-3 py-3"></td>
                                <td className="px-4 py-3 whitespace-nowrap font-bold text-red-800">↳ {child.folderNo}</td>
+                               <td />{/* Placeholder for Ref No column */}
                                <td className="px-4 py-3 whitespace-nowrap text-red-800" colSpan="6">
                                  <span className="font-semibold">CANCELLATION:</span> {child.description}
                                </td>
@@ -289,6 +296,7 @@ export default function BookingsPage() {
                             <tr key={child.id} className="bg-sky-50 text-xs border-b border-sky-200 hover:bg-sky-100 cursor-pointer" onClick={() => setSelectedBooking(child)}>
                                 <td></td>
                                 <td className="px-4 py-3 font-bold text-sky-800">↳ {child.folderNo}</td>
+                                <td className="px-4 py-3 font-mono text-slate-500">{child.refNo}</td>
                                 <td className="px-4 py-3 text-slate-800">{child.paxName}</td>
                                 <td className="px-4 py-3 text-slate-600">{child.agentName}</td>
                                 <td className="px-4 py-3 font-mono">{child.pnr}</td>
@@ -305,7 +313,7 @@ export default function BookingsPage() {
                   )})
                 ) : (
                   <tr>
-                    <td colSpan="11" className="px-6 py-24 text-center">
+                    <td colSpan="12" className="px-6 py-24 text-center">
                       <FaFolderOpen className="h-16 w-16 text-slate-300 mx-auto mb-4" />
                       <h3 className="text-xl font-medium text-slate-800">{searchTerm ? 'No Matching Bookings Found' : 'No Bookings Available'}</h3>
                       <p className="text-slate-500 mt-2">{searchTerm ? 'Try a different search term.' : 'Bookings will appear here.'}</p>
