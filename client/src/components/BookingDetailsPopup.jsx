@@ -1,29 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaPencilAlt, FaSave, FaBan, FaRandom  } from 'react-icons/fa';
-import { updateBooking, createCancellation  } from '../api/api';
-import CancellationPopup from './CancellationPopup'
+import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle } from 'react-icons/fa';
+import { updateBooking, createCancellation } from '../api/api';
+import CancellationPopup from './CancellationPopup';
 
-// Reusable tab button
+// --- Reusable Styled Components ---
+
 const TabButton = ({ label, isActive, onClick }) => (
   <button
     onClick={onClick}
-    className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+    className={`px-4 py-3 text-sm font-semibold rounded-t-lg transition-all duration-200 focus:outline-none ${
       isActive
         ? 'bg-white border-b-2 border-blue-600 text-blue-600'
-        : 'text-gray-500 hover:text-gray-700'
+        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
     }`}
   >
     {label}
   </button>
 );
 
-// Reusable input for the edit form inside the popup
 const EditInput = ({ label, ...props }) => (
-    <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-        <input {...props} className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" />
+    <div>
+        <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+        <input {...props} className="w-full py-2 px-3 border border-slate-300 rounded-lg bg-slate-50 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
     </div>
+);
+
+const InfoItem = ({ label, children, className = '' }) => (
+  <div className={className}>
+    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+    <p className="text-base text-slate-800 break-words">{children || '—'}</p>
+  </div>
+);
+
+const ActionButton = ({ icon, children, onClick, className = '', ...props }) => (
+  <button
+    onClick={onClick}
+    className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg shadow-sm transition-transform hover:scale-105 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:transform-none ${className}`}
+    {...props}
+  >
+    {icon}
+    {children}
+  </button>
 );
 
 export default function BookingDetailsPopup({ booking, onClose, onSave }) {
@@ -35,7 +53,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [showCancelPopup, setShowCancelPopup] = useState(false);
 
   useEffect(() => {
-    // When a new booking is selected, reset the state
     setEditData({
       ...booking,
       pcDate: booking.pcDate?.split('T')[0] || '',
@@ -61,22 +78,17 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const handleSave = async () => {
     setError('');
     try {
-      
       const { ...dataToUpdate } = editData;
-      
-      const payload = {
-        ...dataToUpdate,
-        revenue: dataToUpdate.revenue ? parseFloat(dataToUpdate.revenue) : null,
-        prodCost: dataToUpdate.prodCost ? parseFloat(dataToUpdate.prodCost) : null,
-        transFee: dataToUpdate.transFee ? parseFloat(dataToUpdate.transFee) : null,
-        surcharge: dataToUpdate.surcharge ? parseFloat(dataToUpdate.surcharge) : null,
-        received: dataToUpdate.received ? parseFloat(dataToUpdate.received) : null,
-        balance: dataToUpdate.balance ? parseFloat(dataToUpdate.balance) : null,
-        profit: dataToUpdate.profit ? parseFloat(dataToUpdate.profit) : null,
-      };
-
+      const payload = Object.fromEntries(
+          Object.entries(dataToUpdate).map(([key, value]) => {
+              if (['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'].includes(key)) {
+                  return [key, value === '' || value === null ? null : parseFloat(value)];
+              }
+              return [key, value];
+          })
+      );
       await updateBooking(booking.id, payload);
-      onSave(); // This will trigger a re-fetch in the parent
+      onSave();
       setIsEditing(false);
     } catch (err) {
       console.error("Update failed:", err);
@@ -89,165 +101,133 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     onClose(); 
   };
   
-  const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB') : 'N/A';
+  const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : 'N/A';
 
   const renderDetailsTab = () => (
-    <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
-      <div><p className="text-xs text-gray-500">Agent</p><p>{booking.agentName} ({booking.teamName})</p></div>
-      <div><p className="text-xs text-gray-500">PNR</p><p className="font-mono">{booking.pnr}</p></div>
-      <div><p className="text-xs text-gray-500">Airline</p><p>{booking.airline}</p></div>
-      <div><p className="text-xs text-gray-500">Route</p><p>{booking.fromTo}</p></div>
-      <div><p className="text-xs text-gray-500">PC Date</p><p>{formatDate(booking.pcDate)}</p></div>
-      <div><p className="text-xs text-gray-500">Travel Date</p><p>{formatDate(booking.travelDate)}</p></div>
-      <div><p className="text-xs text-gray-500">Issued Date</p><p>{formatDate(booking.issuedDate)}</p></div>
-      <div><p className="text-xs text-gray-500">Payment Method</p><p>{booking.paymentMethod?.replace(/_/g, ' ')}</p></div>
-      <div className="col-span-full"><p className="text-xs text-gray-500">Description</p><p className="text-sm italic text-gray-700">{booking.description || 'None'}</p></div>
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
+      <InfoItem label="Agent / Team">{booking.agentName} ({booking.teamName})</InfoItem>
+      <InfoItem label="PNR"><span className="font-mono">{booking.pnr}</span></InfoItem>
+      <InfoItem label="Airline">{booking.airline}</InfoItem>
+      <InfoItem label="Route">{booking.fromTo}</InfoItem>
+      <InfoItem label="PC Date">{formatDate(booking.pcDate)}</InfoItem>
+      <InfoItem label="Travel Date">{formatDate(booking.travelDate)}</InfoItem>
+      <InfoItem label="Issued Date">{formatDate(booking.issuedDate)}</InfoItem>
+      <InfoItem label="Payment Method">{booking.paymentMethod?.replace(/_/g, ' ')}</InfoItem>
+      <InfoItem label="Description" className="col-span-full">
+        <p className="text-sm italic text-slate-700 bg-slate-50 p-2 rounded-md">{booking.description || 'No description provided.'}</p>
+      </InfoItem>
     </div>
   );
   
   const renderEditDetailsTab = () => (
-     <form>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4">
-            <EditInput label="Agent Name" name="agentName" value={editData.agentName} onChange={handleEditChange} />
-            <EditInput label="PNR" name="pnr" value={editData.pnr} onChange={handleEditChange} />
-            <EditInput label="Airline" name="airline" value={editData.airline} onChange={handleEditChange} />
-            <EditInput label="Route" name="fromTo" value={editData.fromTo} onChange={handleEditChange} />
-            <EditInput label="Travel Date" name="travelDate" type="date" value={editData.travelDate} onChange={handleEditChange} />
-            <EditInput label="Issued Date" name="issuedDate" type="date" value={editData.issuedDate} onChange={handleEditChange} />
+     <form className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <EditInput label="Agent Name" name="agentName" value={editData.agentName || ''} onChange={handleEditChange} />
+        <EditInput label="PNR" name="pnr" value={editData.pnr || ''} onChange={handleEditChange} />
+        <EditInput label="Airline" name="airline" value={editData.airline || ''} onChange={handleEditChange} />
+        <EditInput label="Route (From-To)" name="fromTo" value={editData.fromTo || ''} onChange={handleEditChange} />
+        <EditInput label="Travel Date" name="travelDate" type="date" value={editData.travelDate || ''} onChange={handleEditChange} />
+        <EditInput label="Issued Date" name="issuedDate" type="date" value={editData.issuedDate || ''} onChange={handleEditChange} />
+        <div className="md:col-span-3">
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Description</label>
+          <textarea name="description" value={editData.description || ''} onChange={handleEditChange} rows="3" className="w-full py-2 px-3 border border-slate-300 rounded-lg bg-slate-50 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
         </div>
      </form>
   );
 
   const renderFinancialsTab = () => (
-      isEditing ? (
-          <form>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4">
-                <EditInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={editData.revenue} onChange={handleEditChange} />
-                <EditInput label="Product Cost (£)" name="prodCost" type="number" step="0.01" value={editData.prodCost} onChange={handleEditChange} />
-                <EditInput label="Trans. Fee (£)" name="transFee" type="number" step="0.01" value={editData.transFee} onChange={handleEditChange} />
-                <EditInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={editData.surcharge} onChange={handleEditChange} />
-                <EditInput label="Received (£)" name="received" type="number" step="0.01" value={editData.received} onChange={handleEditChange} />
-                <EditInput label="Balance (£)" name="balance" type="number" step="0.01" value={editData.balance} onChange={handleEditChange} />
-                <EditInput label="Profit (£)" name="profit" type="number" step="0.01" value={editData.profit} onChange={handleEditChange} />
-                <EditInput label="Invoice #" name="invoiced" value={editData.invoiced || ''} onChange={handleEditChange} />
-            </div>
-          </form>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
-            <div><p className="text-xs text-gray-500">Revenue</p><p className="font-semibold text-green-700">£{booking.revenue?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Product Cost</p><p className="font-semibold text-red-700">£{booking.prodCost?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Trans. Fee</p><p>£{booking.transFee?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Surcharge</p><p>£{booking.surcharge?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Total Received</p><p className="font-semibold text-green-700">£{booking.received?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Balance Due</p><p className={`font-semibold ${booking.balance > 0 ? 'text-red-700' : 'text-green-700'}`}>£{booking.balance?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Profit</p><p className={`font-bold ${booking.profit > 0 ? 'text-green-700' : 'text-red-700'}`}>£{booking.profit?.toFixed(2)}</p></div>
-            <div><p className="text-xs text-gray-500">Invoice #</p><p>{booking.invoiced || 'N/A'}</p></div>
-        </div>
-      )
+    isEditing ? (
+        <form className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <EditInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={editData.revenue || ''} onChange={handleEditChange} />
+            <EditInput label="Product Cost (£)" name="prodCost" type="number" step="0.01" value={editData.prodCost || ''} onChange={handleEditChange} />
+            <EditInput label="Trans. Fee (£)" name="transFee" type="number" step="0.01" value={editData.transFee || ''} onChange={handleEditChange} />
+            <EditInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={editData.surcharge || ''} onChange={handleEditChange} />
+            <EditInput label="Total Received (£)" name="received" type="number" step="0.01" value={editData.received || ''} onChange={handleEditChange} />
+            <EditInput label="Balance Due (£)" name="balance" type="number" step="0.01" value={editData.balance || ''} onChange={handleEditChange} />
+            <EditInput label="Profit (£)" name="profit" type="number" step="0.01" value={editData.profit || ''} onChange={handleEditChange} />
+            <EditInput label="Invoice #" name="invoiced" value={editData.invoiced || ''} onChange={handleEditChange} />
+        </form>
+    ) : (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-6">
+          <InfoItem label="Revenue"><p className="font-semibold text-green-600">£{booking.revenue?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Product Cost"><p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Trans. Fee"><p>£{booking.transFee?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Surcharge"><p>£{booking.surcharge?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Total Received"><p className="font-semibold text-green-600">£{booking.received?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Balance Due"><p className={`font-semibold ${booking.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>£{booking.balance?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Profit"><p className={`font-bold text-2xl ${booking.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{booking.profit?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Invoice #">{booking.invoiced}</InfoItem>
+      </div>
+    )
   );
 
-  const renderCustomerPaymentsTab = () => (
-    <table className="min-w-full divide-y divide-y-gray-200">
-        <thead className="bg-gray-50"><tr>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
-        </tr></thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-            {/* First, safely check if the initial deposit exists */}
-            {booking.initialDeposit > 0 && (
-                <tr>
-                    <td className="px-4 py-2">{formatDate(booking.receivedDate)}</td>
-                    <td className="px-4 py-2">Initial Deposit</td>
-                    <td className="px-4 py-2 text-right font-medium">£{booking.initialDeposit?.toFixed(2)}</td>
-                </tr>
-            )}
-            
-            {/* --- THIS IS THE CORRECTED PART --- */}
-            {/* Safely map over instalments, and for each instalment, safely map over its payments */}
-            {booking.instalments?.map(inst =>
-                // Check if inst.payments is a truthy value (i.e., not null/undefined) and is an array
-                // before attempting to map over it.
-                inst.payments?.map(p => (
-                    <tr key={p.id}>
-                        <td className="px-4 py-2">{formatDate(p.paymentDate)}</td>
-                        <td className="px-4 py-2">Instalment</td>
-                        <td className="px-4 py-2 text-right font-medium">£{p.amount?.toFixed(2)}</td>
-                    </tr>
-                ))
-            )}
-        </tbody>
-    </table>
+  const renderPaymentsTable = (headers, data) => (
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="min-w-full">
+              <thead className="bg-slate-50"><tr>
+                  {headers.map(h => <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>)}
+              </tr></thead>
+              <tbody className="bg-white divide-y divide-slate-200">
+                  {data}
+              </tbody>
+          </table>
+      </div>
   );
 
-  const renderSupplierPaymentsTab = () => (
-    <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50"><tr>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Supplier</th>
-            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Total Due</th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Paid</th>
-            <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">Pending</th>
-        </tr></thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-            {booking.costItems.flatMap(item => 
-                item.suppliers.map(supplier => (
-                    <tr key={supplier.id}>
-                        <td className="px-4 py-2 font-medium">{supplier.supplier}</td>
-                        <td className="px-4 py-2">{item.category}</td>
-                        <td className="px-4 py-2 text-right">£{supplier.amount?.toFixed(2)}</td>
-                        <td className="px-4 py-2 text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td>
-                        <td className="px-4 py-2 text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
-                    </tr>
-                ))
-            )}
-        </tbody>
-    </table>
-  );
+  const customerPaymentsData = [
+      ...(booking.initialDeposit > 0 ? [{ id: 'initial', date: booking.receivedDate, type: 'Initial Deposit', amount: booking.initialDeposit }] : []),
+      ...(booking.instalments?.flatMap(inst => inst.payments?.map(p => ({ id: p.id, date: p.paymentDate, type: 'Instalment', amount: p.amount }))) || [])
+  ].map(p => (
+      <tr key={p.id}><td className="px-4 py-3 whitespace-nowrap">{formatDate(p.date)}</td><td className="px-4 py-3 whitespace-nowrap">{p.type}</td><td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-slate-700">£{p.amount?.toFixed(2)}</td></tr>
+  ));
 
+  const supplierPaymentsData = booking.costItems?.flatMap(item => 
+      item.suppliers.map(supplier => (
+          <tr key={supplier.id}>
+              <td className="px-4 py-3 whitespace-nowrap font-semibold">{supplier.supplier}</td><td className="px-4 py-3 whitespace-nowrap">{item.category}</td>
+              <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700">£{supplier.amount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
+          </tr>
+      ))
+  );
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center p-4 z-40" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center p-4 z-40 animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col transform animate-slide-up" onClick={e => e.stopPropagation()}>
+        
         {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b">
+        <header className="flex justify-between items-start p-5 border-b border-slate-200 bg-slate-50/50 rounded-t-xl">
           <div>
-            <h2 className="text-xl font-bold text-gray-800">Booking Details</h2>
-            <p className="text-sm text-gray-500">Ref No: <span className="font-semibold text-blue-600">{booking.refNo}</span> | Passenger: <span className="font-semibold">{booking.paxName}</span></p>
+            <h2 className="text-2xl font-bold text-slate-900">Booking Details</h2>
+            <p className="text-sm text-slate-500 mt-1">Ref: <span className="font-semibold text-blue-600">{booking.refNo}</span>  |  Passenger: <span className="font-semibold">{booking.paxName}</span></p>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-shrink-0">
             {isEditing ? (
-                <>
-                    <button onClick={handleSave} className="flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700"><FaSave className="mr-2"/>Save</button>
-                    <button onClick={() => setIsEditing(false)} className="flex items-center px-3 py-1 bg-gray-500 text-white rounded-lg hover:bg-gray-600"><FaBan className="mr-2"/>Cancel</button>
-                </>
+              <>
+                <ActionButton onClick={handleSave} icon={<FaSave />} className="bg-green-600 text-white hover:bg-green-700">Save Changes</ActionButton>
+                <ActionButton onClick={() => setIsEditing(false)} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
+              </>
             ) : (
-                <> {/* 5. MODIFY this block to add the new button */}
-                    <button onClick={() => setIsEditing(true)} className="flex items-center px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><FaPencilAlt className="mr-2"/>Edit</button>
-                    {booking.bookingStatus !== 'CANCELLED' && (
-                       <button
-  onClick={handleDateChange}
-  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-  // THIS IS THE KEY CHANGE:
-  disabled={booking.isChainCancelled || booking.bookingStatus === 'CANCELLED'}
-  // Add a title to explain why it's disabled for a better user experience
-  title={booking.isChainCancelled ? "This booking chain has been cancelled and cannot be modified." : ""}
->
-  Create Date Change
-</button>
-                    )}
-                </>
+              <>
+                <ActionButton onClick={() => setIsEditing(true)} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
+                {booking.bookingStatus !== 'CANCELLED' && (
+                  <ActionButton
+                    onClick={handleDateChange} icon={<FaCalendarAlt />}
+                    className="bg-purple-600 text-white hover:bg-purple-700"
+                    disabled={booking.isChainCancelled || booking.bookingStatus === 'CANCELLED'}
+                    title={booking.isChainCancelled ? "Cannot create date change for a cancelled booking chain." : ""}
+                  >Date Change</ActionButton>
+                )}
+                {!booking.cancellation && booking.bookingStatus !== 'CANCELLED' && (
+                  <ActionButton onClick={() => setShowCancelPopup(true)} icon={<FaBan />} className="bg-red-600 text-white hover:bg-red-700">Cancel Booking</ActionButton>
+                )}
+              </>
             )}
-            {!isEditing && booking.bookingStatus !== 'CANCELLED' && (
-                <button onClick={() => setShowCancelPopup(true)} className="flex items-center px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700">Cancel Booking</button>
-            )}
-            <button onClick={onClose} className="p-2 rounded-full text-gray-500 hover:bg-gray-100"><FaTimes /></button>
+            <button onClick={onClose} className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors"><FaTimes size={20} /></button>
           </div>
-        </div>
+        </header>
 
         {/* Tabs */}
-        <div className="border-b px-4">
-          <nav className="flex space-x-2">
+        <div className="border-b border-slate-200 px-5 bg-slate-50/50">
+          <nav className="flex space-x-2 -mb-px">
             <TabButton label="Main Details" isActive={activeTab === 'details'} onClick={() => setActiveTab('details')} />
             <TabButton label="Financials" isActive={activeTab === 'financials'} onClick={() => setActiveTab('financials')} />
             <TabButton label="Customer Payments" isActive={activeTab === 'customer'} onClick={() => setActiveTab('customer')} />
@@ -256,21 +236,22 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
         
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex-grow">
-            {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg">{error}</div>}
-            {activeTab === 'details' && (isEditing ? renderEditDetailsTab() : renderDetailsTab())}
-            {activeTab === 'financials' && renderFinancialsTab()}
-            {activeTab === 'customer' && renderCustomerPaymentsTab()}
-            {activeTab === 'supplier' && renderSupplierPaymentsTab()}
+        <div className="p-6 overflow-y-auto flex-grow bg-white rounded-b-xl">
+          {error && <div className="mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center gap-3"><FaExclamationTriangle />{error}</div>}
+          
+          {activeTab === 'details' && (isEditing ? renderEditDetailsTab() : renderDetailsTab())}
+          {activeTab === 'financials' && renderFinancialsTab()}
+          {activeTab === 'customer' && renderPaymentsTable(['Date', 'Type', 'Amount'], customerPaymentsData)}
+          {activeTab === 'supplier' && renderPaymentsTable(['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], supplierPaymentsData)}
         </div>
 
         {showCancelPopup && (
-    <CancellationPopup 
-      booking={booking}
-      onClose={() => setShowCancelPopup(false)}
-      onConfirm={handleConfirmCancellation}
-    />
-  )}
+            <CancellationPopup 
+              booking={booking}
+              onClose={() => setShowCancelPopup(false)}
+              onConfirm={handleConfirmCancellation}
+            />
+        )}
       </div>
     </div>
   );
