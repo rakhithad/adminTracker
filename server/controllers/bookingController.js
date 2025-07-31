@@ -1153,14 +1153,29 @@ const getCustomerDeposits = async (req, res) => {
         });
       });
       
-      // --- STEP 2: ADD THE REFUND PAYMENT TO THE HISTORY IF IT EXISTS ---
-      if (booking.cancellation && booking.cancellation.refundPayment) {
-          paymentHistory.push({
-              type: 'Passenger Refund Paid', // A clear description for the table
-              date: booking.cancellation.refundPayment.refundDate,
-              amount: booking.cancellation.refundPayment.amount,
-              method: booking.cancellation.refundPayment.transactionMethod,
-          });
+      if (booking.cancellation) {
+        // Add the refund payment to the history if it exists
+        if (booking.cancellation.refundPayment) {
+            paymentHistory.push({
+                type: 'Passenger Refund Paid',
+                date: booking.cancellation.refundPayment.refundDate,
+                amount: booking.cancellation.refundPayment.amount,
+                method: booking.cancellation.refundPayment.transactionMethod,
+            });
+        }
+
+        // --- STEP 2: ADD CUSTOMER DEBT PAYMENTS TO THE HISTORY ---
+        if (booking.cancellation.createdCustomerPayable) {
+            const settlements = booking.cancellation.createdCustomerPayable.settlements || [];
+            settlements.forEach(settlement => {
+                paymentHistory.push({
+                    type: 'Cancellation Debt Paid', // A clear description
+                    date: settlement.paymentDate,
+                    amount: settlement.amount,
+                    method: settlement.transactionMethod
+                });
+            });
+        }
       }
       
       // Sort all transactions chronologically
