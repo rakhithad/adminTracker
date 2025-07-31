@@ -1064,6 +1064,7 @@ const getCustomerDeposits = async (req, res) => {
       },
       select: {
         id: true,
+        folderNo: true, // <-- ADD THIS LINE
         refNo: true,
         paxName: true,
         agentName: true,
@@ -1073,7 +1074,7 @@ const getCustomerDeposits = async (req, res) => {
         received: true,
         transactionMethod: true,
         receivedDate: true,
-        bookingStatus: true, // <-- ADDED: To identify cancelled bookings
+        bookingStatus: true,
         instalments: {
           select: {
             id: true,
@@ -1092,14 +1093,14 @@ const getCustomerDeposits = async (req, res) => {
             },
           },
         },
-        // <-- ADDED: To get the final outcome of a cancellation
         cancellation: {
             select: {
                 refundToPassenger: true,
                 profitOrLoss: true,
+                refundStatus: true, // It's good practice to select this too
                 createdCustomerPayable: {
                     include: {
-                        settlements: true // <-- THIS FETCHES THE PAYMENT HISTORY
+                        settlements: true 
                     }
                 }
             }
@@ -1138,24 +1139,12 @@ const getCustomerDeposits = async (req, res) => {
             type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
             date: payment.paymentDate,
             amount: parseFloat(payment.amount),
-            method: payment.transactionMethod,
+            method: payment.transactionMethod.replace(/_/g, ' '),
             status: 'Paid',
           });
         });
       });
-
-      (booking.instalments || []).forEach(instalment => {
-        (instalment.payments || []).forEach(payment => {
-          paymentHistory.push({
-            type: instalment.status === 'SETTLEMENT' ? 'Final Settlement' : `Instalment (Due ${new Date(instalment.dueDate).toLocaleDateString('en-GB')})`,
-            date: payment.paymentDate,
-            amount: parseFloat(payment.amount),
-            method: payment.transactionMethod,
-            status: 'Paid',
-          });
-        });
-      });
-
+      
       const payableSettlements = booking.cancellation?.createdCustomerPayable?.settlements || [];
       if (payableSettlements.length > 0) {
         payableSettlements.forEach(settlement => {
@@ -1163,7 +1152,7 @@ const getCustomerDeposits = async (req, res) => {
             type: 'Cancellation Balance Payment',
             date: settlement.paymentDate,
             amount: parseFloat(settlement.amount),
-            method: settlement.transactionMethod,
+            method: settlement.transactionMethod.replace(/_/g, ' '),
             status: 'Paid'
           });
         });
@@ -1171,10 +1160,9 @@ const getCustomerDeposits = async (req, res) => {
       
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
+      // Because we use the spread operator '...booking', the new 'folderNo' field will automatically be included here.
       return {
-        // Return all original fields from the query, including the new 'bookingStatus' and 'cancellation'
         ...booking,
-        // Return all calculated fields
         revenue: revenue.toFixed(2),
         received: totalReceivedFromDb.toFixed(2),
         balance: (revenue - totalReceivedFromDb).toFixed(2),
@@ -1184,8 +1172,7 @@ const getCustomerDeposits = async (req, res) => {
     });
 
     return apiResponse.success(res, formattedBookings);
-  } catch (error)
- {
+  } catch (error) {
     console.error('Error fetching customer deposits:', error);
     return apiResponse.error(res, `Failed to fetch customer deposits: ${error.message}`, 500);
   }

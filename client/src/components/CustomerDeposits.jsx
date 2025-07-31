@@ -5,7 +5,7 @@ import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
 import { FaSearch, FaExclamationCircle } from 'react-icons/fa';
 import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
-import RecordRefundPopup from '../components/RecordRefundPopup'; 
+import RecordRefundPopup from '../components/RecordRefundPopup';
 
 
 export default function CustomerDeposits() {
@@ -30,6 +30,7 @@ export default function CustomerDeposits() {
     try {
       setLoading(true);
       const response = await getCustomerDeposits();
+      // Assuming the API now returns 'folderNo' in the booking object
       const data = response.data.data || response.data || [];
       setBookings(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -44,7 +45,6 @@ export default function CustomerDeposits() {
     setPaymentPopup({ instalment, booking });
   };
 
-  // This function is now correctly used in the JSX
   const handleOpenSettlementPopup = (booking) => {
     setSettlementPopup(booking);
   };
@@ -123,7 +123,9 @@ export default function CustomerDeposits() {
     if (searchTerm.trim() === '') return true;
 
     const searchLower = searchTerm.toLowerCase();
+    // Updated search to include folderNo
     return (
+        (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
         (booking.refNo || '').toLowerCase().includes(searchLower) ||
         (booking.paxName || '').toLowerCase().includes(searchLower) ||
         (booking.agentName || '').toLowerCase().includes(searchLower)
@@ -160,16 +162,14 @@ export default function CustomerDeposits() {
     );
   }
 
-  // Paste this entire block into your CustomerDeposits.jsx file, replacing the existing return statement.
-
-return (
+  return (
     <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
         <div className="flex items-center gap-4">
           <div className="relative">
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
+            <input type="text" placeholder="Search by Folder, Ref..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
           </div>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="p-2 border rounded-lg">
             <option value="all">All Bookings</option>
@@ -185,6 +185,8 @@ return (
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
+                {/* --- ADDED FOLDER NO HEADER --- */}
+                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Folder No</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Ref No</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger</th>
@@ -211,6 +213,10 @@ return (
 
                 return (
                   <tr key={booking.id} className={`${isCancelled ? 'bg-gray-100' : 'hover:bg-blue-50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
+                    {/* --- ADDED FOLDER NO CELL --- */}
+                    <td className={`py-4 px-6 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>
+                      {booking.folderNo}
+                    </td>
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
