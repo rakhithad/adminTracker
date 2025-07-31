@@ -1064,7 +1064,7 @@ const getCustomerDeposits = async (req, res) => {
       },
       select: {
         id: true,
-        folderNo: true, // <-- ADD THIS LINE
+        folderNo: true, 
         refNo: true,
         paxName: true,
         agentName: true,
@@ -1095,6 +1095,7 @@ const getCustomerDeposits = async (req, res) => {
         },
         cancellation: {
             select: {
+                id: true,
                 refundToPassenger: true,
                 profitOrLoss: true,
                 refundStatus: true, // It's good practice to select this too
