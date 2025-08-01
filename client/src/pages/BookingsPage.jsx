@@ -8,7 +8,10 @@ import {
   FaSortUp, 
   FaSortDown,
   FaChevronRight,
-  FaChevronDown
+  FaChevronDown,
+  FaFileInvoiceDollar,
+  FaHandHoldingUsd,
+  FaReceipt
 } from 'react-icons/fa';
 import { getBookings } from '../api/api';
 import BookingDetailsPopup from '../components/BookingDetailsPopup';
@@ -199,6 +202,15 @@ export default function BookingsPage() {
     }
   }
 
+  const getRefundStatusBadgeStyle = (status) => {
+    switch (status) {
+      case 'PAID': return 'bg-green-100 text-green-800';
+      case 'PENDING': return 'bg-orange-100 text-orange-800';
+      case 'N/A': return 'bg-slate-200 text-slate-800';
+      default: return 'bg-slate-200 text-slate-800';
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       <div className="max-w-full mx-auto">
@@ -280,18 +292,39 @@ export default function BookingsPage() {
 
                         {isExpanded && booking.children.map(child => (
                           child.isCancellation ? (
-                            <tr key={`${booking.id}-cancel`} className="bg-red-50 text-xs border-b border-red-200">
-                               <td className="px-3 py-3"></td>
-                               <td className="px-4 py-3 whitespace-nowrap font-bold text-red-800">↳ {child.folderNo}</td>
-                               <td />{/* Placeholder for Ref No column */}
-                               <td className="px-4 py-3 whitespace-nowrap text-red-800" colSpan="6">
-                                 <span className="font-semibold">CANCELLATION:</span> {child.description}
+                            <tr key={`${booking.id}-cancel`} className="bg-rose-50 border-b-2 border-rose-200">
+                               <td className="px-3 py-3"></td>{/* Align with expand button */}
+                               <td className="px-4 py-3 whitespace-nowrap font-bold text-rose-800 text-sm">↳ {child.folderNo}</td>
+                               <td />{/* Align with Ref No */}
+                               
+                               {/* This cell spans multiple columns to show detailed breakdown */}
+                               <td className="px-4 py-3 text-xs" colSpan="4">
+                                   <div className="font-bold text-rose-900 mb-1">CANCELLATION DETAILS</div>
+                                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-700">
+                                       <div className="flex items-center gap-1.5"><FaFileInvoiceDollar className="text-red-500"/>Supplier Fee: <span className="font-semibold">£{child.supplierCancellationFee.toFixed(2)}</span></div>
+                                       <div className="flex items-center gap-1.5"><FaHandHoldingUsd className="text-blue-500"/>Admin Fee: <span className="font-semibold">£{child.adminFee.toFixed(2)}</span></div>
+                                       <div className="flex items-center gap-1.5"><FaHandHoldingUsd className="text-green-500"/>Refund to Pax: <span className="font-semibold">£{child.refundToPassenger.toFixed(2)}</span></div>
+                                       <div className="flex items-center gap-1.5"><FaReceipt className="text-purple-500"/>Credit Note: <span className="font-semibold">£{(child.creditNoteAmount || 0).toFixed(2)}</span></div>
+                                   </div>
                                </td>
-                               <td className="px-4 py-3 whitespace-nowrap text-red-800 font-semibold" colSpan="2">
-                                  Refund via: {child.refundTransactionMethod.replace(/_/g, ' ')}
+
+                               {/* Refund Status, aligned under the main Status column */}
+                               <td className="px-4 py-3 whitespace-nowrap text-xs">
+                                   <span className={`px-2 py-1 font-semibold rounded-full ${getRefundStatusBadgeStyle(child.refundStatus)}`}>
+                                       {child.refundStatus} REFUND
+                                   </span>
                                </td>
-                               <td className="px-4 py-3 whitespace-nowrap font-bold text-red-700">£{child.profitOrLoss.toFixed(2)}</td>
-                            </tr>
+
+                               {/* Placeholders to keep column alignment */}
+                               <td className="px-4 py-3 text-center text-slate-400">—</td>
+                               <td className="px-4 py-3 text-center text-slate-400">—</td>
+                               <td className="px-4 py-3 text-center text-slate-400">—</td>
+                               
+                               {/* Profit/Loss, aligned under the main Profit column */}
+                               <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${parseFloat(child.profitOrLoss) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                   £{child.profitOrLoss.toFixed(2)}
+                               </td>
+                           </tr>
                           ) : (
                             <tr key={child.id} className="bg-sky-50 text-xs border-b border-sky-200 hover:bg-sky-100 cursor-pointer" onClick={() => setSelectedBooking(child)}>
                                 <td></td>
