@@ -30,7 +30,6 @@ export default function CustomerDeposits() {
     try {
       setLoading(true);
       const response = await getCustomerDeposits();
-      // Assuming the API now returns 'folderNo' in the booking object
       const data = response.data.data || response.data || [];
       setBookings(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -123,7 +122,6 @@ export default function CustomerDeposits() {
     if (searchTerm.trim() === '') return true;
 
     const searchLower = searchTerm.toLowerCase();
-    // Updated search to include folderNo
     return (
         (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
         (booking.refNo || '').toLowerCase().includes(searchLower) ||
@@ -185,7 +183,6 @@ export default function CustomerDeposits() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
-                {/* --- ADDED FOLDER NO HEADER --- */}
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Folder No</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
                 <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Ref No</th>
@@ -213,7 +210,6 @@ export default function CustomerDeposits() {
 
                 return (
                   <tr key={booking.id} className={`${isCancelled ? 'bg-gray-100' : 'hover:bg-blue-50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
-                    {/* --- ADDED FOLDER NO CELL --- */}
                     <td className={`py-4 px-6 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>
                       {booking.folderNo}
                     </td>
@@ -221,15 +217,15 @@ export default function CustomerDeposits() {
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
                     <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-600'}`}>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>
                       {formatDate(booking.travelDate)}
                       {!isCancelled && daysLeft !== null && (<br />)}
                       {!isCancelled && daysLeft !== null && (<span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
                     </td>
-                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm font-bold ${isCancelled ? 'text-gray-500 line-through' : (balance > 0 ? 'text-red-600' : 'text-green-600')}`}>
+                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
+                    <td className={`py-4 px-6 text-sm font-bold ${isCancelled ? 'text-gray-500' : (balance > 0 ? 'text-red-600' : 'text-green-600')}`}>
                         {balance.toFixed(2)}
                         {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid by {Math.abs(balance).toFixed(2)})</span>)}
                     </td>
