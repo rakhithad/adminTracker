@@ -1,79 +1,102 @@
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-const apiResponse = require('../utils/apiResponse');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
-// Create user (admin only)
-const createUser = async (req, res) => {
+const prisma = new PrismaClient();
+
+// =================================================================
+// == REGISTER A NEW USER (SIGN UP)
+// =================================================================
+const register = async (req, res) => {
+  // ... your existing registration code (it's perfect)
+  const { email, password, firstName, lastName, role, team, title, contactNo } = req.body;
+
+  if (!email || !password || !firstName || !lastName || !role) {
+    return res.status(400).json({ message: 'Please provide all required fields.' });
+  }
+
   try {
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     const user = await prisma.user.create({
       data: {
-        email: req.body.email,
-        title: req.body.title,
-        firstName: req.body.firstName,
-        lastName: req.body.lastName,
-        contactNo: req.body.contactNo,
-        role: req.body.role || 'ADMIN'
-      }
+        email,
+        password: hashedPassword,
+        firstName,
+        lastName,
+        role,
+        team,
+        title,
+        contactNo,
+      },
     });
-    apiResponse.success(res, user, 201);
+
+    const userWithoutPassword = { ...user };
+    delete userWithoutPassword.password;
+
+    res.status(201).json({ message: 'User created successfully', user: userWithoutPassword });
+
   } catch (error) {
-    apiResponse.error(res, "Failed to create user: " + error.message);
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error during registration.' });
   }
 };
 
-// Get all users
-const getUsers = async (req, res) => {
-  try {
-    const users = await prisma.user.findMany();
-    apiResponse.success(res, users);
-  } catch (error) {
-    apiResponse.error(res, "Failed to fetch users");
-  }
-};
 
-// Get single user by ID
-const getUserById = async (req, res) => {
+// =================================================================
+// == LOG IN A USER
+// =================================================================
+const login = async (req, res) => {
+  // ... your existing login code (it's perfect)
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Please provide email and password.' });
+  }
+
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: parseInt(req.params.id) }
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials.' });
+    }
+
+    const payload = { userId: user.id, role: user.role };
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+    res.json({
+      message: 'Logged in successfully',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        role: user.role,
+        team: user.team,
+      },
     });
-    if (!user) return apiResponse.error(res, "User not found", 404);
-    apiResponse.success(res, user);
+
   } catch (error) {
-    apiResponse.error(res, "Failed to fetch user");
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error during login.' });
   }
 };
 
-// Update user
-const updateUser = async (req, res) => {
-  try {
-    const updatedUser = await prisma.user.update({
-      where: { id: parseInt(req.params.id) },
-      data: req.body
-    });
-    apiResponse.success(res, updatedUser);
-  } catch (error) {
-    apiResponse.error(res, "Failed to update user");
-  }
-};
-
-// Delete user (soft delete)
-const deleteUser = async (req, res) => {
-  try {
-    await prisma.user.update({
-      where: { id: parseInt(req.params.id) },
-      data: { isActive: false } // Soft delete pattern
-    });
-    apiResponse.success(res, { message: "User deactivated" });
-  } catch (error) {
-    apiResponse.error(res, "Failed to deactivate user");
-  }
-};
-
+// =================================================================
+// == THIS IS THE MISSING PIECE
+// =================================================================
 module.exports = {
-  createUser,
-  getUsers,
-  getUserById,
-  updateUser,
-  deleteUser
+  register,
+  login,
 };

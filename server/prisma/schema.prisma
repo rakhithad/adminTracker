@@ -136,14 +136,18 @@ enum InstalmentStatus {
 }
 
 model User {
-  id          Int       @id @default(autoincrement())
-  email       String?   @unique
-  title       String?   @db.VarChar(10)
-  firstName   String    @map("first_name")
-  lastName    String    @map("last_name")
-  contactNo   String?   @map("contact_no")
-  role        Role
-  createdAt   DateTime  @default(now()) @map("created_at")
+  id        Int      @id @default(autoincrement())
+  email     String   @unique // CHANGED: Made non-nullable as it's the primary login identifier.
+  password  String   // NEW: Added for storing the hashed password.
+  title     Title?   // CHANGED: Re-using the existing 'Title' enum for consistency.
+  firstName String   @map("first_name")
+  lastName  String   @map("last_name")
+  contactNo String?  @map("contact_no")
+  role      Role     // This will use the new Role enum below.
+  team      Teams?   // NEW: Added the team property as requested. It's optional.
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at") // NEW: Added for tracking updates.
+
   @@map("users")
 }
 
@@ -174,6 +178,17 @@ model PendingCostItem {
 enum Teams {
   PH
   TOURS
+  MARKETING // NEW
+  QC        // NEW
+  IT        // NEW
+}
+
+enum Role {
+  ADMIN
+  CONSULTANT
+  MANAGEMENT
+  SUPER_MANAGER // NOTE: Enum values with spaces are written with underscores.
+  SUPER_ADMIN
 }
 
 enum Suppliers {
@@ -187,11 +202,6 @@ enum Suppliers {
   FLYDUBAI
 }
 
-enum Role {
-  ADMIN
-  MANAGER
-  AGENT
-}
 
 enum BookingType {
   FRESH

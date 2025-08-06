@@ -17,12 +17,10 @@ PORT = process.env.PORT || 5000;
 
 //Routes
 const userRoutes = require('./routes/userRoutes');
-app.use('/api/users', userRoutes);
+app.use('/api/auth', userRoutes);
 
 const bookingRoutes = require('./routes/bookingRoutes');
 app.use('/api/bookings', bookingRoutes);
-
-
 
 app.listen(PORT, () => {
     console.log("server is running on Port " + PORT);

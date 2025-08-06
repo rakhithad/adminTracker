@@ -100,3 +100,14 @@ export const settleCustomerPayable = async(payableId, data) => {
 export const recordPassengerRefund = async(cancellationId, data) => {
   return await api.post(`/bookings/cancellations/${cancellationId}/record-refund`, data);
 }
+
+
+
+//auth
+export const registerUser = async (userData) => {
+  return await api.post('/auth/register', userData);
+};
+
+export const loginUser = async (credentials) => {
+  return await api.post('/auth/login', credentials);
+};
