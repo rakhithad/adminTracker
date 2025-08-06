@@ -25,6 +25,9 @@ const {
   recordPassengerRefund
 } = require('../controllers/bookingController');
 
+//const { authenticateToken, authorizeRole } = require('../middleware/auth.middleware');
+ 
+
 router.post('/pending', createPendingBooking);
 router.get('/pending', getPendingBookings);
 router.put('/pending/:id', updatePendingBooking);
