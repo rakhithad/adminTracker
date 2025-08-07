@@ -148,6 +148,8 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at") // NEW: Added for tracking updates.
 
+  auditLogs AuditLog[]
+
   @@map("users")
 }
 
@@ -496,4 +498,33 @@ model PassengerRefundPayment {
   createdAt               DateTime     @default(now()) @map("created_at")
 
   @@map("passenger_refund_payments")
+}
+
+
+model AuditLog {
+  id         Int        @id @default(autoincrement())
+  modelName  String     @map("model_name")      // e.g., "Booking", "Cancellation"
+  recordId   Int        @map("record_id")       // The ID of the record that was changed (e.g., booking.id)
+  userId     Int        @map("user_id")         // Who did it?
+  user       User       @relation(fields: [userId], references: [id])
+  action     ActionType @map("action")         // What happened? (e.g., CREATE, UPDATE, APPROVE)
+  fieldName  String?    @map("field_name")     // Which field was changed? (e.g., "revenue", "bookingStatus")
+  oldValue   String?    @map("old_value")      // What was it before?
+  newValue   String?    @map("new_value")      // What is it now?
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+enum ActionType {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE_PENDING
+  REJECT_PENDING
+  DATE_CHANGE
+  VOID_BOOKING // As requested
+  CREATE_CANCELLATION
+  SETTLEMENT_PAYMENT
+  REFUND_PAYMENT
 }
