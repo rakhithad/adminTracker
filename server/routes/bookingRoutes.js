@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateToken } = require('../middleware/auth.middleware');
+
 const {
   createPendingBooking,
   getPendingBookings,
@@ -25,10 +27,8 @@ const {
   recordPassengerRefund
 } = require('../controllers/bookingController');
 
-//const { authenticateToken, authorizeRole } = require('../middleware/auth.middleware');
- 
 
-router.post('/pending', createPendingBooking);
+router.post('/pending', authenticateToken, createPendingBooking);
 router.get('/pending', getPendingBookings);
 router.put('/pending/:id', updatePendingBooking);
 router.post('/pending/:id/approve', approveBooking);

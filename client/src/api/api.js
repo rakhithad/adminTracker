@@ -4,6 +4,24 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000/api',
 });
 
+api.interceptors.request.use(
+  (config) => {
+    // Retrieve the token from localStorage (or wherever you store it after login)
+    const token = localStorage.getItem('token'); // <-- You might have named this 'token', 'jwt', etc.
+    
+    if (token) {
+      // If the token exists, add the Authorization header
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    return config; // Continue with the request
+  },
+  (error) => {
+    // Handle request errors
+    return Promise.reject(error);
+  }
+);
+
 export const createPendingBooking = async (bookingData) => {
   return await api.post('/bookings/pending', bookingData);
 };

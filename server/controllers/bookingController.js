@@ -1,6 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+
 const apiResponse = require('../utils/apiResponse');
+const { createAuditLog, ActionType } = require('../utils/auditLogger');
+
+const prisma = new PrismaClient();
 
 const compareFolderNumbers = (a, b) => {
   if (!a || !b) return 0;
@@ -14,10 +17,46 @@ const compareFolderNumbers = (a, b) => {
   return subA - subB;
 };
 
-// In controllers/bookingController.js
+const compareAndLogChanges = async (tx, { modelName, recordId, userId, oldRecord, newRecord, updates }) => {
+  const changes = [];
+  const simpleFields = Object.keys(updates).filter(key => !Array.isArray(updates[key]));
+  const arrayFields = Object.keys(updates).filter(key => Array.isArray(updates[key]));
+
+  // Log changes for simple fields (string, number, date, etc.)
+  for (const key of simpleFields) {
+    // Only log if the value has actually changed
+    if (String(oldRecord[key]) !== String(newRecord[key])) {
+      changes.push({
+        fieldName: key,
+        oldValue: oldRecord[key],
+        newValue: newRecord[key],
+      });
+    }
+  }
+
+  for (const key of arrayFields) {
+    changes.push({
+      fieldName: key,
+      oldValue: '(Previous Collection)',
+      newValue: '(Updated Collection)',
+    });
+  }
+
+  if (changes.length > 0) {
+    await createAuditLog(tx, {
+      userId,
+      modelName,
+      recordId,
+      action: ActionType.UPDATE,
+      changes,
+    });
+  }
+};
 
 const createPendingBooking = async (req, res) => {
   console.log('Received body for pending booking:', JSON.stringify(req.body, null, 2));
+
+  const { userId } = req.user;
 
   try {
     const pendingBooking = await prisma.$transaction(async (tx) => {
@@ -159,8 +198,13 @@ const createPendingBooking = async (req, res) => {
           }
         }
       }
-      
-      // 8. Return the full booking object
+      await createAuditLog(tx, {
+        userId,
+        modelName: 'PendingBooking',
+        recordId: newPendingBooking.id,
+        action: ActionType.CREATE,
+      });
+
       return tx.pendingBooking.findUnique({
           where: { id: newPendingBooking.id },
           include: { costItems: { include: { suppliers: true } }, instalments: true, passengers: true }
