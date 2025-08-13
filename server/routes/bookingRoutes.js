@@ -29,10 +29,10 @@ const {
 
 
 router.post('/pending', authenticateToken, createPendingBooking);
-router.get('/pending', getPendingBookings);
-router.put('/pending/:id', updatePendingBooking);
-router.post('/pending/:id/approve', approveBooking);
-router.post('/pending/:id/reject', rejectBooking);
+router.get('/pending', authenticateToken, getPendingBookings);
+router.put('/pending/:id', authenticateToken, updatePendingBooking);
+router.post('/pending/:id/approve', authenticateToken, approveBooking);
+router.post('/pending/:id/reject', authenticateToken, rejectBooking);
 router.post('/', createBooking);
 router.get('/', getBookings);
 router.get('/dashboard/stats', getDashboardStats);

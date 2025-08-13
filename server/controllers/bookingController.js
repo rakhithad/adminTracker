@@ -19,12 +19,23 @@ const compareFolderNumbers = (a, b) => {
 
 const compareAndLogChanges = async (tx, { modelName, recordId, userId, oldRecord, newRecord, updates }) => {
   const changes = [];
-  const simpleFields = Object.keys(updates).filter(key => !Array.isArray(updates[key]));
-  const arrayFields = Object.keys(updates).filter(key => Array.isArray(updates[key]));
+  // Get a list of all fields that were part of the update request
+  const fieldsToCheck = Object.keys(updates);
 
-  // Log changes for simple fields (string, number, date, etc.)
-  for (const key of simpleFields) {
-    // Only log if the value has actually changed
+  for (const key of fieldsToCheck) {
+    // We don't log complex array/object updates in detail for now.
+    // This can be expanded later if needed.
+    if (Array.isArray(updates[key]) || typeof updates[key] === 'object' && updates[key] !== null) {
+      changes.push({
+        fieldName: key,
+        oldValue: '(Previous Collection)',
+        newValue: '(Updated Collection)',
+      });
+      continue;
+    }
+
+    // Only log if the value has actually changed.
+    // We convert to string for a reliable, type-agnostic comparison.
     if (String(oldRecord[key]) !== String(newRecord[key])) {
       changes.push({
         fieldName: key,
@@ -32,14 +43,6 @@ const compareAndLogChanges = async (tx, { modelName, recordId, userId, oldRecord
         newValue: newRecord[key],
       });
     }
-  }
-
-  for (const key of arrayFields) {
-    changes.push({
-      fieldName: key,
-      oldValue: '(Previous Collection)',
-      newValue: '(Updated Collection)',
-    });
   }
 
   if (changes.length > 0) {
@@ -194,12 +197,13 @@ const createPendingBooking = async (req, res) => {
                   usedOnCostItemSupplierId: createdCostItemSupplier.id,
                 }
               });
+              
             }
           }
         }
       }
       await createAuditLog(tx, {
-        userId,
+        userId: userId,
         modelName: 'PendingBooking',
         recordId: newPendingBooking.id,
         action: ActionType.CREATE,
@@ -247,9 +251,13 @@ const approveBooking = async (req, res) => {
     return apiResponse.error(res, 'Invalid booking ID', 400);
   }
 
+  // --- AUDIT LOG ---
+  // Get the userId of the admin/manager who is approving this booking.
+  const { userId } = req.user;
+
   try {
     const booking = await prisma.$transaction(async (tx) => {
-      // 1. Fetch the complete pending booking
+      // 1. Fetch the complete pending booking (remains the same)
       const pendingBooking = await tx.pendingBooking.findUnique({
         where: { id: bookingId },
         include: {
@@ -266,28 +274,20 @@ const approveBooking = async (req, res) => {
         throw new Error('Pending booking already processed');
       }
 
-      // --- START OF CORRECTED FOLDER NUMBER LOGIC ---
-      
-      // A. Fetch all existing folder numbers from the database.
+      // Folder Number Logic (remains the same)
       const allBookings = await tx.booking.findMany({
         select: { folderNo: true },
       });
-
-      // B. In our application code, find the true highest MAIN folder number.
-      //    We extract the part before the '.', convert to an integer, and find the max.
       const maxFolderNo = Math.max(
-        0, // Start with 0 in case there are no bookings yet
+        0,
         ...allBookings.map(b => parseInt(b.folderNo.split('.')[0], 10))
       );
-
-      // C. The new folder number is guaranteed to be unique.
       const newFolderNo = String(maxFolderNo + 1);
 
-      // --- END OF CORRECTED LOGIC ---
-
-      // 2. Create the new Booking and its direct children (but NOT suppliers)
+      // 2. Create the new Booking (remains the same)
       const newBooking = await tx.booking.create({
         data: {
+          // ... all your existing booking data from pendingBooking ...
           folderNo: newFolderNo,
           refNo: pendingBooking.refNo,
           paxName: pendingBooking.paxName,
@@ -347,11 +347,11 @@ const approveBooking = async (req, res) => {
           },
         },
         include: {
-            costItems: true, // Need the new costItem IDs for the next step
+            costItems: true,
         }
       });
 
-      // 3. "Graduate" the suppliers by linking them to the new CostItems
+      // 3. Graduate suppliers (remains the same)
       for (const [index, pendingItem] of pendingBooking.costItems.entries()) {
         const newCostItemId = newBooking.costItems[index].id;
         for (const supplier of pendingItem.suppliers) {
@@ -365,13 +365,37 @@ const approveBooking = async (req, res) => {
         }
       }
 
-      // 4. Mark the pending booking as processed
+      // --- AUDIT LOG: Step A ---
+      // Log the approval action on the PendingBooking record.
+      await createAuditLog(tx, {
+        userId: userId,
+        modelName: 'PendingBooking',
+        recordId: pendingBooking.id,
+        action: ActionType.APPROVE_PENDING,
+        changes: [{
+          fieldName: 'status',
+          oldValue: 'PENDING',
+          newValue: 'APPROVED'
+        }]
+      });
+      
+      // --- AUDIT LOG: Step B ---
+      // Log the creation of the new, official Booking record.
+      await createAuditLog(tx, {
+        userId: userId, // We attribute creation of the main booking to the approver.
+        modelName: 'Booking',
+        recordId: newBooking.id,
+        action: ActionType.CREATE
+      });
+
+
+      // 4. Mark the pending booking as processed (remains the same)
       await tx.pendingBooking.update({
         where: { id: bookingId },
         data: { status: 'APPROVED' },
       });
       
-      // 5. Return the full, newly created and linked booking
+      // 5. Return the full, newly created and linked booking (remains the same)
       return tx.booking.findUnique({
           where: { id: newBooking.id },
           include: {
@@ -399,24 +423,58 @@ const approveBooking = async (req, res) => {
   }
 };
 
+
+
 const rejectBooking = async (req, res) => {
+  // --- AUDIT LOG ---
+  // Get the ID of the user performing the rejection.
+  const { userId } = req.user;
+  const { id } = req.params;
+
   try {
-    const pendingBooking = await prisma.pendingBooking.findUnique({
-      where: { id: parseInt(req.params.id) },
+    const updatedBooking = await prisma.$transaction(async (tx) => {
+      const pendingBooking = await tx.pendingBooking.findUnique({
+        where: { id: parseInt(id) },
+      });
+
+      if (!pendingBooking || pendingBooking.status !== 'PENDING') {
+        throw new Error("Pending booking not found or already processed");
+      }
+      
+      // --- AUDIT LOG ---
+      // Log that the status is changing from PENDING to REJECTED.
+      await createAuditLog(tx, {
+        userId: userId,
+        modelName: 'PendingBooking',
+        recordId: pendingBooking.id,
+        action: ActionType.REJECT_PENDING,
+        changes: [{
+          fieldName: 'status',
+          oldValue: 'PENDING',
+          newValue: 'REJECTED'
+        }]
+      });
+
+      // Instead of deleting, we update the status.
+      // This preserves the record for historical and audit purposes.
+      const rejectedBooking = await tx.pendingBooking.update({
+        where: { id: parseInt(id) },
+        data: {
+          status: 'REJECTED'
+        },
+      });
+
+      return rejectedBooking;
     });
 
-    if (!pendingBooking || pendingBooking.status !== 'PENDING') {
-      return apiResponse.error(res, "Pending booking not found or already processed", 404);
-    }
+    return apiResponse.success(res, { message: "Booking rejected successfully", data: updatedBooking }, 200);
 
-    await prisma.pendingBooking.delete({
-      where: { id: parseInt(req.params.id) },
-    });
-
-    return apiResponse.success(res, { message: "Booking rejected successfully" }, 200);
   } catch (error) {
     console.error("Error rejecting booking:", error);
-    return apiResponse.error(res, "Failed to reject booking: " + error.message, 500);
+    if (error.message.includes('not found or already processed')) {
+      return apiResponse.error(res, error.message, 404);
+    }
+    return apiResponse.error(res, `Failed to reject booking: ${error.message}`, 500);
   }
 };
 
@@ -1481,40 +1539,12 @@ const getSuppliersInfo = async (req, res) => {
 };
 
 const updatePendingBooking = async (req, res) => {
+  const { userId } = req.user;
+  const { id } = req.params;
+  const updates = req.body;
   try {
-    const { id } = req.params;
-    const updates = req.body;
-
-    const {
-      refNo,
-      paxName,
-      agentName,
-      teamName,
-      pnr,
-      airline,
-      fromTo,
-      bookingType,
-      paymentMethod,
-      pcDate,
-      issuedDate,
-      lastPaymentDate,
-      travelDate,
-      revenue,
-      prodCost,
-      transFee,
-      surcharge,
-      received,
-      transactionMethod,
-      receivedDate,
-      balance,
-      profit,
-      invoiced,
-      description,
-      costItems,
-      instalments,
-      passengers,
-      numPax,
-    } = updates;
+    
+    const { teamName, bookingType, paymentMethod, transactionMethod, numPax, costItems, instalments, passengers, balance, revenue, received, prodCost } = updates;
 
     // Validate required fields if provided
     const validTeams = ['PH', 'TOURS'];
@@ -1676,108 +1706,97 @@ const updatePendingBooking = async (req, res) => {
       }
     }
 
-    // Prepare financial data
+    const updatedPendingBooking = await prisma.$transaction(async (tx) => {
+      // 1. Get the record's state BEFORE the update
+      const oldBooking = await tx.pendingBooking.findUnique({
+        where: { id: parseInt(id) }
+      });
+
+      if (!oldBooking) {
+        throw new Error('Pending booking not found');
+      }
+
     const financialData = {
-      revenue: revenue ? parseFloat(revenue) : undefined,
-      prodCost: prodCost ? parseFloat(prodCost) : undefined,
-      transFee: transFee ? parseFloat(transFee) : undefined,
-      surcharge: surcharge ? parseFloat(surcharge) : undefined,
-      received: received ? parseFloat(received) : undefined,
-      balance: balance ? parseFloat(balance) : undefined,
-      profit: profit ? parseFloat(profit) : undefined,
-      invoiced: invoiced || undefined,
-    };
+        revenue: revenue ? parseFloat(revenue) : undefined,
+        prodCost: prodCost ? parseFloat(prodCost) : undefined,
+        transFee: updates.transFee ? parseFloat(updates.transFee) : undefined,
+        surcharge: updates.surcharge ? parseFloat(updates.surcharge) : undefined,
+        received: received ? parseFloat(received) : undefined,
+        balance: balance ? parseFloat(balance) : undefined,
+        profit: updates.profit ? parseFloat(updates.profit) : undefined,
+        invoiced: updates.invoiced || undefined,
+      };
 
-    // Recalculate profit and balance if financial data is provided
     if (Object.values(financialData).some(val => val !== undefined)) {
-      const revenueVal = financialData.revenue || 0;
-      const prodCostVal = financialData.prodCost || 0;
-      const transFeeVal = financialData.transFee || 0;
-      const surchargeVal = financialData.surcharge || 0;
-      const receivedVal = financialData.received || 0;
-      financialData.profit = revenueVal - prodCostVal - transFeeVal - surchargeVal;
-      financialData.balance = revenueVal - receivedVal;
-    }
+        const revenueVal = financialData.revenue ?? oldBooking.revenue ?? 0;
+        const prodCostVal = financialData.prodCost ?? oldBooking.prodCost ?? 0;
+        const transFeeVal = financialData.transFee ?? oldBooking.transFee ?? 0;
+        const surchargeVal = financialData.surcharge ?? oldBooking.surcharge ?? 0;
+        const receivedVal = financialData.received ?? oldBooking.received ?? 0;
+        financialData.profit = revenueVal - prodCostVal - transFeeVal - surchargeVal;
+        financialData.balance = revenueVal - receivedVal;
+      }
 
-    // Update the pending booking
-    const pendingBooking = await prisma.pendingBooking.update({
-      where: { id: parseInt(id) },
-      data: {
-        refNo,
-        paxName,
-        agentName,
-        teamName,
-        pnr,
-        airline,
-        fromTo,
-        bookingType,
-        pcDate: pcDate ? new Date(pcDate) : undefined,
-        issuedDate: issuedDate ? new Date(issuedDate) : undefined,
-        paymentMethod,
-        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : undefined,
-        travelDate: travelDate ? new Date(travelDate) : undefined,
-        transactionMethod: transactionMethod || undefined,
-        receivedDate: receivedDate ? new Date(receivedDate) : undefined,
-        description: description || undefined,
-        numPax: numPax !== undefined ? parseInt(numPax) : undefined,
-        ...financialData,
-        costItems: Array.isArray(costItems) && costItems.length > 0
-          ? {
-              deleteMany: {},
-              create: costItems.map(item => ({
-                category: item.category,
-                amount: parseFloat(item.amount),
-                suppliers: {
-                  create: item.suppliers.map(s => ({
-                    supplier: s.supplier,
-                    amount: parseFloat(s.amount),
-                    paymentMethod: s.paymentMethod,
-                    paidAmount: parseFloat(s.paidAmount) || 0,
-                    pendingAmount: parseFloat(s.pendingAmount) || 0,
-                    transactionMethod: s.transactionMethod,
-                    firstMethodAmount: parseFloat(s.firstMethodAmount) || null,
-                    secondMethodAmount: parseFloat(s.secondMethodAmount) || null,
-                  })),
-                },
-              })),
-            }
-          : undefined,
-        instalments: Array.isArray(instalments) && instalments.length > 0
-          ? {
-              deleteMany: {},
-              create: instalments.map(inst => ({
-                dueDate: new Date(inst.dueDate),
-                amount: parseFloat(inst.amount),
-                status: inst.status || 'PENDING',
-              })),
-            }
-          : undefined,
-        passengers: Array.isArray(passengers) && passengers.length > 0
-          ? {
-              deleteMany: {},
-              create: passengers.map(pax => ({
-                title: pax.title,
-                firstName: pax.firstName,
-                middleName: pax.middleName || null,
-                lastName: pax.lastName,
-                gender: pax.gender,
-                email: pax.email || null,
-                contactNo: pax.contactNo || null,
-                nationality: pax.nationality || null,
-                birthday: pax.birthday ? new Date(pax.birthday) : null,
-                category: pax.category,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        costItems: { include: { suppliers: true } },
-        instalments: true,
-        passengers: true,
-      },
+    const newBooking = await tx.pendingBooking.update({
+        where: { id: parseInt(id) },
+        data: {
+          // All the data fields from your original update block
+          refNo: updates.refNo,
+          paxName: updates.paxName,
+          agentName: updates.agentName,
+          teamName: updates.teamName,
+          pnr: updates.pnr,
+          airline: updates.airline,
+          fromTo: updates.fromTo,
+          bookingType: updates.bookingType,
+          pcDate: updates.pcDate ? new Date(updates.pcDate) : undefined,
+          issuedDate: updates.issuedDate ? new Date(updates.issuedDate) : undefined,
+          paymentMethod: updates.paymentMethod,
+          lastPaymentDate: updates.lastPaymentDate ? new Date(updates.lastPaymentDate) : undefined,
+          travelDate: updates.travelDate ? new Date(updates.travelDate) : undefined,
+          transactionMethod: updates.transactionMethod || undefined,
+          receivedDate: updates.receivedDate ? new Date(updates.receivedDate) : undefined,
+          description: updates.description || undefined,
+          numPax: numPax !== undefined ? parseInt(numPax) : undefined,
+          ...financialData,
+          costItems: Array.isArray(costItems) && costItems.length > 0 ? {
+            deleteMany: {},
+            create: costItems.map(item => ({
+              category: item.category, amount: parseFloat(item.amount),
+              suppliers: { create: item.suppliers.map(s => ({...s})) },
+            })),
+          } : undefined,
+          instalments: Array.isArray(instalments) && instalments.length > 0 ? {
+            deleteMany: {},
+            create: instalments.map(inst => ({...inst, dueDate: new Date(inst.dueDate)})),
+          } : undefined,
+          passengers: Array.isArray(passengers) && passengers.length > 0 ? {
+            deleteMany: {},
+            create: passengers.map(pax => ({...pax, birthday: pax.birthday ? new Date(pax.birthday) : null})),
+          } : undefined,
+        },
+        include: {
+          costItems: { include: { suppliers: true } },
+          instalments: true,
+          passengers: true,
+        },
+      });
+
+      // 3. Compare and log the changes
+      await compareAndLogChanges(tx, {
+        userId,
+        modelName: 'PendingBooking',
+        recordId: newBooking.id,
+        oldRecord: oldBooking,
+        newRecord: newBooking,
+        updates: { ...updates, ...financialData } // Pass all potential changes
+      });
+      
+      return newBooking;
     });
 
-    return apiResponse.success(res, pendingBooking, 200);
+    return apiResponse.success(res, updatedPendingBooking, 200);
+
   } catch (error) {
     console.error('Error updating pending booking:', error);
     if (error.name === 'PrismaClientValidationError') {
