@@ -79,23 +79,33 @@ export default function CreateBooking({ onBookingCreated }) {
   const [showPaxDetails, setShowPaxDetails] = useState(false);
   const [showReceivedAmount, setShowReceivedAmount] = useState(false);
 
-  // Date Change logic remains the same
-  useEffect(() => {
+  // Corrected Code
+useEffect(() => {
     const originalBooking = location.state?.originalBookingForDateChange;
     if (originalBooking) {
       console.log("Date Change mode activated for booking:", originalBooking);
       setOriginalBookingInfo({ id: originalBooking.id, folderNo: originalBooking.folderNo });
-      setSelectedPaymentMethod('DATE_CHANGE');
+      
+      // --- THE FIX ---
+      // Tell the UI to behave like a 'Full Payment' form.
+      setSelectedPaymentMethod('FULL'); 
+      
+      // Set the form data, pre-filling from the original booking
+      // and correctly setting the bookingType property for the back-end.
       setFormData({
         ...getInitialFormData(),
         paxName: originalBooking.paxName,
         passengers: originalBooking.passengers,
         numPax: originalBooking.numPax,
-        bookingType: 'DATE_CHANGE',
+        agentName: originalBooking.agentName,
+        teamName: originalBooking.teamName,
+        bookingType: 'DATE_CHANGE', // This correctly sets the data property
       });
+      
+      // Clear the location state to prevent re-triggering
       window.history.replaceState({}, document.title);
     }
-  }, [location.state]);
+}, [location.state]);
 
 
   // Calculation Engine for all workflows
