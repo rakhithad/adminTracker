@@ -129,3 +129,9 @@ export const registerUser = async (userData) => {
 export const loginUser = async (credentials) => {
   return await api.post('/auth/login', credentials);
 };
+
+
+//audit history
+export const getAuditHistory = (modelName, recordId) => {
+    return api.get(`/audit-history?modelName=${modelName}&recordId=${recordId}`);
+};

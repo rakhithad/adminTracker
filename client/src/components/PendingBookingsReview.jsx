@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FaEye, FaPencilAlt, FaCheck, FaTimes, FaSpinner, FaExclamationTriangle, FaInfoCircle, FaFolderOpen } from 'react-icons/fa';
-import { getPendingBookings, approveBooking, rejectBooking, updatePendingBooking } from '../api/api';
+import { FaEye, FaPencilAlt, FaCheck, FaTimes, FaSpinner, FaExclamationTriangle, FaInfoCircle, FaFolderOpen, FaHistory } from 'react-icons/fa';
+import { getPendingBookings, approveBooking, rejectBooking, updatePendingBooking, getAuditHistory } from '../api/api';
 
 // Reusable input component for the Edit Form
 const EditInput = ({ label, ...props }) => (
@@ -28,6 +28,44 @@ const DetailItem = ({ label, children, className = '' }) => (
   </div>
 );
 
+const HistoryItem = ({ log }) => {
+    let message = 'performed an unknown action.';
+    const formattedDate = new Date(log.createdAt).toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    switch(log.action) {
+        case 'CREATE':
+            message = 'created this pending booking.';
+            break;
+        case 'UPDATE':
+            message = `updated field '${log.fieldName}' from '${log.oldValue}' to '${log.newValue}'.`;
+            break;
+        case 'APPROVE_PENDING':
+            message = 'approved this booking.';
+            break;
+        case 'REJECT_PENDING':
+            message = 'rejected this booking.';
+            break;
+        default:
+            message = `performed action: ${log.action}`;
+    }
+
+    return (
+        <li className="flex items-start space-x-3 py-2 border-b border-gray-200 last:border-b-0">
+            <div className="flex-shrink-0 h-5 w-5 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">
+                {log.user.firstName.charAt(0)}
+            </div>
+            <div>
+                <p className="text-sm text-gray-800">
+                    <span className="font-semibold">{log.user.firstName}</span> {message}
+                </p>
+                <p className="text-xs text-gray-500">{formattedDate}</p>
+            </div>
+        </li>
+    );
+};
+
 
 export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
   const [pendingBookings, setPendingBookings] = useState([]);
@@ -37,6 +75,8 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
   const [selectedBookingId, setSelectedBookingId] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [auditHistory, setAuditHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const fetchPendingBookings = async () => {
     try {
@@ -55,6 +95,28 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
   useEffect(() => {
     fetchPendingBookings();
   }, [refreshKey]);
+
+  useEffect(() => {
+        const fetchAuditHistory = async () => {
+            if (selectedBookingId && !editMode) {
+                try {
+                    setLoadingHistory(true);
+                    // Call the API with the correct modelName and recordId
+                    const response = await getAuditHistory('PendingBooking', selectedBookingId);
+                    setAuditHistory(response.data.data || []);
+                } catch (err) {
+                    console.error("Failed to fetch audit history", err);
+                    setAuditHistory([]); // Clear history on error
+                } finally {
+                    setLoadingHistory(false);
+                }
+            } else {
+                setAuditHistory([]); // Clear history if no booking is selected or in edit mode
+            }
+        };
+
+        fetchAuditHistory();
+    }, [selectedBookingId, editMode]);
 
   const handleAction = async (action, bookingId, successMessage) => {
     try {
@@ -165,8 +227,9 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
       </div>
     </div>
   );
+  
 
-  return (
+    return (
     <div className="w-full">
       {actionError && (
         <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center">
@@ -219,7 +282,7 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
                       <td colSpan="5" className="p-0">
                         <div className="bg-gray-50 p-4 md:p-6">
                         {editMode && editForm ? (
-                            // --- EDIT FORM ---
+                            // --- EDIT FORM (UNCHANGED) ---
                             <form onSubmit={handleEditSubmit} className="space-y-6">
                                 <h3 className="text-xl font-bold text-gray-800">Editing Booking: <span className="text-blue-600">{editForm.refNo}</span></h3>
                                 {actionError && <div className="p-3 bg-red-100 text-red-700 rounded-lg">{actionError}</div>}
@@ -243,37 +306,62 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
                                 </div>
                             </form>
                         ) : (
-                            // --- DETAILS VIEW ---
-                            <div>
-                                <h3 className="text-xl font-bold text-gray-800 mb-4">Full Details: <span className="text-blue-600">{selectedBooking.refNo}</span></h3>
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                    <DetailItem label="Status">{selectedBooking.status}</DetailItem>
-                                    <DetailItem label="Booking Type">{selectedBooking.bookingType}</DetailItem>
-                                    <DetailItem label="PC Date">{formatDate(selectedBooking.pcDate)}</DetailItem>
-                                    <DetailItem label="Issued Date">{formatDate(selectedBooking.issuedDate)}</DetailItem>
-                                    <DetailItem label="Payment Method">{selectedBooking.paymentMethod?.replace(/_/g, ' ')}</DetailItem>
-                                    <DetailItem label="Last Payment Date">{formatDate(selectedBooking.lastPaymentDate)}</DetailItem>
-                                    <DetailItem label="Transaction Fee">£{parseFloat(selectedBooking.transFee || 0).toFixed(2)}</DetailItem>
-                                    <DetailItem label="Surcharge">£{parseFloat(selectedBooking.surcharge || 0).toFixed(2)}</DetailItem>
-                                    <DetailItem label="Amount Received">£{parseFloat(selectedBooking.received || 0).toFixed(2)}</DetailItem>
-                                    <DetailItem label="Balance">£{parseFloat(selectedBooking.balance || 0).toFixed(2)}</DetailItem>
-                                    <DetailItem label="Profit">£{parseFloat(selectedBooking.profit || 0).toFixed(2)}</DetailItem>
-                                    <DetailItem label="Invoiced">{selectedBooking.invoiced}</DetailItem>
-                                    <DetailItem label="Cost Breakdown" className="col-span-2">
-                                        {selectedBooking.costItems?.length > 0 ? (
-                                            <ul className="list-disc list-inside text-sm space-y-1">
-                                                {selectedBooking.costItems.map(item => <li key={item.id}>{item.category}: £{parseFloat(item.amount).toFixed(2)}</li>)}
-                                            </ul>
-                                        ) : 'None'}
-                                    </DetailItem>
-                                    <DetailItem label="Instalments" className="col-span-2">
-                                        {selectedBooking.instalments?.length > 0 ? (
-                                            <ul className="list-disc list-inside text-sm space-y-1">
-                                                {selectedBooking.instalments.map((inst, i) => <li key={i}>Due {formatDate(inst.dueDate)} - £{parseFloat(inst.amount).toFixed(2)} ({inst.status})</li>)}
-                                            </ul>
-                                        ) : 'None'}
-                                    </DetailItem>
-                                    <DetailItem label="Submitted At" className="col-span-full">{new Date(selectedBooking.createdAt).toLocaleString('en-GB')}</DetailItem>
+                            // --- NEW DETAILS VIEW with AUDIT LOG ---
+                            <div className="flex flex-col md:flex-row gap-6">
+                                
+                                {/* Left Column: Booking Details */}
+                                <div className="flex-grow">
+                                    <h3 className="text-xl font-bold text-gray-800 mb-4">
+                                        Full Details: <span className="text-blue-600">{selectedBooking.refNo}</span>
+                                    </h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                        <DetailItem label="Status">{selectedBooking.status}</DetailItem>
+                                        <DetailItem label="Booking Type">{selectedBooking.bookingType}</DetailItem>
+                                        <DetailItem label="PC Date">{formatDate(selectedBooking.pcDate)}</DetailItem>
+                                        <DetailItem label="Issued Date">{formatDate(selectedBooking.issuedDate)}</DetailItem>
+                                        <DetailItem label="Payment Method">{selectedBooking.paymentMethod?.replace(/_/g, ' ')}</DetailItem>
+                                        <DetailItem label="Last Payment Date">{formatDate(selectedBooking.lastPaymentDate)}</DetailItem>
+                                        <DetailItem label="Transaction Fee">£{parseFloat(selectedBooking.transFee || 0).toFixed(2)}</DetailItem>
+                                        <DetailItem label="Surcharge">£{parseFloat(selectedBooking.surcharge || 0).toFixed(2)}</DetailItem>
+                                        <DetailItem label="Amount Received">£{parseFloat(selectedBooking.received || 0).toFixed(2)}</DetailItem>
+                                        <DetailItem label="Balance">£{parseFloat(selectedBooking.balance || 0).toFixed(2)}</DetailItem>
+                                        <DetailItem label="Profit">£{parseFloat(selectedBooking.profit || 0).toFixed(2)}</DetailItem>
+                                        <DetailItem label="Invoiced">{selectedBooking.invoiced}</DetailItem>
+                                        <DetailItem label="Cost Breakdown" className="col-span-2">
+                                            {selectedBooking.costItems?.length > 0 ? (
+                                                <ul className="list-disc list-inside text-sm space-y-1">
+                                                    {selectedBooking.costItems.map(item => <li key={item.id}>{item.category}: £{parseFloat(item.amount).toFixed(2)}</li>)}
+                                                </ul>
+                                            ) : 'None'}
+                                        </DetailItem>
+                                        <DetailItem label="Instalments" className="col-span-2">
+                                            {selectedBooking.instalments?.length > 0 ? (
+                                                <ul className="list-disc list-inside text-sm space-y-1">
+                                                    {selectedBooking.instalments.map((inst, i) => <li key={i}>Due {formatDate(inst.dueDate)} - £{parseFloat(inst.amount).toFixed(2)} ({inst.status})</li>)}
+                                                </ul>
+                                            ) : 'None'}
+                                        </DetailItem>
+                                        <DetailItem label="Submitted At" className="col-span-full">{new Date(selectedBooking.createdAt).toLocaleString('en-GB')}</DetailItem>
+                                    </div>
+                                </div>
+                                
+                                {/* Right Column: Audit History */}
+                                <div className="w-full md:w-1/3 md:max-w-sm flex-shrink-0 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
+                                    <h4 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                                        <FaHistory className="mr-2 text-blue-500" />
+                                        Booking History
+                                    </h4>
+                                    {loadingHistory ? (
+                                        <div className="flex items-center text-gray-500">
+                                            <FaSpinner className="animate-spin mr-2" /> Loading history...
+                                        </div>
+                                    ) : auditHistory.length > 0 ? (
+                                        <ul className="space-y-2">
+                                            {auditHistory.map(log => <HistoryItem key={log.id} log={log} />)}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-sm text-gray-500">No history found.</p>
+                                    )}
                                 </div>
                             </div>
                         )}
