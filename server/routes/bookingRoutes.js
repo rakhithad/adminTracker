@@ -33,23 +33,23 @@ router.get('/pending', authenticateToken, getPendingBookings);
 router.put('/pending/:id', authenticateToken, updatePendingBooking);
 router.post('/pending/:id/approve', authenticateToken, approveBooking);
 router.post('/pending/:id/reject', authenticateToken, rejectBooking);
-router.post('/', createBooking);
-router.get('/', getBookings);
-router.get('/dashboard/stats', getDashboardStats);
-router.get('/dashboard/recent', getRecentBookings);
-router.get('/customer-deposits', getCustomerDeposits);
-router.patch('/instalments/:id', updateInstalment);
-router.get('/suppliers-info', getSuppliersInfo);
-router.post('/suppliers/settlements', createSupplierPaymentSettlement)
-router.post('/:bookingId/record-settlement-payment', recordSettlementPayment);
-router.get('/transactions', getTransactions);
-router.post('/:id/cancel', createCancellation);
-router.put('/:id', updateBooking);
-router.get('/credit-notes/available/:supplier', getAvailableCreditNotes);
-router.post('/:id/date-change', createDateChangeBooking);
-router.post('/supplier-payable/settle', createSupplierPayableSettlement);
-router.post('/customer-payable/:id/settle', settleCustomerPayable);
-router.post('/cancellations/:id/record-refund', recordPassengerRefund);
+router.post('/', authenticateToken, createBooking);
+router.get('/', authenticateToken, getBookings);
+router.get('/dashboard/stats', authenticateToken, getDashboardStats);
+router.get('/dashboard/recent', authenticateToken, getRecentBookings);
+router.get('/customer-deposits', authenticateToken, getCustomerDeposits);
+router.patch('/instalments/:id', authenticateToken, updateInstalment);
+router.get('/suppliers-info', authenticateToken, getSuppliersInfo);
+router.post('/suppliers/settlements', authenticateToken, createSupplierPaymentSettlement)
+router.post('/:bookingId/record-settlement-payment', authenticateToken, recordSettlementPayment);
+router.get('/transactions', authenticateToken, getTransactions);
+router.post('/:id/cancel', authenticateToken, createCancellation);
+router.put('/:id', authenticateToken, updateBooking);
+router.get('/credit-notes/available/:supplier', authenticateToken, getAvailableCreditNotes);
+router.post('/:id/date-change', authenticateToken, createDateChangeBooking);
+router.post('/supplier-payable/settle', authenticateToken, createSupplierPayableSettlement);
+router.post('/customer-payable/:id/settle', authenticateToken, settleCustomerPayable);
+router.post('/cancellations/:id/record-refund', authenticateToken, recordPassengerRefund);
 
 
 
