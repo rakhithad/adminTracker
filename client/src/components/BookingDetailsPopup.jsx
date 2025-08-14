@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle } from 'react-icons/fa';
-import { updateBooking, createCancellation } from '../api/api';
+import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner } from 'react-icons/fa';
+import { updateBooking, createCancellation, getAuditHistory } from '../api/api';
 import CancellationPopup from './CancellationPopup';
 
 // --- Reusable Styled Components ---
@@ -44,6 +44,50 @@ const ActionButton = ({ icon, children, onClick, className = '', ...props }) => 
   </button>
 );
 
+const HistoryItem = ({ log }) => {
+    let message = 'performed an unknown action.';
+    const formattedDate = new Date(log.createdAt).toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    switch(log.action) {
+        case 'CREATE':
+            message = 'created this booking.';
+            break;
+        case 'UPDATE':
+            message = `updated '${log.fieldName}' from '${log.oldValue}' to '${log.newValue}'.`;
+            break;
+        case 'DATE_CHANGE':
+            message = `processed a date change, marking this booking as COMPLETED.`;
+            break;
+        case 'CREATE_CANCELLATION':
+            message = 'initiated the cancellation process for this booking.';
+            break;
+        case 'SETTLEMENT_PAYMENT':
+            message = `processed a payment: ${log.newValue}.`;
+            break;
+        case 'REFUND_PAYMENT':
+            message = `processed a refund: ${log.newValue}.`;
+            break;
+        default:
+            message = `performed action: ${log.action}`;
+    }
+
+    return (
+        <li className="flex items-start space-x-4 py-3 border-b border-slate-100 last:border-b-0">
+            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">
+                {log.user.firstName.charAt(0)}
+            </div>
+            <div>
+                <p className="text-sm text-slate-800">
+                    <span className="font-semibold">{log.user.firstName}</span> {message}
+                </p>
+                <p className="text-xs text-slate-500">{formattedDate}</p>
+            </div>
+        </li>
+    );
+};
+
 export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('details');
@@ -51,6 +95,8 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [editData, setEditData] = useState({});
   const [error, setError] = useState('');
   const [showCancelPopup, setShowCancelPopup] = useState(false);
+  const [auditHistory, setAuditHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'];
   const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
@@ -67,6 +113,26 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     setIsEditing(false);
     setActiveTab('details');
   }, [booking]);
+
+  useEffect(() => {
+        const fetchAuditHistory = async () => {
+            // Only fetch if the tab is active and history hasn't been loaded yet
+            if (activeTab === 'history' && auditHistory.length === 0) {
+                try {
+                    setLoadingHistory(true);
+                    const response = await getAuditHistory('Booking', booking.id);
+                    setAuditHistory(response.data.data || []);
+                } catch (err) {
+                    console.error("Failed to fetch audit history", err);
+                    setError("Could not load booking history.");
+                } finally {
+                    setLoadingHistory(false);
+                }
+            }
+        };
+
+        fetchAuditHistory();
+    }, [activeTab, booking.id, auditHistory.length]);
 
   const handleConfirmCancellation = async (data) => {
     await createCancellation(booking.id, data);
@@ -141,8 +207,10 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
       <InfoItem label="Issued Date">{formatDate(booking.issuedDate)}</InfoItem>
       <InfoItem label="Payment Method">{booking.paymentMethod?.replace(/_/g, ' ')}</InfoItem>
       <InfoItem label="Description" className="col-span-full">
-        <p className="text-sm italic text-slate-700 bg-slate-50 p-2 rounded-md">{booking.description || 'No description provided.'}</p>
-      </InfoItem>
+    <div className="text-sm italic text-slate-700 bg-slate-50 p-2 rounded-md">
+        {booking.description || 'No description provided.'}
+    </div>
+</InfoItem>
     </div>
   );
   
@@ -216,6 +284,33 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
       ))
   );
 
+  const renderHistoryTab = () => {
+        if (loadingHistory) {
+            return (
+                <div className="flex justify-center items-center p-10">
+                    <FaSpinner className="animate-spin h-8 w-8 text-blue-500" />
+                    <span className="ml-4 text-slate-600">Loading History...</span>
+                </div>
+            );
+        }
+
+        if (auditHistory.length === 0) {
+            return (
+                <div className="text-center p-10">
+                    <FaHistory className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-slate-700">No History Found</h3>
+                    <p className="text-sm text-slate-500 mt-1">There are no recorded changes for this booking.</p>
+                </div>
+            );
+        }
+
+        return (
+            <ul className="divide-y divide-slate-100">
+                {auditHistory.map(log => <HistoryItem key={log.id} log={log} />)}
+            </ul>
+        );
+    };
+
   return (
     <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center p-4 z-40 animate-fade-in" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col transform animate-slide-up" onClick={e => e.stopPropagation()}>
@@ -259,6 +354,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <TabButton label="Financials" isActive={activeTab === 'financials'} onClick={() => setActiveTab('financials')} />
             <TabButton label="Customer Payments" isActive={activeTab === 'customer'} onClick={() => setActiveTab('customer')} />
             <TabButton label="Supplier Payments" isActive={activeTab === 'supplier'} onClick={() => setActiveTab('supplier')} />
+            <TabButton label="History" isActive={activeTab === 'history'} onClick={() => setActiveTab('history')} />  
           </nav>
         </div>
         
@@ -270,6 +366,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
           {activeTab === 'financials' && renderFinancialsTab()}
           {activeTab === 'customer' && renderPaymentsTable(['Date', 'Type', 'Amount'], customerPaymentsData)}
           {activeTab === 'supplier' && renderPaymentsTable(['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], supplierPaymentsData)}
+          {activeTab === 'history' && renderHistoryTab()}
         </div>
 
         {showCancelPopup && (
