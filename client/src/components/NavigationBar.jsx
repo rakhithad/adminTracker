@@ -33,6 +33,7 @@ export default function NavigationBar() {
     { name: 'Customer Deposits', path: '/customer-deposits' },
     { name: 'Supplier Info', path: '/suppliers-info' },
     { name: 'Transactions', path: '/transactions' },
+    { name: 'My Profile', path: '/profile' },
   ];
 
   return (

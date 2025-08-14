@@ -130,6 +130,14 @@ export const loginUser = async (credentials) => {
   return await api.post('/auth/login', credentials);
 };
 
+export const getMyProfile = () => {
+    return api.get('/auth/me');
+};
+export const updateMyProfile = (profileData) => {
+    return api.put('/auth/me', profileData);
+};
+
+
 
 //audit history
 export const getAuditHistory = (modelName, recordId) => {

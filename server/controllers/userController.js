@@ -1,14 +1,13 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const apiResponse = require('../utils/apiResponse'); 
+
 
 const prisma = new PrismaClient();
 
-// =================================================================
-// == REGISTER A NEW USER (SIGN UP)
-// =================================================================
 const register = async (req, res) => {
-  // ... your existing registration code (it's perfect)
+  
   const { email, password, firstName, lastName, role, team, title, contactNo } = req.body;
 
   if (!email || !password || !firstName || !lastName || !role) {
@@ -49,9 +48,6 @@ const register = async (req, res) => {
 };
 
 
-// =================================================================
-// == LOG IN A USER
-// =================================================================
 const login = async (req, res) => {
   // ... your existing login code (it's perfect)
   const { email, password } = req.body;
@@ -93,10 +89,73 @@ const login = async (req, res) => {
   }
 };
 
-// =================================================================
-// == THIS IS THE MISSING PIECE
-// =================================================================
+
+const getMyProfile = async (req, res) => {
+    // The userId is attached to the request by our authenticateToken middleware
+    const { userId } = req.user;
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            // We explicitly select fields to avoid sending the password hash
+            select: {
+                id: true,
+                email: true,
+                title: true,
+                firstName: true,
+                lastName: true,
+                contactNo: true,
+                role: true,
+                team: true,
+                // Add profilePictureUrl here in the future
+            }
+        });
+
+        if (!user) {
+            return apiResponse.error(res, 'User not found.', 404);
+        }
+
+        return apiResponse.success(res, user);
+    } catch (error) {
+        console.error("Error fetching user profile:", error);
+        return apiResponse.error(res, 'Failed to fetch user profile.', 500);
+    }
+};
+
+// --- UPDATE CURRENT USER'S PROFILE ---
+const updateMyProfile = async (req, res) => {
+    const { userId } = req.user;
+    // We only allow certain fields to be updated
+    const { title, firstName, lastName, contactNo } = req.body;
+
+    try {
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: {
+                title,
+                firstName,
+                lastName,
+                contactNo,
+                // We will handle password and profile picture updates separately
+            },
+            select: { // Return the updated user data, without the password
+                id: true, email: true, title: true, firstName: true,
+                lastName: true, contactNo: true, role: true, team: true,
+            }
+        });
+
+        return apiResponse.success(res, updatedUser, 200, "Profile updated successfully.");
+    } catch (error) {
+        console.error("Error updating user profile:", error);
+        return apiResponse.error(res, 'Failed to update profile.', 500);
+    }
+};
+
+
+
 module.exports = {
   register,
   login,
+  getMyProfile,
+  updateMyProfile,
 };

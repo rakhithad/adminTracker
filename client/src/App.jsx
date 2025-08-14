@@ -10,6 +10,7 @@ import SuppliersInfo from './pages/SuppliersInfo';
 import TransactionsPage from './pages/TransactionsPage';
 import LoginPage from './pages/LoginPage'; 
 import SignupPage from './pages/SignupPage'; 
+import ProfilePage from './pages/ProfilePage'
 
 const ProtectedRoutes = () => {
   const isAuthenticated = !!localStorage.getItem('token'); // Check if the token exists
@@ -73,6 +74,7 @@ function App() {
           <Route path="/suppliers-info" element={<SuppliersInfo />} />
           <Route path="/create-booking" element={<CreateBooking />} />
           <Route path="/transactions" element={<TransactionsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
         </Route>
         
         {/* --- Catch-all Route --- */}
