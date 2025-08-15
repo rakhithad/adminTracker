@@ -333,6 +333,21 @@ useEffect(() => {
     }
   };
 
+  const handleAgentChange = (e) => {
+  const selectedAgentName = e.target.value;
+
+  // Find the full agent object from our state using the selected name
+  const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
+
+  // Update both the agentName and teamName in the form data
+  setFormData(prev => ({
+    ...prev,
+    agentName: selectedAgentName,
+    // If an agent is found, use their team. Otherwise, reset the team field.
+    teamName: selectedAgent ? selectedAgent.team : '' 
+  }));
+};
+
   const CoreBookingInfo = () => (
     <div className="border-t border-gray-200 pt-6">
       <h4 className="text-lg font-semibold text-gray-800 mb-4">Core Booking Information</h4>
@@ -350,7 +365,7 @@ useEffect(() => {
       label="Agent Name" 
       name="agentName" 
       value={formData.agentName} 
-      onChange={handleChange} 
+      onChange={handleAgentChange} 
       required
     >
       <option value="">Select an Agent</option>
@@ -360,7 +375,19 @@ useEffect(() => {
         </option>
       ))}
     </FormSelect>
-        <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required><option value="">Select Team</option><option value="PH">PH</option><option value="TOURS">TOURS</option></FormSelect>
+        <FormSelect 
+    label="Team" 
+    name="teamName" 
+    value={formData.teamName} 
+    onChange={handleChange} 
+    required 
+    // Disable this field if an agent's name has been filled in
+    disabled={formData.agentName !== ''} 
+>
+    <option value="">Select Team</option>
+    <option value="PH">PH</option>
+    <option value="TOURS">TOURS</option>
+</FormSelect>
         <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required />
         <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required  />
         <FormInput label="From/To" name="fromTo" value={formData.fromTo} onChange={handleChange} required />
