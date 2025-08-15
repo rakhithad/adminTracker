@@ -152,10 +152,42 @@ const updateMyProfile = async (req, res) => {
 };
 
 
+const getAgents = async (req, res) => {
+  try {
+    const agents = await prisma.user.findMany({
+      where: {
+        role: {
+          in: ['CONSULTANT', 'MANAGEMENT'] // Fetches users where the role is one of these values
+        }
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+      },
+      orderBy: {
+        firstName: 'asc' // Optional: keeps the list alphabetized
+      }
+    });
+
+    // We map the result to create a fullName property for convenience on the frontend
+    const agentList = agents.map(agent => ({
+      id: agent.id,
+      fullName: `${agent.firstName} ${agent.lastName}`
+    }));
+
+    res.status(200).json(agentList);
+
+  } catch (error) {
+    console.error('Failed to fetch agents:', error);
+    res.status(500).json({ message: 'Server error while fetching agents.' });
+  }
+};
 
 module.exports = {
   register,
   login,
   getMyProfile,
   updateMyProfile,
+  getAgents
 };

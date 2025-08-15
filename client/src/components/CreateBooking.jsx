@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { FaUserPlus, FaCalculator, FaMoneyBillWave, FaCheckCircle, FaTimesCircle, FaLock } from 'react-icons/fa';
-import { createPendingBooking, createDateChangeBooking  } from '../api/api';
+import { createPendingBooking, createDateChangeBooking, getAgentsList } from '../api/api';
 
 import ProductCostBreakdown from './ProductCostBreakdown';
 import PaxDetailsPopup from './PaxDetailsPopup';
@@ -78,6 +78,22 @@ export default function CreateBooking({ onBookingCreated }) {
   const [showCostBreakdown, setShowCostBreakdown] = useState(false);
   const [showPaxDetails, setShowPaxDetails] = useState(false);
   const [showReceivedAmount, setShowReceivedAmount] = useState(false);
+  const [agents, setAgents] = useState([]);
+
+  useEffect(() => {
+  const fetchAgents = async () => {
+    try {
+      // You should create a function in your api.js file for this
+      const response = await getAgentsList(); 
+      setAgents(response.data); // Assuming your API returns the data in response.data
+    } catch (error) {
+      console.error("Failed to fetch agents list", error);
+      // Optionally set an error message to display to the user
+    }
+  };
+
+  fetchAgents();
+}, []);
 
   // Corrected Code
 useEffect(() => {
@@ -329,8 +345,21 @@ useEffect(() => {
             <button type="button" onClick={() => setShowPaxDetails(true)} className="ml-2 px-4 h-[42px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0 transition"><FaUserPlus /></button>
           </div>
           {formData.passengers.length > 0 && <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600"><p className="font-semibold">{formData.paxName}</p><p>Total Passengers: {formData.numPax}</p></div>}
-        </div>
-        <FormInput label="Agent Name" name="agentName" value={formData.agentName} onChange={handleChange} required />
+          </div>
+          <FormSelect 
+      label="Agent Name" 
+      name="agentName" 
+      value={formData.agentName} 
+      onChange={handleChange} 
+      required
+    >
+      <option value="">Select an Agent</option>
+      {agents.map(agent => (
+        <option key={agent.id} value={agent.fullName}>
+          {agent.fullName}
+        </option>
+      ))}
+    </FormSelect>
         <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required><option value="">Select Team</option><option value="PH">PH</option><option value="TOURS">TOURS</option></FormSelect>
         <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required />
         <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required  />

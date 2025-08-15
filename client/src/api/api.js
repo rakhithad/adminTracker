@@ -137,6 +137,9 @@ export const updateMyProfile = (profileData) => {
     return api.put('/auth/me', profileData);
 };
 
+export const getAgentsList = () => {
+  return api.get('/auth/agents'); 
+};
 
 
 //audit history
