@@ -24,7 +24,9 @@ const {
   createDateChangeBooking,
   createSupplierPayableSettlement,
   settleCustomerPayable,
-  recordPassengerRefund
+  recordPassengerRefund,
+  voidBooking,
+  unvoidBooking
 } = require('../controllers/bookingController');
 
 
@@ -50,6 +52,8 @@ router.post('/:id/date-change', authenticateToken, createDateChangeBooking);
 router.post('/supplier-payable/settle', authenticateToken, createSupplierPayableSettlement);
 router.post('/customer-payable/:id/settle', authenticateToken, settleCustomerPayable);
 router.post('/cancellations/:id/record-refund', authenticateToken, recordPassengerRefund);
+router.post('/:id/void', authenticateToken, voidBooking);
+router.post('/:id/unvoid', authenticateToken, unvoidBooking);
 
 
 

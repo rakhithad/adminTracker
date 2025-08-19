@@ -117,6 +117,14 @@ export const recordPassengerRefund = async(cancellationId, data) => {
   return await api.post(`/bookings/cancellations/${cancellationId}/record-refund`, data);
 }
 
+export const voidBooking = async (bookingId, reason) => {
+  return await api.post(`/bookings/${bookingId}/void`, { reason });
+};
+
+export const unvoidBooking = async (bookingId) => {
+  return await api.post(`/bookings/${bookingId}/unvoid`);
+};
+
 
 
 //auth

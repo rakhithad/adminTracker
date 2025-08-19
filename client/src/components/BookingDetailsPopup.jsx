@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner } from 'react-icons/fa';
-import { updateBooking, createCancellation, getAuditHistory } from '../api/api';
+import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner, FaUndo } from 'react-icons/fa';
+import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking } from '../api/api';
 import CancellationPopup from './CancellationPopup';
 
 // --- Reusable Styled Components ---
@@ -29,7 +29,7 @@ const EditInput = ({ label, ...props }) => (
 const InfoItem = ({ label, children, className = '' }) => (
   <div className={className}>
     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
-    <p className="text-base text-slate-800 break-words">{children || '—'}</p>
+    <div className="text-base text-slate-800 break-words">{children || '—'}</div>
   </div>
 );
 
@@ -43,6 +43,42 @@ const ActionButton = ({ icon, children, onClick, className = '', ...props }) => 
     {children}
   </button>
 );
+
+
+// --- THIS IS THE MISSING COMPONENT DEFINITION ---
+const VoidReasonPopup = ({ onSubmit, onCancel }) => {
+    const [reason, setReason] = useState('');
+    return (
+        <div className="fixed inset-0 bg-slate-900 bg-opacity-80 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md animate-slide-up">
+                <h3 className="text-lg font-bold text-slate-800">Reason for Voiding</h3>
+                <p className="text-sm text-slate-600 mt-2">
+                    Please provide a clear reason for voiding this booking. This will be recorded in the audit history.
+                </p>
+                <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    rows="4"
+                    className="w-full mt-4 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Created in error by agent, duplicate entry..."
+                />
+                <div className="flex justify-end space-x-3 mt-4">
+                    <button onClick={onCancel} className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-200 rounded-md hover:bg-slate-300">
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => onSubmit(reason)}
+                        disabled={!reason.trim()}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed"
+                    >
+                        Confirm Void
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const HistoryItem = ({ log }) => {
     let message = 'performed an unknown action.';
@@ -68,6 +104,12 @@ const HistoryItem = ({ log }) => {
             break;
         case 'REFUND_PAYMENT':
             message = `processed a refund: ${log.newValue}.`;
+            break;
+        case 'VOID_BOOKING':
+            message = `voided this booking. Reason: "${log.newValue}"`;
+            break;
+        case 'UNVOID_BOOKING':
+            message = `restored this booking from a voided state.`;
             break;
         default:
             message = `performed action: ${log.action}`;
@@ -95,14 +137,15 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [editData, setEditData] = useState({});
   const [error, setError] = useState('');
   const [showCancelPopup, setShowCancelPopup] = useState(false);
+  const [showVoidPopup, setShowVoidPopup] = useState(false);
   const [auditHistory, setAuditHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'];
   const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
+  const isVoided = booking.bookingStatus === 'VOID';
 
   useEffect(() => {
-    // Initialize editData with formatted values for form inputs
     const initialEditData = { ...booking };
     dateFields.forEach(field => {
         if (booking[field]) {
@@ -116,7 +159,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
 
   useEffect(() => {
         const fetchAuditHistory = async () => {
-            // Only fetch if the tab is active and history hasn't been loaded yet
             if (activeTab === 'history' && auditHistory.length === 0) {
                 try {
                     setLoadingHistory(true);
@@ -148,38 +190,29 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const handleSave = async () => {
     setError('');
     try {
-        // --- MODIFIED LOGIC: Build a payload with ONLY the changed fields ---
         const changedFields = {};
-
         Object.keys(editData).forEach(key => {
             const originalValue = booking[key];
             let editedValue = editData[key];
-
-            // Normalize values for accurate comparison
             let comparableOriginal = originalValue;
             if (dateFields.includes(key) && originalValue) {
                 comparableOriginal = originalValue.split('T')[0];
             }
             if (numberFields.includes(key)) {
-                // Treat null/undefined/empty string as 0 for comparison if original is 0
                 const originalNum = originalValue ?? 0;
                 const editedNum = parseFloat(editedValue) || 0;
                 if (originalNum !== editedNum) {
                     changedFields[key] = editedValue === '' || editedValue === null ? null : parseFloat(editedValue);
                 }
             } else if (comparableOriginal !== editedValue) {
-                 // For other fields, if they are different, add to payload
                  changedFields[key] = editedValue === '' ? null : editedValue;
             }
         });
 
-        // If nothing changed, don't make an API call
         if (Object.keys(changedFields).length === 0) {
             setIsEditing(false);
             return;
         }
-
-        // Send only the changed fields to the backend
         await updateBooking(booking.id, changedFields);
         onSave();
         setIsEditing(false);
@@ -193,24 +226,46 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     navigate('/create-booking', { state: { originalBookingForDateChange: booking } });
     onClose(); 
   };
+
+  const handleVoid = async (reason) => {
+      try {
+          await voidBooking(booking.id, reason);
+          setShowVoidPopup(false);
+          onSave();
+      } catch (err) {
+          setError(err.response?.data?.message || "Failed to void booking.");
+          setShowVoidPopup(false);
+      }
+  };
+
+  const handleUnvoid = async () => {
+      if (window.confirm("Are you sure you want to restore this booking? It will return to its previous status.")) {
+          try {
+              await unvoidBooking(booking.id);
+              onSave();
+          } catch (err) {
+              setError(err.response?.data?.message || "Failed to restore booking.");
+          }
+      }
+  };
   
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : 'N/A';
 
   const renderDetailsTab = () => (
     <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
-      <InfoItem label="Agent / Team">{booking.agentName} ({booking.teamName})</InfoItem>
-      <InfoItem label="PNR"><span className="font-mono">{booking.pnr}</span></InfoItem>
-      <InfoItem label="Airline">{booking.airline}</InfoItem>
-      <InfoItem label="Route">{booking.fromTo}</InfoItem>
-      <InfoItem label="PC Date">{formatDate(booking.pcDate)}</InfoItem>
-      <InfoItem label="Travel Date">{formatDate(booking.travelDate)}</InfoItem>
-      <InfoItem label="Issued Date">{formatDate(booking.issuedDate)}</InfoItem>
-      <InfoItem label="Payment Method">{booking.paymentMethod?.replace(/_/g, ' ')}</InfoItem>
+      <InfoItem label="Agent / Team"><p>{booking.agentName} ({booking.teamName})</p></InfoItem>
+      <InfoItem label="PNR"><p className="font-mono">{booking.pnr}</p></InfoItem>
+      <InfoItem label="Airline"><p>{booking.airline}</p></InfoItem>
+      <InfoItem label="Route"><p>{booking.fromTo}</p></InfoItem>
+      <InfoItem label="PC Date"><p>{formatDate(booking.pcDate)}</p></InfoItem>
+      <InfoItem label="Travel Date"><p>{formatDate(booking.travelDate)}</p></InfoItem>
+      <InfoItem label="Issued Date"><p>{formatDate(booking.issuedDate)}</p></InfoItem>
+      <InfoItem label="Payment Method"><p>{booking.paymentMethod?.replace(/_/g, ' ')}</p></InfoItem>
       <InfoItem label="Description" className="col-span-full">
-    <div className="text-sm italic text-slate-700 bg-slate-50 p-2 rounded-md">
-        {booking.description || 'No description provided.'}
-    </div>
-</InfoItem>
+        <div className="text-sm italic text-slate-700 bg-slate-50 p-2 rounded-md">
+            {booking.description || 'No description provided.'}
+        </div>
+      </InfoItem>
     </div>
   );
   
@@ -250,7 +305,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
           <InfoItem label="Total Received"><p className="font-semibold text-green-600">£{booking.received?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Balance Due"><p className={`font-semibold ${booking.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>£{booking.balance?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Profit"><p className={`font-bold text-2xl ${booking.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{booking.profit?.toFixed(2)}</p></InfoItem>
-          <InfoItem label="Invoice #">{booking.invoiced}</InfoItem>
+          <InfoItem label="Invoice #"><p>{booking.invoiced}</p></InfoItem>
       </div>
     )
   );
@@ -315,7 +370,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center p-4 z-40 animate-fade-in" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col transform animate-slide-up" onClick={e => e.stopPropagation()}>
         
-        {/* Header */}
         <header className="flex justify-between items-start p-5 border-b border-slate-200 bg-slate-50/50 rounded-t-xl">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">Booking Details</h2>
@@ -329,25 +383,41 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
               </>
             ) : (
               <>
-                <ActionButton onClick={() => setIsEditing(true)} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
+                <ActionButton onClick={() => setIsEditing(true)} disabled={isVoided} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
                 {booking.bookingStatus !== 'CANCELLED' && (
                   <ActionButton
                     onClick={handleDateChange} icon={<FaCalendarAlt />}
                     className="bg-purple-600 text-white hover:bg-purple-700"
-                    disabled={booking.isChainCancelled || booking.bookingStatus === 'CANCELLED'}
+                    disabled={isVoided || booking.isChainCancelled || booking.bookingStatus === 'CANCELLED'}
                     title={booking.isChainCancelled ? "Cannot create date change for a cancelled booking chain." : ""}
                   >Date Change</ActionButton>
                 )}
                 {!booking.cancellation && booking.bookingStatus !== 'CANCELLED' && (
-                  <ActionButton onClick={() => setShowCancelPopup(true)} icon={<FaBan />} className="bg-red-600 text-white hover:bg-red-700">Cancel Booking</ActionButton>
+                  <ActionButton onClick={() => setShowCancelPopup(true)} disabled={isVoided} icon={<FaBan />} className="bg-red-600 text-white hover:bg-red-700">Cancel Booking</ActionButton>
+                )}
+                 {isVoided ? (
+                   <ActionButton onClick={handleUnvoid} icon={<FaUndo />} className="bg-green-600 text-white hover:bg-green-700">Unvoid</ActionButton>
+                ) : (
+                   <ActionButton onClick={() => setShowVoidPopup(true)} icon={<FaExclamationTriangle />} className="bg-orange-500 text-white hover:bg-orange-600">Void Booking</ActionButton>
                 )}
               </>
             )}
             <button onClick={onClose} className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-800 transition-colors"><FaTimes size={20} /></button>
           </div>
         </header>
+        
+        {isVoided && (
+            <div className="p-4 bg-gray-700 text-white text-center">
+                <h4 className="font-bold text-lg">THIS BOOKING IS VOID</h4>
+                <p className="text-sm text-gray-300 mt-1">
+                    <strong>Reason:</strong> {booking.voidReason}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                    Voided on {new Date(booking.voidedAt).toLocaleDateString()}
+                </p>
+            </div>
+        )}
 
-        {/* Tabs */}
         <div className="border-b border-slate-200 px-5 bg-slate-50/50">
           <nav className="flex space-x-2 -mb-px">
             <TabButton label="Main Details" isActive={activeTab === 'details'} onClick={() => setActiveTab('details')} />
@@ -358,7 +428,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
           </nav>
         </div>
         
-        {/* Content */}
         <div className="p-6 overflow-y-auto flex-grow bg-white rounded-b-xl">
           {error && <div className="mb-4 p-3 bg-red-100 text-red-800 rounded-lg flex items-center gap-3"><FaExclamationTriangle />{error}</div>}
           
@@ -374,6 +443,13 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
               booking={booking}
               onClose={() => setShowCancelPopup(false)}
               onConfirm={handleConfirmCancellation}
+            />
+        )}
+
+        {showVoidPopup && (
+            <VoidReasonPopup 
+                onCancel={() => setShowVoidPopup(false)}
+                onSubmit={handleVoid}
             />
         )}
       </div>

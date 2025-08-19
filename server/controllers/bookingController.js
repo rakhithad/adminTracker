@@ -2714,6 +2714,94 @@ const recordPassengerRefund = async (req, res) => {
 };
 
 
+const voidBooking = async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const { userId } = req.user;
+
+    if (!reason) {
+        return apiResponse.error(res, 'A reason is required to void a booking.', 400);
+    }
+
+    try {
+        const updatedBooking = await prisma.$transaction(async (tx) => {
+            const bookingToVoid = await tx.booking.findUnique({ where: { id: parseInt(id) } });
+
+            if (!bookingToVoid) throw new Error('Booking not found');
+            if (bookingToVoid.bookingStatus === 'VOID') throw new Error('Booking is already voided');
+
+            const voidedBooking = await tx.booking.update({
+                where: { id: parseInt(id) },
+                data: {
+                    bookingStatus: 'VOID',
+                    statusBeforeVoid: bookingToVoid.bookingStatus, // Store the original status
+                    voidReason: reason,
+                    voidedAt: new Date(),
+                    voidedById: userId,
+                },
+            });
+
+            await createAuditLog(tx, {
+                userId,
+                modelName: 'Booking',
+                recordId: voidedBooking.id,
+                action: ActionType.VOID_BOOKING,
+                changes: [{ fieldName: 'status', oldValue: bookingToVoid.bookingStatus, newValue: 'VOID' }],
+                newValue: reason, // Use newValue to store the reason for context in the log
+            });
+
+            return voidedBooking;
+        });
+
+        return apiResponse.success(res, updatedBooking, 200, "Booking voided successfully.");
+    } catch (error) {
+        console.error("Error voiding booking:", error);
+        return apiResponse.error(res, `Failed to void booking: ${error.message}`, 500);
+    }
+};
+
+const unvoidBooking = async (req, res) => {
+    const { id } = req.params;
+    const { userId } = req.user;
+
+    try {
+        const updatedBooking = await prisma.$transaction(async (tx) => {
+            const bookingToUnvoid = await tx.booking.findUnique({ where: { id: parseInt(id) } });
+
+            if (!bookingToUnvoid) throw new Error('Booking not found');
+            if (bookingToUnvoid.bookingStatus !== 'VOID') throw new Error('Booking is not voided');
+            if (!bookingToUnvoid.statusBeforeVoid) throw new Error('Cannot unvoid: original status is unknown.');
+
+            const unvoidedBooking = await tx.booking.update({
+                where: { id: parseInt(id) },
+                data: {
+                    bookingStatus: bookingToUnvoid.statusBeforeVoid, // Restore original status
+                    statusBeforeVoid: null, // Clear all void-related fields
+                    voidReason: null,
+                    voidedAt: null,
+                    voidedById: null,
+                },
+            });
+
+            await createAuditLog(tx, {
+                userId,
+                modelName: 'Booking',
+                recordId: unvoidedBooking.id,
+                action: ActionType.UNVOID_BOOKING,
+                changes: [{ fieldName: 'status', oldValue: 'VOID', newValue: unvoidedBooking.bookingStatus }],
+            });
+
+            return unvoidedBooking;
+        });
+
+        return apiResponse.success(res, updatedBooking, 200, "Booking has been restored.");
+    } catch (error) {
+        console.error("Error unvoiding booking:", error);
+        return apiResponse.error(res, `Failed to unvoid booking: ${error.message}`, 500);
+    }
+};
+
+
 module.exports = {
   createPendingBooking,
   getPendingBookings,
@@ -2736,5 +2824,7 @@ module.exports = {
   createDateChangeBooking,
   createSupplierPayableSettlement,
   settleCustomerPayable,
-  recordPassengerRefund
+  recordPassengerRefund,
+  voidBooking,
+  unvoidBooking
 };

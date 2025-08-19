@@ -40,6 +40,7 @@ export default function BookingsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
+  const [showVoided, setShowVoided] = useState(false);
   
   // Set default sort to Folder No, descending (newest first)
   const [sortConfig, setSortConfig] = useState({ key: 'folderNo', direction: 'descending' });
@@ -81,16 +82,21 @@ export default function BookingsPage() {
   };
   
   const groupedAndSortedBookings = useMemo(() => {
-    if (!allBookings.length) return [];
+    const initialList = showVoided 
+        ? allBookings 
+        : allBookings.filter(b => b.bookingStatus !== 'VOID');
+
+    if (!initialList.length) return [];
 
     const bookingMap = new Map();
     const rootBookings = [];
 
-    allBookings.forEach(booking => {
+    initialList.forEach(booking => {
       bookingMap.set(booking.id, { ...booking, children: [] });
     });
 
-    bookingMap.forEach(bookingNode => {
+    initialList.forEach(booking => {
+      const bookingNode = bookingMap.get(booking.id);
       const parentId = bookingNode.originalBookingId;
       if (parentId && bookingMap.has(parentId)) {
         bookingMap.get(parentId).children.push(bookingNode);
@@ -127,7 +133,7 @@ export default function BookingsPage() {
     }
 
     return rootBookings;
-  }, [allBookings, sortConfig]);
+  }, [allBookings, sortConfig, showVoided]);
 
   const filteredBookings = useMemo(() => {
     if (!searchTerm) return groupedAndSortedBookings;
@@ -198,6 +204,7 @@ export default function BookingsPage() {
       case 'COMPLETED': return 'bg-green-100 text-green-800';
       case 'CONFIRMED': return 'bg-yellow-100 text-yellow-800';
       case 'CANCELLED': return 'bg-red-100 text-red-800';
+      case 'VOID': return 'bg-gray-200 text-gray-700 border border-gray-400';
       default: return 'bg-slate-200 text-slate-800';
     }
   }
@@ -211,7 +218,7 @@ export default function BookingsPage() {
     }
   }
 
-  return (
+    return (
     <div className="min-h-screen bg-slate-100 p-4 md:p-8">
       <div className="max-w-full mx-auto">
         <header className="mb-6">
@@ -219,15 +226,30 @@ export default function BookingsPage() {
           <p className="text-slate-600 mt-1">View and manage all client bookings.</p>
         </header>
 
-        <div className="relative mb-6 w-full max-w-lg">
-          <FaSearch className="absolute inset-y-0 left-3 h-full w-5 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by Folder, Ref, Passenger, Agent, PNR..."
-            className="block w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div className="relative w-full max-w-lg">
+            <FaSearch className="absolute inset-y-0 left-3 h-full w-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by Folder, Ref, Passenger, Agent, PNR..."
+              className="block w-full pl-10 pr-4 py-2.5 border border-slate-300 rounded-lg bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex items-center space-x-2">
+            <input
+                type="checkbox"
+                id="showVoided"
+                checked={showVoided}
+                onChange={(e) => setShowVoided(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="showVoided" className="text-sm font-medium text-slate-700 cursor-pointer">
+                Show Voided Bookings
+            </label>
+          </div>
         </div>
         
         {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center gap-2"><FaExclamationTriangle />{error}</div>}
@@ -255,7 +277,12 @@ export default function BookingsPage() {
                 {filteredBookings.length > 0 ? (
                   filteredBookings.map((booking) => {
                     const isCancelled = !!booking.cancellation;
-                    const rowClasses = isCancelled ? "bg-red-50/50" : "hover:bg-slate-50";
+                    const isVoided = booking.bookingStatus === 'VOID';
+                    
+                    const rowClasses = isVoided
+                      ? "bg-gray-100 text-gray-400 opacity-80"
+                      : isCancelled ? "bg-red-50/50" : "hover:bg-slate-50";
+                    
                     const isExpanded = expandedRows[booking.id];
 
                     return (
@@ -282,10 +309,10 @@ export default function BookingsPage() {
                           <td className="px-4 py-4 whitespace-nowrap text-sm font-mono text-slate-700">{booking.pnr}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-600">{booking.fromTo}</td>
                           <td className="px-4 py-4 whitespace-nowrap text-xs"><span className={`px-2 py-1 font-semibold rounded-full ${getStatusBadgeStyle(booking.bookingStatus)}`}>{booking.bookingStatus}</span></td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm ${isCancelled ? 'text-slate-400 italic' : 'text-slate-600'}`}>{formatDateDisplay(booking.travelDate)}</td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled ? 'text-slate-400' : 'text-green-700'}`}>{booking.revenue != null ? `£${parseFloat(booking.revenue).toFixed(2)}` : '—'}</td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled ? 'text-slate-400' : (parseFloat(booking.balance) > 0 ? 'text-red-700' : 'text-green-700')}`}>{booking.balance != null ? `£${parseFloat(booking.balance).toFixed(2)}` : '—'}</td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled ? 'text-red-700' : (parseFloat(booking.profit) > 0 ? 'text-green-700' : 'text-red-700')}`}>
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm ${isCancelled || isVoided ? 'text-slate-400' : 'text-slate-600'}`}>{formatDateDisplay(booking.travelDate)}</td>
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-slate-400' : 'text-green-700'}`}>{booking.revenue != null ? `£${parseFloat(booking.revenue).toFixed(2)}` : '—'}</td>
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-slate-400' : (parseFloat(booking.balance) > 0 ? 'text-red-700' : 'text-green-700')}`}>{booking.balance != null ? `£${parseFloat(booking.balance).toFixed(2)}` : '—'}</td>
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled ? 'text-red-700' : isVoided ? 'text-slate-400' : (parseFloat(booking.profit) > 0 ? 'text-green-700' : 'text-red-700')}`}>
                             {isCancelled ? `£${parseFloat(booking.cancellation.profitOrLoss).toFixed(2)}` : (booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—')}
                           </td>
                         </tr>
@@ -293,11 +320,9 @@ export default function BookingsPage() {
                         {isExpanded && booking.children.map(child => (
                           child.isCancellation ? (
                             <tr key={`${booking.id}-cancel`} className="bg-rose-50 border-b-2 border-rose-200">
-                               <td className="px-3 py-3"></td>{/* Align with expand button */}
+                               <td className="px-3 py-3"></td>
                                <td className="px-4 py-3 whitespace-nowrap font-bold text-rose-800 text-sm">↳ {child.folderNo}</td>
-                               <td />{/* Align with Ref No */}
-                               
-                               {/* This cell spans multiple columns to show detailed breakdown */}
+                               <td />
                                <td className="px-4 py-3 text-xs" colSpan="4">
                                    <div className="font-bold text-rose-900 mb-1">CANCELLATION DETAILS</div>
                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-700">
@@ -307,20 +332,14 @@ export default function BookingsPage() {
                                        <div className="flex items-center gap-1.5"><FaReceipt className="text-purple-500"/>Credit Note: <span className="font-semibold">£{(child.creditNoteAmount || 0).toFixed(2)}</span></div>
                                    </div>
                                </td>
-
-                               {/* Refund Status, aligned under the main Status column */}
                                <td className="px-4 py-3 whitespace-nowrap text-xs">
                                    <span className={`px-2 py-1 font-semibold rounded-full ${getRefundStatusBadgeStyle(child.refundStatus)}`}>
                                        {child.refundStatus} REFUND
                                    </span>
                                </td>
-
-                               {/* Placeholders to keep column alignment */}
                                <td className="px-4 py-3 text-center text-slate-400">—</td>
                                <td className="px-4 py-3 text-center text-slate-400">—</td>
                                <td className="px-4 py-3 text-center text-slate-400">—</td>
-                               
-                               {/* Profit/Loss, aligned under the main Profit column */}
                                <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${parseFloat(child.profitOrLoss) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                    £{child.profitOrLoss.toFixed(2)}
                                </td>

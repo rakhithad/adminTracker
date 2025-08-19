@@ -48,6 +48,12 @@ model Booking {
   originalBooking   Booking?        @relation("BookingChain", fields: [originalBookingId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   followUpBookings  Booking[]       @relation("BookingChain")
 
+  statusBeforeVoid  BookingStatus? @map("status_before_void")
+  voidReason        String?        @map("void_reason")
+  voidedAt          DateTime?      @map("voided_at")
+  voidedById        Int?           @map("voided_by_id")
+  voidedBy          User?          @relation("VoidedBookings", fields: [voidedById], references: [id])
+
   customerPayables        CustomerPayable[]
 
   cancellation      Cancellation?   
@@ -153,6 +159,9 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at") // NEW: Added for tracking updates.
 
   createdPendingBookings PendingBooking[]
+  
+  voidedBookings Booking[] @relation("VoidedBookings")
+
 
 
   auditLogs AuditLog[]
@@ -238,6 +247,7 @@ enum BookingStatus {
   CONFIRMED
   COMPLETED
   CANCELLED
+  VOID
 }
 
 enum PendingStatus {
@@ -532,6 +542,7 @@ enum ActionType {
   REJECT_PENDING
   DATE_CHANGE
   VOID_BOOKING 
+  UNVOID_BOOKING
   CREATE_CANCELLATION
   SETTLEMENT_PAYMENT
   REFUND_PAYMENT
