@@ -121,6 +121,7 @@ const createPendingBooking = async (req, res) => {
       // 6. Create the Pending Booking record
       const newPendingBooking = await tx.pendingBooking.create({
         data: {
+          createdById: userId,
           refNo: req.body.ref_no,
           paxName: req.body.pax_name,
           agentName: req.body.agent_name,
@@ -206,7 +207,7 @@ const createPendingBooking = async (req, res) => {
         userId: userId,
         modelName: 'PendingBooking',
         recordId: newPendingBooking.id,
-        action: ActionType.CREATE,
+        action: ActionType.CREATE_PENDING,
       });
 
       return tx.pendingBooking.findUnique({
@@ -251,9 +252,7 @@ const approveBooking = async (req, res) => {
     return apiResponse.error(res, 'Invalid booking ID', 400);
   }
 
-  // --- AUDIT LOG ---
-  // Get the userId of the admin/manager who is approving this booking.
-  const { userId } = req.user;
+  const { userId: approverId } = req.user;
 
   try {
     const booking = await prisma.$transaction(async (tx) => {
@@ -264,6 +263,7 @@ const approveBooking = async (req, res) => {
           costItems: { include: { suppliers: true } },
           instalments: true,
           passengers: true,
+          createdBy: true,
         },
       });
 
@@ -368,7 +368,7 @@ const approveBooking = async (req, res) => {
       // --- AUDIT LOG: Step A ---
       // Log the approval action on the PendingBooking record.
       await createAuditLog(tx, {
-        userId: userId,
+        userId: approverId,
         modelName: 'PendingBooking',
         recordId: pendingBooking.id,
         action: ActionType.APPROVE_PENDING,
@@ -382,7 +382,7 @@ const approveBooking = async (req, res) => {
       // --- AUDIT LOG: Step B ---
       // Log the creation of the new, official Booking record.
       await createAuditLog(tx, {
-        userId: userId, // We attribute creation of the main booking to the approver.
+        userId: pendingBooking.createdById,
         modelName: 'Booking',
         recordId: newBooking.id,
         action: ActionType.CREATE
