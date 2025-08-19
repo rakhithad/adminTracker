@@ -54,9 +54,7 @@ export const updatePendingBooking = async (bookingId, updates) => {
   return await api.put(`/bookings/pending/${bookingId}`, updates);
 };
 
-export const getUsers = async () => {
-  return await api.get('/users');
-};
+
 
 export const createUser = async (userData) => {
   return await api.post('/users', userData);
@@ -139,6 +137,14 @@ export const updateMyProfile = (profileData) => {
 
 export const getAgentsList = () => {
   return api.get('/auth/agents'); 
+};
+
+export const getAllUsers = async () => {
+  return await api.get('/auth');
+};
+
+export const updateUserById = async (userId, userData) => {
+  return await api.put(`/auth/${userId}`, userData);
 };
 
 

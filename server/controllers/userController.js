@@ -187,10 +187,77 @@ const getAgents = async (req, res) => {
 };
 
 
+const getAllUsers = async (req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: { // Explicitly select fields to NEVER expose the password hash
+                id: true,
+                email: true,
+                title: true,
+                firstName: true,
+                lastName: true,
+                contactNo: true,
+                role: true,
+                team: true,
+            },
+            orderBy: {
+                firstName: 'asc'
+            }
+        });
+        // Use your apiResponse utility for consistency
+        return apiResponse.success(res, users);
+    } catch (error) {
+        console.error("Error fetching all users:", error);
+        return apiResponse.error(res, 'Failed to fetch users.', 500);
+    }
+};
+
+const updateUserById = async (req, res) => {
+    const userIdToUpdate = parseInt(req.params.id);
+    if (isNaN(userIdToUpdate)) {
+        return apiResponse.error(res, 'Invalid user ID provided.', 400);
+    }
+
+    // These are the fields an admin is allowed to change
+    const { title, firstName, lastName, contactNo, role, team } = req.body;
+
+    try {
+        const updatedUser = await prisma.user.update({
+            where: { id: userIdToUpdate },
+            data: {
+                title,
+                firstName,
+                lastName,
+                contactNo,
+                role,
+                team,
+            },
+            select: { // Return the updated user data, without the password
+                id: true, email: true, title: true, firstName: true,
+                lastName: true, contactNo: true, role: true, team: true,
+            }
+        });
+
+        return apiResponse.success(res, updatedUser, 200, "User profile updated successfully.");
+    } catch (error) {
+        console.error(`Error updating user ${userIdToUpdate}:`, error);
+        // Check if the error is because the user wasn't found
+        if (error.code === 'P2025') {
+            return apiResponse.error(res, 'User not found.', 404);
+        }
+        return apiResponse.error(res, 'Failed to update user profile.', 500);
+    }
+};
+
+
+
+
 module.exports = {
   register,
   login,
   getMyProfile,
   updateMyProfile,
-  getAgents
+  getAgents,
+  getAllUsers,
+  updateUserById,
 };

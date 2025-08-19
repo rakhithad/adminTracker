@@ -1,30 +1,23 @@
-// src/components/NavigationBar.js
-
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom'; // Import useNavigate
+import { NavLink, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 
 export default function NavigationBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const navigate = useNavigate(); // Initialize the navigate function
+  const navigate = useNavigate();
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
-  // The function to handle user logout
   const handleLogout = () => {
-    // 1. Remove the token from local storage (or wherever you store it)
     localStorage.removeItem('token');
-
-    // 2. Redirect the user to the login page
     navigate('/login');
-
-    // Optional: Close the mobile menu if open
     setIsMobileMenuOpen(false);
   };
 
-
+  // --- MODIFICATION IS HERE ---
+  // Added the new "User Management" link to the array.
   const navLinks = [
     { name: 'Home', path: '/' },
     { name: 'Dashboard', path: '/Dashboard' },
@@ -33,6 +26,7 @@ export default function NavigationBar() {
     { name: 'Customer Deposits', path: '/customer-deposits' },
     { name: 'Supplier Info', path: '/suppliers-info' },
     { name: 'Transactions', path: '/transactions' },
+    { name: 'User Management', path: '/user-management' }, // <-- ADDED THIS LINE
     { name: 'My Profile', path: '/profile' },
   ];
 
