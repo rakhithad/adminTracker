@@ -592,7 +592,8 @@ const getBookings = async (req, res) => {
         costItems: { include: { suppliers: true } },
         passengers: true,
         instalments: { include: { payments: true } },
-        cancellation: true, // <-- NEW: Include the related cancellation record
+        cancellation: true,
+        initialPayments: true,
       },
       orderBy: { pcDate: 'desc' },
     });
@@ -876,8 +877,8 @@ const getRecentBookings = async (req, res) => {
 };
 
 
+
 const updateInstalment = async (req, res) => {
-  // --- AUDIT LOG ---
   const { userId } = req.user;
   const { id } = req.params;
   const { amount, status, transactionMethod, paymentDate } = req.body;
@@ -888,18 +889,21 @@ const updateInstalment = async (req, res) => {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Find the instalment and its parent booking
       const instalmentToUpdate = await tx.instalment.findUnique({
         where: { id: parseInt(id) },
-        include: { booking: true },
+        include: { 
+            booking: {
+                include: {
+                    initialPayments: true // We need this to calculate the total received
+                }
+            }
+        },
       });
 
       if (!instalmentToUpdate) {
         throw new Error('Instalment not found');
       }
 
-      // --- LOGIC REMAINS THE SAME ---
-      // Step 1: Create the payment record if the instalment is being marked as PAID.
       if (status === 'PAID') {
           await tx.instalmentPayment.create({
               data: {
@@ -910,8 +914,6 @@ const updateInstalment = async (req, res) => {
               },
           });
 
-          // --- AUDIT LOG: Step A ---
-          // Log the status change on the Instalment record itself
           await createAuditLog(tx, {
             userId,
             modelName: 'Instalment',
@@ -924,53 +926,53 @@ const updateInstalment = async (req, res) => {
             }]
           });
 
-          // --- AUDIT LOG: Step B ---
-          // Log that a payment was made on the parent Booking record
           await createAuditLog(tx, {
             userId,
             modelName: 'Booking',
             recordId: instalmentToUpdate.bookingId,
-            action: ActionType.SETTLEMENT_PAYMENT, // Using a specific action type
+            action: ActionType.SETTLEMENT_PAYMENT,
             changes: [{
-              fieldName: 'received',
-              oldValue: instalmentToUpdate.booking.received,
-              // The newValue will be calculated and logged after the update
-              newValue: `(See new balance)` // Placeholder
+              fieldName: 'balance',
+              oldValue: instalmentToUpdate.booking.balance,
+              newValue: `(Payment of £${amount} received)`
             }]
           });
       }
 
-      // Step 2: Update the instalment itself.
       const updatedInstalment = await tx.instalment.update({
         where: { id: parseInt(id) },
         data: { amount: parseFloat(amount), status },
         include: { payments: true }
       });
 
-      // Step 3: Recalculate the booking's totals.
-      const allPaymentsForBooking = await tx.instalmentPayment.findMany({
+      // --- NEW CALCULATION LOGIC ---
+      // 1. Get the sum of all initial payments for the booking
+      const sumOfInitialPayments = instalmentToUpdate.booking.initialPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      // 2. Get the sum of ALL instalment payments, including the new one
+      const allInstalmentPayments = await tx.instalmentPayment.findMany({
           where: { instalment: { bookingId: instalmentToUpdate.bookingId } }
       });
-      const totalPaidViaInstalments = allPaymentsForBooking.reduce((sum, p) => sum + p.amount, 0);
-      const newTotalReceived = (instalmentToUpdate.booking.initialDeposit || 0) + totalPaidViaInstalments;
+      const totalPaidViaInstalments = allInstalmentPayments.reduce((sum, p) => sum + p.amount, 0);
+      
+      // 3. The new total received is the sum of both
+      const newTotalReceived = sumOfInitialPayments + totalPaidViaInstalments;
       const newBalance = (instalmentToUpdate.booking.revenue || 0) - newTotalReceived;
       
-      // Step 4: Update the parent booking.
+      // 4. Update the parent booking's balance (NO 'received' field)
       const updatedBooking = await tx.booking.update({
           where: { id: instalmentToUpdate.bookingId },
           data: {
-              received: newTotalReceived,
               balance: newBalance,
               lastPaymentDate: status === 'PAID' ? new Date(paymentDate) : instalmentToUpdate.booking.lastPaymentDate,
           }
       });
-      // --- END OF ORIGINAL LOGIC ---
+      // --- END OF NEW LOGIC ---
 
       return {
           updatedInstalment,
           bookingUpdate: {
               id: updatedBooking.id,
-              received: updatedBooking.received,
               balance: updatedBooking.balance
           }
       };
@@ -985,6 +987,7 @@ const updateInstalment = async (req, res) => {
     return apiResponse.error(res, `Failed to update instalment: ${error.message}`, 500);
   }
 };
+
 
 const getCustomerDeposits = async (req, res) => {
   try {
@@ -2178,15 +2181,12 @@ const getAvailableCreditNotes = async (req, res) => {
 // In server/controllers/bookingController.js
 
 const createDateChangeBooking = async (req, res) => {
-  // --- AUDIT LOG ---
   const { userId } = req.user;
   const originalBookingId = parseInt(req.params.id);
   const data = req.body;
 
   try {
-    // This function already uses a transaction, which is great.
     const newBooking = await prisma.$transaction(async (tx) => {
-      // --- Step 1: Validation and Setup (remains the same) ---
       if (!data.travelDate || !data.revenue) {
         throw new Error('Travel Date and Revenue are required for a date change.');
       }
@@ -2204,11 +2204,9 @@ const createDateChangeBooking = async (req, res) => {
       if (isChainCancelled) {
         throw new Error('This booking chain has been cancelled and cannot be modified further.');
       }
-      // --- End of validation ---
 
-      // --- Step 2: Folder Number and Status Update Logic ---
       const relatedBookings = await tx.booking.findMany({ where: { folderNo: { startsWith: `${baseFolderNo}.` } } });
-      const newIndex = relatedBookings.length; // Corrected index logic
+      const newIndex = relatedBookings.length;
       const newFolderNo = `${baseFolderNo}.${newIndex + 1}`;
       
       let bookingToUpdateId = originalBooking.id;
@@ -2226,13 +2224,11 @@ const createDateChangeBooking = async (req, res) => {
       
       await tx.booking.update({ where: { id: bookingToUpdateId }, data: { bookingStatus: 'COMPLETED' } });
       
-      // --- AUDIT LOG: Step A ---
-      // Log the status change on the now-completed booking.
       await createAuditLog(tx, {
           userId,
           modelName: 'Booking',
           recordId: bookingToUpdateId,
-          action: ActionType.DATE_CHANGE, // A specific action for clarity
+          action: ActionType.DATE_CHANGE,
           changes: [{
             fieldName: 'bookingStatus',
             oldValue: oldBookingStatus,
@@ -2240,28 +2236,82 @@ const createDateChangeBooking = async (req, res) => {
           }]
       });
 
-      // --- Step 3: Create the new date-changed Booking record ---
       const newBookingRecord = await tx.booking.create({
         data: {
-          // ... all your existing booking data ...
-          originalBookingId: originalBooking.id, folderNo: newFolderNo, bookingStatus: 'CONFIRMED', bookingType: 'DATE_CHANGE',
-          refNo: data.ref_no, paxName: data.pax_name, agentName: data.agent_name, teamName: data.team_name,
-          pnr: data.pnr, airline: data.airline, fromTo: data.from_to, pcDate: new Date(data.pcDate),
+          originalBooking: { connect: { id: originalBooking.id } },
+          folderNo: newFolderNo,
+          bookingStatus: 'CONFIRMED',
+          bookingType: 'DATE_CHANGE',
+          refNo: data.ref_no,
+          paxName: data.pax_name,
+          agentName: data.agent_name,
+          teamName: data.team_name,
+          pnr: data.pnr,
+          airline: data.airline,
+          fromTo: data.from_to,
+          pcDate: new Date(data.pcDate),
           issuedDate: data.issuedDate ? new Date(data.issuedDate) : null,
-          paymentMethod: data.paymentMethod, lastPaymentDate: data.lastPaymentDate ? new Date(data.lastPaymentDate) : null,
-          travelDate: new Date(data.travelDate), revenue: data.revenue, prodCost: data.prodCost,
-          transFee: data.transFee, surcharge: data.surcharge, received: data.received,
-          initialDeposit: (data.paymentMethod === 'INTERNAL' || data.paymentMethod === 'INTERNAL_HUMM') 
-              ? (parseFloat(data.received) || 0) 
-              : (parseFloat(data.revenue) || 0),
-          transactionMethod: data.transactionMethod, receivedDate: data.receivedDate ? new Date(data.receivedDate) : null,
-          balance: data.balance, profit: data.profit, invoiced: data.invoiced,
-          description: data.description, numPax: data.numPax,
+          paymentMethod: data.paymentMethod,
+          lastPaymentDate: data.lastPaymentDate ? new Date(data.lastPaymentDate) : null,
+          travelDate: new Date(data.travelDate),
+          revenue: data.revenue,
+          prodCost: data.prodCost,
+          transFee: data.transFee,
+          surcharge: data.surcharge,
+          balance: data.balance,
+          profit: data.profit,
+          invoiced: data.invoiced,
+          description: data.description,
+          numPax: data.numPax,
+          initialPayments: {
+            create: (data.initialPayments || []).map(p => ({
+              amount: parseFloat(p.amount),
+              transactionMethod: p.transactionMethod,
+              paymentDate: new Date(p.receivedDate),
+            })),
+          },
+          passengers: {
+            create: (data.passengers || []).map(pax => ({
+                title: pax.title,
+                firstName: pax.firstName,
+                middleName: pax.middleName,
+                lastName: pax.lastName,
+                gender: pax.gender,
+                email: pax.email,
+                contactNo: pax.contactNo,
+                nationality: pax.nationality,
+                birthday: pax.birthday ? new Date(pax.birthday) : null,
+                category: pax.category,
+            }))
+          },
+          instalments: {
+            create: (data.instalments || []).map(inst => ({
+              dueDate: new Date(inst.dueDate),
+              amount: parseFloat(inst.amount),
+              status: inst.status || 'PENDING'
+            }))
+          },
+          costItems: {
+            create: (data.prodCostBreakdown || []).map(item => ({
+              category: item.category,
+              amount: parseFloat(item.amount),
+              suppliers: {
+                create: item.suppliers.map(s => ({
+                    supplier: s.supplier,
+                    amount: parseFloat(s.amount),
+                    paymentMethod: s.paymentMethod,
+                    paidAmount: parseFloat(s.paidAmount) || 0,
+                    pendingAmount: parseFloat(s.pendingAmount) || 0,
+                    transactionMethod: s.transactionMethod,
+                    firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
+                    secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+                }))
+              }
+            }))
+          }
         },
       });
 
-      // --- AUDIT LOG: Step B ---
-      // Log the creation of this new booking in the chain.
       await createAuditLog(tx, {
         userId,
         modelName: 'Booking',
@@ -2269,23 +2319,9 @@ const createDateChangeBooking = async (req, res) => {
         action: ActionType.CREATE,
       });
 
-
-      // --- Step 4: Sequentially create related records (remains the same) ---
-      if (data.passengers && data.passengers.length > 0) {
-        // ... passenger creation logic ...
-      }
-      if (data.instalments && data.instalments.length > 0) {
-        // ... instalment creation logic ...
-      }
-      for (const item of (data.prodCostBreakdown || [])) {
-        // ... cost item and supplier creation logic ...
-      }
-
-
-      // --- Step 5: Return the complete booking (remains the same) ---
       return tx.booking.findUnique({
         where: { id: newBookingRecord.id },
-        include: { costItems: { include: { suppliers: true } }, instalments: true, passengers: true }
+        include: { costItems: { include: { suppliers: true } }, instalments: true, passengers: true, initialPayments: true }
       });
     });
 
@@ -2298,7 +2334,6 @@ const createDateChangeBooking = async (req, res) => {
     return apiResponse.error(res, `Failed to create date change booking: ${error.message}`, 500);
   }
 };
-
 
 const createSupplierPayableSettlement = async (req, res) => {
     // --- AUDIT LOG ---

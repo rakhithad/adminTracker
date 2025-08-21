@@ -4,14 +4,14 @@ import { updateInstalment } from '../api/api';
 export default function InstalmentPaymentPopup({ instalment, booking, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     amount: instalment.amount.toString(),
-    transactionMethod: 'BANK_TRANSFER',
+    transactionMethod: 'LOYDS',
     paymentDate: new Date().toISOString().split('T')[0],
     status: 'PAID',
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const transactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
 
   const handleChange = (e) => {
     const { name, value } = e.target;

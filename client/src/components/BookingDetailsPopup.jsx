@@ -4,8 +4,6 @@ import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriang
 import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking } from '../api/api';
 import CancellationPopup from './CancellationPopup';
 
-// --- Reusable Styled Components ---
-
 const TabButton = ({ label, isActive, onClick }) => (
   <button
     onClick={onClick}
@@ -44,8 +42,6 @@ const ActionButton = ({ icon, children, onClick, className = '', ...props }) => 
   </button>
 );
 
-
-// --- THIS IS THE MISSING COMPONENT DEFINITION ---
 const VoidReasonPopup = ({ onSubmit, onCancel }) => {
     const [reason, setReason] = useState('');
     return (
@@ -141,9 +137,12 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [auditHistory, setAuditHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'received', 'balance', 'profit'];
+  const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'balance', 'profit'];
   const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
   const isVoided = booking.bookingStatus === 'VOID';
+
+  const totalReceived = (booking.initialPayments || []).reduce((sum, p) => sum + p.amount, 0) +
+                        (booking.instalments || []).reduce((sum, inst) => sum + (inst.payments || []).reduce((pSum, p) => pSum + p.amount, 0), 0);
 
   useEffect(() => {
     const initialEditData = { ...booking };
@@ -192,6 +191,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     try {
         const changedFields = {};
         Object.keys(editData).forEach(key => {
+            if (key === 'initialPayments') return; 
             const originalValue = booking[key];
             let editedValue = editData[key];
             let comparableOriginal = originalValue;
@@ -291,7 +291,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <EditInput label="Product Cost (£)" name="prodCost" type="number" step="0.01" value={editData.prodCost ?? ''} onChange={handleEditChange} />
             <EditInput label="Trans. Fee (£)" name="transFee" type="number" step="0.01" value={editData.transFee ?? ''} onChange={handleEditChange} />
             <EditInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={editData.surcharge ?? ''} onChange={handleEditChange} />
-            <EditInput label="Total Received (£)" name="received" type="number" step="0.01" value={editData.received ?? ''} onChange={handleEditChange} />
+            <InfoItem label="Total Received"><p className="font-semibold text-green-600 mt-1 p-2 bg-gray-100 rounded-lg">£{totalReceived.toFixed(2)}</p></InfoItem>
             <EditInput label="Balance Due (£)" name="balance" type="number" step="0.01" value={editData.balance ?? ''} onChange={handleEditChange} />
             <EditInput label="Profit (£)" name="profit" type="number" step="0.01" value={editData.profit ?? ''} onChange={handleEditChange} />
             <EditInput label="Invoice #" name="invoiced" value={editData.invoiced || ''} onChange={handleEditChange} />
@@ -302,7 +302,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
           <InfoItem label="Product Cost"><p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Trans. Fee"><p>£{booking.transFee?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Surcharge"><p>£{booking.surcharge?.toFixed(2)}</p></InfoItem>
-          <InfoItem label="Total Received"><p className="font-semibold text-green-600">£{booking.received?.toFixed(2)}</p></InfoItem>
+          <InfoItem label="Total Received"><p className="font-semibold text-green-600">£{totalReceived.toFixed(2)}</p></InfoItem>
           <InfoItem label="Balance Due"><p className={`font-semibold ${booking.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>£{booking.balance?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Profit"><p className={`font-bold text-2xl ${booking.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{booking.profit?.toFixed(2)}</p></InfoItem>
           <InfoItem label="Invoice #"><p>{booking.invoiced}</p></InfoItem>
@@ -317,17 +317,39 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                   {headers.map(h => <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>)}
               </tr></thead>
               <tbody className="bg-white divide-y divide-slate-200">
-                  {data}
+                  {data.length > 0 ? data : (
+                    <tr><td colSpan={headers.length} className="text-center py-10 text-slate-500">No payment records found.</td></tr>
+                  )}
               </tbody>
           </table>
       </div>
   );
 
   const customerPaymentsData = [
-      ...(booking.initialDeposit > 0 ? [{ id: 'initial', date: booking.receivedDate, type: 'Initial Deposit', amount: booking.initialDeposit }] : []),
-      ...(booking.instalments?.flatMap(inst => inst.payments?.map(p => ({ id: p.id, date: p.paymentDate, type: 'Instalment', amount: p.amount }))) || [])
-  ].map(p => (
-      <tr key={p.id}><td className="px-4 py-3 whitespace-nowrap">{formatDate(p.date)}</td><td className="px-4 py-3 whitespace-nowrap">{p.type}</td><td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-slate-700">£{p.amount?.toFixed(2)}</td></tr>
+      ...(booking.initialPayments || []).map(p => ({
+          id: p.id,
+          date: p.paymentDate,
+          type: 'Initial Payment',
+          amount: p.amount,
+          method: p.transactionMethod
+      })),
+      ...(booking.instalments || []).flatMap(inst =>
+          (inst.payments || []).map(p => ({
+              id: p.id,
+              date: p.paymentDate,
+              type: 'Instalment',
+              amount: p.amount,
+              method: p.transactionMethod
+          }))
+      )
+  ].sort((a,b) => new Date(a.date) - new Date(b.date))
+  .map(p => (
+      <tr key={p.id}>
+          <td className="px-4 py-3 whitespace-nowrap">{formatDate(p.date)}</td>
+          <td className="px-4 py-3 whitespace-nowrap">{p.type}</td>
+          <td className="px-4 py-3 whitespace-nowrap">{p.method}</td>
+          <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-slate-700">£{p.amount?.toFixed(2)}</td>
+      </tr>
   ));
 
   const supplierPaymentsData = booking.costItems?.flatMap(item => 
@@ -433,7 +455,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
           
           {activeTab === 'details' && (isEditing ? renderEditDetailsTab() : renderDetailsTab())}
           {activeTab === 'financials' && renderFinancialsTab()}
-          {activeTab === 'customer' && renderPaymentsTable(['Date', 'Type', 'Amount'], customerPaymentsData)}
+          {activeTab === 'customer' && renderPaymentsTable(['Date', 'Type', 'Method', 'Amount'], customerPaymentsData)}
           {activeTab === 'supplier' && renderPaymentsTable(['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], supplierPaymentsData)}
           {activeTab === 'history' && renderHistoryTab()}
         </div>
