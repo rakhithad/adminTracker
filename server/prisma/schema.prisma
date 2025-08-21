@@ -29,9 +29,7 @@ model Booking {
   prodCost          Float?          @map("prod_cost")
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
-  received          Float?          @map("received")
-  transactionMethod String?         @map("transaction_method")
-  receivedDate      DateTime?       @map("received_date")
+  initialPayments   InitialPayment[]
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
   invoiced          String?         @map("invoice")
@@ -81,9 +79,7 @@ model PendingBooking {
   prodCost          Float?          @map("prod_cost")
   transFee          Float?          @map("trans_fee")
   surcharge         Float?          @map("surcharge")
-  received          Float?          @map("received")
-  transactionMethod String?         @map("transaction_method")
-  receivedDate      DateTime?       @map("received_date")
+  initialPayments   InitialPayment[]
   balance           Float?          @map("balance")
   profit            Float?          @map("profit")
   invoiced          String?         @map("invoice")
@@ -546,4 +542,24 @@ enum ActionType {
   CREATE_CANCELLATION
   SETTLEMENT_PAYMENT
   REFUND_PAYMENT
+}
+
+model InitialPayment {
+  id                Int      @id @default(autoincrement())
+  amount            Float
+  transactionMethod String
+  paymentDate       DateTime
+
+  // Relation to PendingBooking
+  pendingBookingId  Int?
+  pendingBooking    PendingBooking? @relation(fields: [pendingBookingId], references: [id], onDelete: Cascade)
+
+  // Relation to Booking
+  bookingId         Int?
+  booking           Booking?        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("initial_payments")
 }
