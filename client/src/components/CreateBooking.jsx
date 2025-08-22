@@ -1,15 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaUserPlus, FaCalculator, FaMoneyBillWave, FaCheckCircle, FaTimesCircle, FaLock } from 'react-icons/fa';
+import { FaUserPlus, FaCalculator, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { createPendingBooking, createDateChangeBooking, getAgentsList } from '../api/api';
 
 import ProductCostBreakdown from './ProductCostBreakdown';
 import PaxDetailsPopup from './PaxDetailsPopup';
 import ReceivedAmountPopup from './ReceivedAmountPopup';
 import InternalPaymentForm from './InternalPaymentForm';
-import InitialPaymentsDisplay from './InitialPaymentsDisplay'
+import InitialPaymentsDisplay from './InitialPaymentsDisplay';
 
-// Reusable components (can be moved to a shared file later)
 const FormInput = ({ label, name, required = false, ...props }) => (
   <div>
     <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">
@@ -44,39 +43,28 @@ const FormSelect = ({ label, name, required = false, children, ...props }) => (
 export default function CreateBooking({ onBookingCreated }) {
   const location = useLocation();
   const navigate = useNavigate();
-
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
 
   const getInitialFormData = () => ({
-  // Core Fields
-  refNo: '', paxName: '', passengers: [], numPax: 1, agentName: '', teamName: '',
-  pnr: '', airline: '', fromTo: '', travelDate: '', description: '',
-  pcDate: new Date().toISOString().split('T')[0],
-  issuedDate: new Date().toISOString().split('T')[0],
-  
-  // Financial Fields
-  revenue: '', prodCost: '', prodCostBreakdown: [], surcharge: '',
-  profit: '', balance: '',
-
-  // NEW: This array will hold all payment details
-  initialPayments: [], 
-  
-  // This will be calculated from the array above
-  received: '', 
-  
-  // -- Internal/Instalment Specific Fields --
-  period: 'within30days',
-  customInstalments: [],
-  totalSellingPrice: '',
-  repaymentPeriod: '',
-  trans_fee: '',
-  totalBalancePayable: '',
-  lastPaymentDate: '',
-});
+    refNo: '', paxName: '', passengers: [], numPax: 1, agentName: '', teamName: '',
+    pnr: '', airline: '', fromTo: '', travelDate: '', description: '',
+    pcDate: new Date().toISOString().split('T')[0],
+    issuedDate: new Date().toISOString().split('T')[0],
+    revenue: '', prodCost: '', prodCostBreakdown: [], surcharge: '',
+    profit: '', balance: '',
+    initialPayments: [], 
+    received: '', 
+    period: 'within30days',
+    customInstalments: [],
+    totalSellingPrice: '',
+    repaymentPeriod: '',
+    trans_fee: '',
+    totalBalancePayable: '',
+    lastPaymentDate: '',
+  });
   
   const [formData, setFormData] = useState(getInitialFormData());
   const [originalBookingInfo, setOriginalBookingInfo] = useState(null);
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -86,33 +74,22 @@ export default function CreateBooking({ onBookingCreated }) {
   const [agents, setAgents] = useState([]);
 
   useEffect(() => {
-  const fetchAgents = async () => {
-    try {
-      // You should create a function in your api.js file for this
-      const response = await getAgentsList(); 
-      setAgents(response.data); // Assuming your API returns the data in response.data
-    } catch (error) {
-      console.error("Failed to fetch agents list", error);
-      // Optionally set an error message to display to the user
-    }
-  };
+    const fetchAgents = async () => {
+      try {
+        const response = await getAgentsList(); 
+        setAgents(response.data);
+      } catch (error) {
+        console.error("Failed to fetch agents list", error);
+      }
+    };
+    fetchAgents();
+  }, []);
 
-  fetchAgents();
-}, []);
-
-  // Corrected Code
-useEffect(() => {
+  useEffect(() => {
     const originalBooking = location.state?.originalBookingForDateChange;
     if (originalBooking) {
-      console.log("Date Change mode activated for booking:", originalBooking);
       setOriginalBookingInfo({ id: originalBooking.id, folderNo: originalBooking.folderNo });
-      
-      // --- THE FIX ---
-      // Tell the UI to behave like a 'Full Payment' form.
       setSelectedPaymentMethod('FULL'); 
-      
-      // Set the form data, pre-filling from the original booking
-      // and correctly setting the bookingType property for the back-end.
       setFormData({
         ...getInitialFormData(),
         paxName: originalBooking.paxName,
@@ -120,70 +97,57 @@ useEffect(() => {
         numPax: originalBooking.numPax,
         agentName: originalBooking.agentName,
         teamName: originalBooking.teamName,
-        bookingType: 'DATE_CHANGE', // This correctly sets the data property
+        bookingType: 'DATE_CHANGE',
       });
-      
-      // Clear the location state to prevent re-triggering
       window.history.replaceState({}, document.title);
     }
-}, [location.state]);
-
+  }, [location.state]);
 
   useEffect(() => {
-  const totalReceived = formData.initialPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-  let newCalculations = { received: totalReceived.toFixed(2) };
+    const totalReceived = formData.initialPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    let newCalculations = { received: totalReceived.toFixed(2) };
 
-  const revenueNum = parseFloat(formData.revenue) || 0;
-  const prodCostNum = parseFloat(formData.prodCost) || 0;
-  const surchargeNum = parseFloat(formData.surcharge) || 0;
-  
-  if (selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM') {
-      newCalculations.profit = (revenueNum - prodCostNum - surchargeNum).toFixed(2);
-      newCalculations.balance = (revenueNum - totalReceived).toFixed(2);
-  } else if (selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') {
-      const { period, customInstalments } = formData;
+    const revenueNum = parseFloat(formData.revenue) || 0;
+    const prodCostNum = parseFloat(formData.prodCost) || 0;
+    const surchargeNum = parseFloat(formData.surcharge) || 0;
+    
+    if (selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM') {
+        newCalculations.profit = (revenueNum - prodCostNum - surchargeNum).toFixed(2);
+        newCalculations.balance = (revenueNum - totalReceived).toFixed(2);
+    } else if (selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') {
+        const { period, customInstalments } = formData;
 
-      if (period === 'within30days') {
-          newCalculations.profit = (revenueNum - prodCostNum - surchargeNum).toFixed(2);
-          newCalculations.balance = (revenueNum - totalReceived).toFixed(2);
-      } else if (period === 'beyond30') {
-          const FIXED_INTEREST_RATE = 11;
-          const MONTHLY_INTEREST_RATE = FIXED_INTEREST_RATE / 100 / 12;
-
-          const price = parseFloat(formData.totalSellingPrice) || 0;
-          const deposit = totalReceived; // <-- THIS IS THE CRUCIAL CHANGE
-          const balanceAfterDeposit = price - deposit;
-          
-          const today = new Date();
-          const lastDate = customInstalments.length > 0 ? new Date(customInstalments.reduce((latest, inst) => new Date(inst.dueDate) > new Date(latest) ? inst.dueDate : latest, customInstalments[0].dueDate)) : today;
-          const diffDays = Math.max(0, Math.ceil((lastDate - today) / (1000 * 60 * 60 * 24)));
-          const repaymentPeriodMonths = Math.ceil(diffDays / 30);
-
-          const interest = balanceAfterDeposit * MONTHLY_INTEREST_RATE * repaymentPeriodMonths;
-          const totalPayable = balanceAfterDeposit + interest;
-          const finalRevenue = deposit + totalPayable;
-          
-          newCalculations = {
-              ...newCalculations,
-              balance: balanceAfterDeposit.toFixed(2),
-              repaymentPeriod: repaymentPeriodMonths,
-              trans_fee: interest.toFixed(2),
-              totalBalancePayable: totalPayable.toFixed(2),
-              revenue: finalRevenue.toFixed(2),
-              profit: (finalRevenue - prodCostNum - surchargeNum).toFixed(2),
-              last_payment_date: lastDate.toISOString().split('T')[0],
-          };
-      }
-  }
-
-  setFormData(prev => ({ ...prev, ...newCalculations }));
-
-}, [
-  selectedPaymentMethod,
-  formData.initialPayments,
-  formData.revenue, formData.prodCost, formData.surcharge,
-  formData.period, formData.totalSellingPrice, formData.customInstalments
-]);
+        if (period === 'within30days') {
+            newCalculations.profit = (revenueNum - prodCostNum - surchargeNum).toFixed(2);
+            newCalculations.balance = (revenueNum - totalReceived).toFixed(2);
+        } else if (period === 'beyond30') {
+            const FIXED_INTEREST_RATE = 11;
+            const MONTHLY_INTEREST_RATE = FIXED_INTEREST_RATE / 100 / 12;
+            const price = parseFloat(formData.totalSellingPrice) || 0;
+            const deposit = totalReceived;
+            const balanceAfterDeposit = price - deposit;
+            const today = new Date();
+            const lastDate = customInstalments.length > 0 ? new Date(customInstalments.reduce((latest, inst) => new Date(inst.dueDate) > new Date(latest) ? inst.dueDate : latest, customInstalments[0].dueDate)) : today;
+            const diffDays = Math.max(0, Math.ceil((lastDate - today) / (1000 * 60 * 60 * 24)));
+            const repaymentPeriodMonths = Math.ceil(diffDays / 30);
+            const interest = balanceAfterDeposit * MONTHLY_INTEREST_RATE * repaymentPeriodMonths;
+            const totalPayable = balanceAfterDeposit + interest;
+            const finalRevenue = deposit + totalPayable;
+            
+            newCalculations = {
+                ...newCalculations,
+                balance: balanceAfterDeposit.toFixed(2),
+                repaymentPeriod: repaymentPeriodMonths,
+                trans_fee: interest.toFixed(2),
+                totalBalancePayable: totalPayable.toFixed(2),
+                revenue: finalRevenue.toFixed(2),
+                profit: (finalRevenue - prodCostNum - surchargeNum).toFixed(2),
+                last_payment_date: lastDate.toISOString().split('T')[0],
+            };
+        }
+    }
+    setFormData(prev => ({ ...prev, ...newCalculations }));
+  }, [selectedPaymentMethod, formData.initialPayments, formData.revenue, formData.prodCost, formData.surcharge, formData.period, formData.totalSellingPrice, formData.customInstalments]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -231,8 +195,6 @@ useEffect(() => {
     }));
   };
 
-  
-
   const handleBreakdownSubmit = (breakdown) => {
     const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
     setFormData((prev) => ({ ...prev, prodCost: total.toFixed(2), prodCostBreakdown: breakdown }));
@@ -244,22 +206,21 @@ useEffect(() => {
     setShowPaxDetails(false);
   };
 
-    const handleAddPayment = ({ amount, transactionMethod, receivedDate }) => {
-      const newPayment = { amount, transactionMethod, receivedDate };
-      setFormData(prev => ({
-        ...prev,
-        initialPayments: [...prev.initialPayments, newPayment],
-      }));
-      setShowReceivedAmount(false);
-    };
+  const handleAddPayment = ({ amount, transactionMethod, receivedDate }) => {
+    const newPayment = { amount, transactionMethod, receivedDate };
+    setFormData(prev => ({
+      ...prev,
+      initialPayments: [...prev.initialPayments, newPayment],
+    }));
+    setShowReceivedAmount(false);
+  };
 
-    const handleRemovePayment = (indexToRemove) => {
-      setFormData(prev => ({
-        ...prev,
-        initialPayments: prev.initialPayments.filter((_, index) => index !== indexToRemove),
-      }));
-    };
-
+  const handleRemovePayment = (indexToRemove) => {
+    setFormData(prev => ({
+      ...prev,
+      initialPayments: prev.initialPayments.filter((_, index) => index !== indexToRemove),
+    }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -296,19 +257,15 @@ useEffect(() => {
                 instalments: [],
             };
         } else if (selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') {
-            // --- FIX IS HERE ---
             const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'prodCost', 'pcDate', 'issuedDate'];
             if(formData.period === 'within30days') {
               requiredFields.push('revenue');
             } else {
-              // We no longer check for 'depositPaid', just 'totalSellingPrice'
               requiredFields.push('totalSellingPrice'); 
             }
             
             const missingFields = requiredFields.filter(f => !formData[f]);
             if(missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
-            
-            // We now check the initialPayments array length for all internal methods
             if(formData.initialPayments.length === 0 && formData.period === 'beyond30') throw new Error('At least one initial deposit must be added for this payment plan.');
             if(formData.customInstalments.length === 0) throw new Error('At least one instalment is required for this payment method.');
 
@@ -317,8 +274,6 @@ useEffect(() => {
                 bookingType: 'FRESH',
                 paymentMethod: selectedPaymentMethod,
                 revenue: formData.revenue ? parseFloat(formData.revenue) : null,
-                // The 'received' value is now correctly calculated for both periods in our useEffect hook.
-                // We no longer need the complex conditional logic here.
                 received: parseFloat(formData.received),
                 balance: parseFloat(formData.balance),
                 transFee: formData.trans_fee ? parseFloat(formData.trans_fee) : 0,
@@ -343,7 +298,6 @@ useEffect(() => {
           setFormData(getInitialFormData());
           setSelectedPaymentMethod('');
         }
-
     } catch (error) {
       console.error('Booking submission error:', error);
       setErrorMessage(error.response?.data?.message || error.message || 'Failed to submit booking.');
@@ -353,19 +307,14 @@ useEffect(() => {
   };
 
   const handleAgentChange = (e) => {
-  const selectedAgentName = e.target.value;
-
-  // Find the full agent object from our state using the selected name
-  const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
-
-  // Update both the agentName and teamName in the form data
-  setFormData(prev => ({
-    ...prev,
-    agentName: selectedAgentName,
-    // If an agent is found, use their team. Otherwise, reset the team field.
-    teamName: selectedAgent ? selectedAgent.team : '' 
-  }));
-};
+    const selectedAgentName = e.target.value;
+    const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
+    setFormData(prev => ({
+      ...prev,
+      agentName: selectedAgentName,
+      teamName: selectedAgent ? selectedAgent.team : '' 
+    }));
+  };
 
   const CoreBookingInfo = () => (
     <div className="border-t border-gray-200 pt-6">
@@ -379,34 +328,33 @@ useEffect(() => {
             <button type="button" onClick={() => setShowPaxDetails(true)} className="ml-2 px-4 h-[42px] bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0 transition"><FaUserPlus /></button>
           </div>
           {formData.passengers.length > 0 && <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600"><p className="font-semibold">{formData.paxName}</p><p>Total Passengers: {formData.numPax}</p></div>}
-          </div>
-          <FormSelect 
-      label="Agent Name" 
-      name="agentName" 
-      value={formData.agentName} 
-      onChange={handleAgentChange} 
-      required
-    >
-      <option value="">Select an Agent</option>
-      {agents.map(agent => (
-        <option key={agent.id} value={agent.fullName}>
-          {agent.fullName}
-        </option>
-      ))}
-    </FormSelect>
+        </div>
         <FormSelect 
-    label="Team" 
-    name="teamName" 
-    value={formData.teamName} 
-    onChange={handleChange} 
-    required 
-    // Disable this field if an agent's name has been filled in
-    disabled={formData.agentName !== ''} 
->
-    <option value="">Select Team</option>
-    <option value="PH">PH</option>
-    <option value="TOURS">TOURS</option>
-</FormSelect>
+          label="Agent Name" 
+          name="agentName" 
+          value={formData.agentName} 
+          onChange={handleAgentChange} 
+          required
+        >
+          <option value="">Select an Agent</option>
+          {agents.map(agent => (
+            <option key={agent.id} value={agent.fullName}>
+              {agent.fullName}
+            </option>
+          ))}
+        </FormSelect>
+        <FormSelect 
+          label="Team" 
+          name="teamName" 
+          value={formData.teamName} 
+          onChange={handleChange} 
+          required 
+          disabled={formData.agentName !== ''} 
+        >
+            <option value="">Select Team</option>
+            <option value="PH">PH</option>
+            <option value="TOURS">TOURS</option>
+        </FormSelect>
         <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required />
         <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required  />
         <FormInput label="From/To" name="fromTo" value={formData.fromTo} onChange={handleChange} required />
@@ -414,7 +362,7 @@ useEffect(() => {
     </div>
   );
   
-    return (
+  return (
     <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full">
       <div className="flex justify-between items-start mb-6">
         <div>
@@ -426,10 +374,10 @@ useEffect(() => {
                 <FormSelect label="Select Payment Method" name="paymentMethod" value={selectedPaymentMethod} onChange={(e) => handlePaymentMethodSelect(e.target.value)}>
                     <option value="" disabled>-- Choose a method --</option>
                     <option value="FULL">Full Payment</option>
-                    <option value="HUMM">Humm</option> {/* <-- ADDED */}
-                    <option value="FULL_HUMM">Full / Humm</option> {/* <-- ADDED */}
+                    <option value="HUMM">Humm</option>
+                    <option value="FULL_HUMM">Full / Humm</option>
                     <option value="INTERNAL">Internal (Instalments)</option>
-                    <option value="INTERNAL_HUMM">Humm / Internal</option> {/* <-- ADDED */}
+                    <option value="INTERNAL_HUMM">Humm / Internal</option>
                 </FormSelect>
             </div>
         )}
@@ -439,131 +387,79 @@ useEffect(() => {
       {errorMessage && <div className="flex items-center mb-6 p-4 bg-red-100 text-red-800 rounded-lg shadow-sm"><FaTimesCircle className="mr-3 h-5 w-5" /><span className="font-medium">{errorMessage}</span></div>}
 
       {(selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM' || originalBookingInfo) && (
-      <form onSubmit={handleSubmit} className="space-y-10 animate-fade-in">
-        <CoreBookingInfo />
-        <div className="border-t border-gray-200 pt-6">
+        <form onSubmit={handleSubmit} className="space-y-10 animate-fade-in">
+          <CoreBookingInfo />
+          <div className="border-t border-gray-200 pt-6">
             <h4 className="text-lg font-semibold text-gray-800 mb-4">Dates</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
                 <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
                 <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
                 <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
             </div>
-        </div>
-        <div className="border-t border-gray-200 pt-6">
-    <h4 className="text-lg font-semibold text-gray-800 mb-4">Financial Details</h4>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
-        <FormInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={formData.revenue} onChange={handleNumberChange} required />
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Product Cost (£)</label>
-          <div className="flex items-center">
-            <input name="prodCost" type="number" step="0.01" value={formData.prodCost} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly />
-            <button type="button" onClick={() => setShowCostBreakdown(true)} className="ml-2 px-4 h-[42px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><FaCalculator /></button>
           </div>
-        </div>
-
-        <InitialPaymentsDisplay
-            payments={formData.initialPayments}
-            totalReceived={formData.received}
-            onRemovePayment={handleRemovePayment}
-            onAddPaymentClick={() => setShowReceivedAmount(true)}
-        />
-
-        <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
-        <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />
-
-        <div className="lg:col-span-3">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description / Notes</label>
-            <textarea id="description" name="description" value={formData.description} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg" rows="3" />
-        </div>
-
-        <div className="lg:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Payments Received</label>
-            <div className="space-y-2 p-3 border rounded-lg bg-gray-50 min-h-[60px]">
-                {formData.initialPayments.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-2">No payments added yet.</p>
-                ) : (
-                formData.initialPayments.map((payment, index) => (
-                    <div key={index} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
-                    <div>
-                        <span className="font-semibold text-gray-800">£{payment.amount}</span>
-                        <span className="text-sm text-gray-600 ml-2">({payment.transactionMethod} on {payment.receivedDate})</span>
-                    </div>
-                    <button type="button" onClick={() => handleRemovePayment(index)} className="text-red-500 hover:text-red-700">
-                        <FaTimesCircle />
-                    </button>
-                    </div>
-                ))
-                )}
-            </div>
-            <div className="flex items-center mt-2">
-                <input 
-                    name="received" 
-                    type="text" 
-                    value={`Total Received: £${formData.received || '0.00'}`} 
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" 
-                    readOnly 
+          <div className="border-t border-gray-200 pt-6">
+            <h4 className="text-lg font-semibold text-gray-800 mb-4">Financial Details</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                <FormInput label="Revenue (£)" name="revenue" type="number" step="0.01" value={formData.revenue} onChange={handleNumberChange} required />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Cost (£)</label>
+                  <div className="flex items-center">
+                    <input name="prodCost" type="number" step="0.01" value={formData.prodCost} className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm bg-gray-100 cursor-not-allowed" readOnly />
+                    <button type="button" onClick={() => setShowCostBreakdown(true)} className="ml-2 px-4 h-[42px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><FaCalculator /></button>
+                  </div>
+                </div>
+                <InitialPaymentsDisplay
+                    payments={formData.initialPayments}
+                    totalReceived={formData.received}
+                    onRemovePayment={handleRemovePayment}
+                    onAddPaymentClick={() => setShowReceivedAmount(true)}
                 />
-                <button 
-                    type="button" 
-                    onClick={() => setShowReceivedAmount(true)} 
-                    className="ml-2 px-4 h-[42px] bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center shrink-0 transition"
-                >
-                    Add Payment
+                <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
+                <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />
+                <div className="lg:col-span-3">
+                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description / Notes</label>
+                    <textarea id="description" name="description" value={formData.description} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg" rows="3" />
+                </div>
+            </div>
+          </div>
+          <div className="flex justify-end pt-6 border-t border-gray-200">
+            <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400">
+              {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {(selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') && !originalBookingInfo && (
+        <form onSubmit={handleSubmit} className="animate-fade-in space-y-10">
+            <CoreBookingInfo />
+            <div className="border-t border-gray-200 pt-6">
+                <h4 className="text-lg font-semibold text-gray-800 mb-4">Booking Dates</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                    <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
+                    <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
+                    <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
+                </div>
+            </div>
+            <InternalPaymentForm
+              formData={formData}
+              onDataChange={handleChange}
+              onNumberChange={handleNumberChange}
+              onInstalmentChange={handleCustomInstalmentChange}
+              onAddInstalment={addCustomInstalment}
+              onRemoveInstalment={removeCustomInstalment}
+              onShowCostBreakdown={() => setShowCostBreakdown(true)}
+              initialPayments={formData.initialPayments}
+              onRemovePayment={handleRemovePayment}
+              onShowAddPaymentModal={() => setShowReceivedAmount(true)}
+            />
+            <div className="flex justify-end pt-6 border-t border-gray-200">
+                <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400">
+                    {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
                 </button>
             </div>
-        </div>
-
-        <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
-        <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />
-
-        <div className="lg:col-span-3">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description / Notes</label>
-            <textarea id="description" name="description" value={formData.description} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-lg" rows="3" />
-        </div>
-    </div>
-</div>
-        <div className="flex justify-end pt-6 border-t border-gray-200">
-          <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400">
-            {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
-          </button>
-        </div>
-      </form>
-    )}
-
-    {/* This condition now includes 'INTERNAL_HUMM' */}
-    {(selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') && !originalBookingInfo && (
-      <form onSubmit={handleSubmit} className="animate-fade-in space-y-10">
-          <CoreBookingInfo />
-          
-          <div className="border-t border-gray-200 pt-6">
-              <h4 className="text-lg font-semibold text-gray-800 mb-4">Booking Dates</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
-                  <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
-                  <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
-                  <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
-              </div>
-          </div>
-          
-          <InternalPaymentForm
-    formData={formData}
-    onDataChange={handleChange}
-    onNumberChange={handleNumberChange}
-    onInstalmentChange={handleCustomInstalmentChange}
-    onAddInstalment={addCustomInstalment}
-    onRemoveInstalment={removeCustomInstalment}
-    onShowCostBreakdown={() => setShowCostBreakdown(true)}
-    initialPayments={formData.initialPayments}
-    onRemovePayment={handleRemovePayment}
-    onShowAddPaymentModal={() => setShowReceivedAmount(true)}
-/>
-          
-          <div className="flex justify-end pt-6 border-t border-gray-200">
-              <button type="submit" disabled={isSubmitting} className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400">
-                  {isSubmitting ? 'Submitting...' : 'Submit Booking for Approval'}
-              </button>
-          </div>
-      </form>
-    )}
+        </form>
+      )}
       
       {showCostBreakdown && <ProductCostBreakdown initialBreakdown={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} totalCost={parseFloat(formData.prodCost) || 0} />}
       {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}

@@ -5,7 +5,6 @@ import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup';
 import SettlePayablePopup from '../components/SettlePayablePopup';
 import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp } from 'react-icons/fa';
 
-// --- Reusable UI Components ---
 const StatCard = ({ icon, title, value, colorClass }) => (
     <div className={`flex items-center p-4 bg-white shadow-lg rounded-xl border-l-4 ${colorClass}`}>
         <div className={`p-3 rounded-full bg-opacity-20 ${colorClass}`}>{icon}</div>
@@ -16,13 +15,11 @@ const StatCard = ({ icon, title, value, colorClass }) => (
     </div>
 );
 
-// --- Main Component ---
 export default function SuppliersInfo() {
   const [supplierData, setSupplierData] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedSuppliers, setExpandedSuppliers] = useState({});
-  // NEW State for targeted row expansion
   const [expandedPayableRow, setExpandedPayableRow] = useState(null); 
   const [filterPending, setFilterPending] = useState(false);
   const [settlePopup, setSettlePopup] = useState(null);
@@ -64,74 +61,61 @@ export default function SuppliersInfo() {
     return { totalOverallPending: pending, totalOverallCredit: credit };
   }, [supplierData]);
 
-  // RE-ARCHITECTED DATA PROCESSING
   const processedData = useMemo(() => {
-    const finalData = JSON.parse(JSON.stringify(supplierData));
+    const finalData = {};
 
-    for (const supplierName in finalData) {
-        const supplier = finalData[supplierName];
-        
-        // Create a map of payables keyed by their originating folder number
-        const payablesMap = new Map();
-        (supplier.payables || []).forEach(p => {
-            if(p.originatingFolderNo) {
-                payablesMap.set(p.originatingFolderNo.toString(), p);
-            }
+    for (const supplierName in supplierData) {
+      const supplier = supplierData[supplierName];
+
+      const creditNoteMap = (supplier.transactions || [])
+        .filter(tx => tx.type === 'CreditNote')
+        .reduce((map, tx) => {
+          if (tx.data.generatedFromRefNo && tx.data.generatedFromRefNo !== 'N/A') {
+            map[tx.data.generatedFromRefNo] = tx.data;
+          }
+          return map;
+        }, {});
+
+      const processedBookings = (supplier.transactions || [])
+        .filter(tx => tx.type === 'Booking')
+        .map(tx => {
+          const booking = tx.data;
+          return {
+            uniqueId: `booking-${booking.id}`,
+            type: 'Booking',
+            folderNo: booking.folderNo,
+            identifier: booking.refNo,
+            category: booking.category,
+            total: booking.amount || 0,
+            paid: booking.paidAmount || 0,
+            pending: booking.pendingAmount || 0,
+            creditNote: creditNoteMap[booking.refNo] || null,
+            date: booking.createdAt,
+            status: booking.bookingStatus,
+            originalData: booking,
+            linkedPayable: null 
+          };
         });
 
-        // Create a map of credit notes
-        const creditNoteMap = (supplier.transactions || [])
-            .filter(tx => tx.type === 'CreditNote')
-            .reduce((map, tx) => {
-                if (tx.data.generatedFromRefNo) map[tx.data.generatedFromRefNo] = tx.data;
-                return map;
-            }, {});
+      const payablesWithFolder = (supplier.payables || []).map(p => ({
+        ...p,
+        baseFolderNo: p.originatingFolderNo ? p.originatingFolderNo.toString().split('.')[0] : null
+      }));
 
-        // Process bookings and link payables/credits
-        const finalTransactions = (supplier.transactions || [])
-            .filter(tx => tx.type === 'Booking')
-            .map(tx => {
-                const booking = tx.data;
-                const baseFolderNo = booking.folderNo.toString().split('.')[0];
-                const linkedPayable = payablesMap.get(baseFolderNo);
+      const finalTransactions = processedBookings.map(booking => {
+          const baseFolderNo = booking.folderNo.toString().split('.')[0];
+          const linkedPayable = payablesWithFolder.find(p => p.baseFolderNo === baseFolderNo);
+          return { ...booking, linkedPayable: linkedPayable || null };
+      });
+      
+      finalTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-                if(linkedPayable) {
-                    payablesMap.delete(baseFolderNo); // Remove from map so it's not double-counted
-                }
-
-                return {
-                    uniqueId: `booking-${booking.id}`,
-                    type: 'Booking',
-                    folderNo: booking.folderNo,
-                    identifier: booking.refNo,
-                    category: booking.category,
-                    total: booking.amount || 0,
-                    paid: booking.paidAmount || 0,
-                    pending: booking.pendingAmount || 0,
-                    creditNote: creditNoteMap[booking.refNo] || null,
-                    date: booking.createdAt,
-                    status: booking.bookingStatus,
-                    originalData: booking,
-                    linkedPayable: linkedPayable ? { // Structure the linked payable
-                      ...linkedPayable,
-                      total: linkedPayable.totalAmount || 0,
-                      paid: linkedPayable.paidAmount || 0,
-                      pending: linkedPayable.pendingAmount || 0
-                    } : null
-                };
-            });
-        
-        // Add any orphaned payables (without a matching booking in the list)
-        payablesMap.forEach(p => {
-          finalTransactions.push({
-            uniqueId: `payable-${p.id}`, type: 'Payable', folderNo: p.originatingFolderNo, identifier: p.reason, category: 'Orphaned Payable',
-            total: p.totalAmount, paid: p.paidAmount, pending: p.pendingAmount, creditNote: null, date: p.createdAt, status: 'Payable', originalData: p
-          })
-        });
-
-        finalTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-        supplier.processedTransactions = finalTransactions;
+      finalData[supplierName] = {
+        ...supplier,
+        processedTransactions: finalTransactions,
+      };
     }
+
     return finalData;
   }, [supplierData]);
 
@@ -151,7 +135,6 @@ export default function SuppliersInfo() {
   }
   
   const handleRowClick = (item, supplierName) => {
-    if (item.status === 'CANCELLED') return;
     setSettlePopup({ booking: item.originalData, supplier: supplierName });
   };
   
@@ -164,14 +147,12 @@ export default function SuppliersInfo() {
   
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : '—';
 
-  // --- Render Logic ---
   if (loading) return <div className="flex items-center justify-center h-screen bg-slate-50"><FaSpinner className="animate-spin text-blue-500 h-12 w-12" /></div>;
   if (error) return <div className="p-4 text-center text-red-700 bg-red-100 rounded-lg">{error} <button onClick={fetchSuppliersInfo} className="ml-4 font-bold underline">Retry</button></div>;
 
   return (
     <div className="bg-slate-50 min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="max-w-screen-xl mx-auto">
-        {/* Header and Stat cards remain the same */}
         <header className="mb-8">
             <h1 className="text-3xl font-bold text-slate-900">Supplier Payments</h1>
             <p className="text-slate-500 mt-1">Dashboard for tracking all outstanding payments and credits.</p>
@@ -249,7 +230,10 @@ export default function SuppliersInfo() {
                                 <tbody className="divide-y divide-slate-200 text-sm">
                                   {data.processedTransactions.map(item => (
                                     <React.Fragment key={item.uniqueId}>
-                                        <tr className={`transition-colors ${item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500' : 'hover:bg-blue-50 cursor-pointer'}`} onClick={() => item.type === 'Booking' && handleRowClick(item, supplierName)}>
+                                        <tr 
+                                            className={`transition-colors cursor-pointer ${item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'}`} 
+                                            onClick={() => item.type === 'Booking' && handleRowClick(item, supplierName)}
+                                        >
                                             <td className="pl-4 pr-2 py-2.5">
                                                 {item.linkedPayable && item.linkedPayable.pending > 0 && (
                                                     <button 

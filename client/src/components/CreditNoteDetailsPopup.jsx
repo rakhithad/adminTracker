@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaTimes, FaFileInvoiceDollar, FaCalendarAlt, FaCheck, FaBook } from 'react-icons/fa';
+import { FaTimes, FaFileInvoiceDollar, FaBook } from 'react-icons/fa';
 
 export default function CreditNoteDetailsPopup({ note, onClose }) {
   if (!note) return null;
@@ -22,7 +22,6 @@ export default function CreditNoteDetailsPopup({ note, onClose }) {
           </button>
         </div>
 
-        {/* --- Key Note Information --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div className="bg-gray-50 p-4 rounded-lg">
             <p className="text-sm text-gray-500">Supplier</p>
@@ -46,7 +45,6 @@ export default function CreditNoteDetailsPopup({ note, onClose }) {
           </div>
         </div>
 
-        {/* --- Usage History Section --- */}
         <div>
           <h3 className="text-xl font-bold text-gray-700 mb-4 flex items-center">
             <FaBook className="mr-3 text-gray-400" />
@@ -64,19 +62,18 @@ export default function CreditNoteDetailsPopup({ note, onClose }) {
               <tbody className="bg-white divide-y divide-gray-200">
                 {note.usageHistory && note.usageHistory.length > 0 ? (
                   note.usageHistory.map(usage => (
-  <tr key={usage.id} className="hover:bg-gray-50">
-    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
-      {/* CHANGE THIS LINE to use the new simplified property */}
-      {usage.usedOnRefNo || 'N/A'}
-    </td>
-    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-right">
-      £{usage.amountUsed.toFixed(2)}
-    </td>
-    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-      {formatDate(usage.usedAt)}
-    </td>
-  </tr>
-))
+                    <tr key={usage.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
+                        {usage.usedOnRefNo || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-right">
+                        £{usage.amountUsed.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatDate(usage.usedAt)}
+                      </td>
+                    </tr>
+                  ))
                 ) : (
                   <tr>
                     <td colSpan="3" className="px-6 py-4 text-center text-sm text-gray-500">

@@ -16,7 +16,6 @@ import {
 import { getBookings } from '../api/api';
 import BookingDetailsPopup from '../components/BookingDetailsPopup';
 
-// Helper function to compare folder numbers like "101.1", "101.2"
 const compareFolderNumbers = (a, b) => {
   if (!a || !b) return 0;
   const partsA = a.toString().split('.').map(part => parseInt(part, 10));
@@ -42,7 +41,6 @@ export default function BookingsPage() {
   const [expandedRows, setExpandedRows] = useState({});
   const [showVoided, setShowVoided] = useState(false);
   
-  // Set default sort to Folder No, descending (newest first)
   const [sortConfig, setSortConfig] = useState({ key: 'folderNo', direction: 'descending' });
 
   const toggleExpandRow = (bookingId) => {
@@ -276,20 +274,23 @@ export default function BookingsPage() {
               <tbody className="bg-white">
                 {filteredBookings.length > 0 ? (
                   filteredBookings.map((booking) => {
-                    const isCancelled = !!booking.cancellation;
+                    const isCancelled = booking.bookingStatus === 'CANCELLED';
                     const isVoided = booking.bookingStatus === 'VOID';
+                    const isClickable = !isCancelled && !isVoided;
                     
                     const rowClasses = isVoided
                       ? "bg-gray-100 text-gray-400 opacity-80"
-                      : isCancelled ? "bg-red-50/50" : "hover:bg-slate-50";
+                      : isCancelled 
+                      ? "bg-red-50/50" 
+                      : "hover:bg-slate-50 cursor-pointer";
                     
                     const isExpanded = expandedRows[booking.id];
 
                     return (
                       <React.Fragment key={booking.id}>
                         <tr 
-                          className={`border-b border-slate-200 cursor-pointer transition-colors duration-150 ${rowClasses}`}
-                          onClick={() => setSelectedBooking(booking)}
+                          className={`border-b border-slate-200 transition-colors duration-150 ${rowClasses}`}
+                          onClick={() => isClickable && setSelectedBooking(booking)}
                         >
                           <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle">
                             {booking.children && booking.children.length > 0 && (
@@ -312,8 +313,8 @@ export default function BookingsPage() {
                           <td className={`px-4 py-4 whitespace-nowrap text-sm ${isCancelled || isVoided ? 'text-slate-400' : 'text-slate-600'}`}>{formatDateDisplay(booking.travelDate)}</td>
                           <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-slate-400' : 'text-green-700'}`}>{booking.revenue != null ? `£${parseFloat(booking.revenue).toFixed(2)}` : '—'}</td>
                           <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-slate-400' : (parseFloat(booking.balance) > 0 ? 'text-red-700' : 'text-green-700')}`}>{booking.balance != null ? `£${parseFloat(booking.balance).toFixed(2)}` : '—'}</td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled ? 'text-red-700' : isVoided ? 'text-slate-400' : (parseFloat(booking.profit) > 0 ? 'text-green-700' : 'text-red-700')}`}>
-                            {isCancelled ? `£${parseFloat(booking.cancellation.profitOrLoss).toFixed(2)}` : (booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—')}
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled && booking.cancellation ? 'text-red-700' : isVoided ? 'text-slate-400' : (parseFloat(booking.profit) >= 0 ? 'text-green-700' : 'text-red-700')}`}>
+                            {isCancelled && booking.cancellation ? `£${parseFloat(booking.cancellation.profitOrLoss).toFixed(2)}` : (booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—')}
                           </td>
                         </tr>
 
