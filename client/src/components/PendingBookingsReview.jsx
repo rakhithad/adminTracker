@@ -97,26 +97,31 @@ export default function PendingBookingsReview({ searchTerm = '', refreshKey }) {
   }, [refreshKey]);
 
   useEffect(() => {
-        const fetchAuditHistory = async () => {
-            if (selectedBookingId && !editMode) {
-                try {
-                    setLoadingHistory(true);
-                    // Call the API with the correct modelName and recordId
-                    const response = await getAuditHistory('PendingBooking', selectedBookingId);
-                    setAuditHistory(response.data.data || []);
-                } catch (err) {
-                    console.error("Failed to fetch audit history", err);
-                    setAuditHistory([]); // Clear history on error
-                } finally {
-                    setLoadingHistory(false);
-                }
-            } else {
-                setAuditHistory([]); // Clear history if no booking is selected or in edit mode
-            }
-        };
+    const fetchAuditHistory = async () => {
+        if (selectedBookingId && !editMode) {
+            try {
+                setLoadingHistory(true);
+                const response = await getAuditHistory('PendingBooking', selectedBookingId);
 
-        fetchAuditHistory();
-    }, [selectedBookingId, editMode]);
+                // ==========================================================
+                // == DEBUGGING STEP: Log the response to see its shape    ==
+                // ==========================================================
+                console.log("Audit History API Response:", response.data); 
+
+                setAuditHistory(response.data.data || []); // This is the line we are testing
+            } catch (err) {
+                console.error("Failed to fetch audit history", err);
+                setAuditHistory([]);
+            } finally {
+                setLoadingHistory(false);
+            }
+        } else {
+            setAuditHistory([]);
+        }
+    };
+
+    fetchAuditHistory();
+}, [selectedBookingId, editMode]);
 
   const handleAction = async (action, bookingId, successMessage) => {
     try {
