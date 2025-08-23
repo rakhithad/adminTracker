@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
+import { supabase } from '../supabaseClient'; // 👈 1. Import the Supabase client
 
 export default function NavigationBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -10,14 +11,25 @@ export default function NavigationBar() {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    navigate('/login');
+  // 👈 2. The entire handleLogout function is updated
+  const handleLogout = async () => {
+    // Make the function async to await the sign-out process
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error("Error signing out:", error.message);
+      // Optionally, show an error alert to the user
+    }
+    
+    // The onAuthStateChange listener in App.jsx will automatically handle the state
+    // update, which will cause the ProtectedRoutes to redirect to /auth.
+    // Navigating here explicitly ensures the redirect is immediate.
+    navigate('/auth');
+
+    // Close the mobile menu after logging out
     setIsMobileMenuOpen(false);
   };
 
-  // --- MODIFICATION IS HERE ---
-  // Added the new "User Management" link to the array.
   const navLinks = [
     { name: 'Home', path: '/' },
     { name: 'Dashboard', path: '/Dashboard' },
@@ -26,7 +38,8 @@ export default function NavigationBar() {
     { name: 'Customer Deposits', path: '/customer-deposits' },
     { name: 'Supplier Info', path: '/suppliers-info' },
     { name: 'Transactions', path: '/transactions' },
-    { name: 'User Management', path: '/user-management' }, // <-- ADDED THIS LINE
+    { name: 'User Management', path: '/user-management' },
+    { name: 'Create User', path: '/create-user' },
     { name: 'My Profile', path: '/profile' },
   ];
 
@@ -61,7 +74,7 @@ export default function NavigationBar() {
             ))}
             {/* Logout Button for Desktop */}
             <button
-              onClick={handleLogout}
+              onClick={handleLogout} // This button now calls the new async function
               className="px-3 py-2 rounded-md text-sm font-medium text-red-700 hover:bg-red-100 hover:text-red-800 transition-colors duration-200"
             >
               Logout
@@ -75,7 +88,6 @@ export default function NavigationBar() {
               className="inline-flex items-center justify-center p-2 rounded-md text-gray-700 hover:text-blue-600 hover:bg-gray-100 focus:outline-none"
               aria-label="Toggle menu"
             >
-              {/* SVG Icons... */}
               <svg className={`${isMobileMenuOpen ? 'hidden' : 'block'} h-6 w-6`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"> <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /> </svg>
               <svg className={`${isMobileMenuOpen ? 'block' : 'hidden'} h-6 w-6`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"> <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /> </svg>
             </button>
@@ -98,7 +110,7 @@ export default function NavigationBar() {
           ))}
           {/* Logout Button for Mobile */}
           <button
-            onClick={handleLogout}
+            onClick={handleLogout} // This button also calls the new async function
             className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-red-700 hover:bg-red-100 hover:text-red-800 transition-colors duration-200"
           >
             Logout

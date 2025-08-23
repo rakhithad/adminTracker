@@ -49,7 +49,7 @@ model Booking {
   statusBeforeVoid  BookingStatus? @map("status_before_void")
   voidReason        String?        @map("void_reason")
   voidedAt          DateTime?      @map("voided_at")
-  voidedById        Int?           @map("voided_by_id")
+  voidedById        String?        @map("voided_by_id")
   voidedBy          User?          @relation("VoidedBookings", fields: [voidedById], references: [id])
 
   customerPayables        CustomerPayable[]
@@ -92,7 +92,7 @@ model PendingBooking {
   passengers        PendingPassenger[]
   numPax            Int             @map("num_pax")
 
-  createdById       Int             @map("created_by_id")
+  createdById       String          @map("created_by_id")
   createdBy         User            @relation(fields: [createdById], references: [id])
 
   @@map("pending_bookings")
@@ -142,9 +142,9 @@ enum InstalmentStatus {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
+  id        String   @id
   email     String   @unique // CHANGED: Made non-nullable as it's the primary login identifier.
-  password  String   // NEW: Added for storing the hashed password.
+  
   title     Title?   // CHANGED: Re-using the existing 'Title' enum for consistency.
   firstName String   @map("first_name")
   lastName  String   @map("last_name")
@@ -155,11 +155,7 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at") // NEW: Added for tracking updates.
 
   createdPendingBookings PendingBooking[]
-  
   voidedBookings Booking[] @relation("VoidedBookings")
-
-
-
   auditLogs AuditLog[]
 
   @@map("users")
@@ -518,7 +514,7 @@ model AuditLog {
   id         Int        @id @default(autoincrement())
   modelName  String     @map("model_name")      // e.g., "Booking", "Cancellation"
   recordId   Int        @map("record_id")       // The ID of the record that was changed (e.g., booking.id)
-  userId     Int        @map("user_id")         // Who did it?
+  userId     String     @map("user_id")         // Who did it?
   user       User       @relation(fields: [userId], references: [id])
   action     ActionType @map("action")         // What happened? (e.g., CREATE, UPDATE, APPROVE)
   fieldName  String?    @map("field_name")     // Which field was changed? (e.g., "revenue", "bookingStatus")

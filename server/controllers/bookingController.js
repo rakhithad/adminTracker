@@ -59,7 +59,7 @@ const compareAndLogChanges = async (tx, { modelName, recordId, userId, oldRecord
 const createPendingBooking = async (req, res) => {
   console.log('Received body for pending booking:', JSON.stringify(req.body, null, 2));
 
-  const { userId } = req.user;
+  const { id: userId } = req.user;
 
   try {
     const pendingBooking = await prisma.$transaction(async (tx) => {
@@ -245,7 +245,7 @@ const approveBooking = async (req, res) => {
     return apiResponse.error(res, 'Invalid booking ID', 400);
   }
 
-  const { userId: approverId } = req.user;
+  const { id: approverId } = req.user;
 
   try {
     const booking = await prisma.$transaction(async (tx) => {
@@ -417,7 +417,7 @@ const approveBooking = async (req, res) => {
 const rejectBooking = async (req, res) => {
   // --- AUDIT LOG ---
   // Get the ID of the user performing the rejection.
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { id } = req.params;
 
   try {
@@ -468,7 +468,7 @@ const rejectBooking = async (req, res) => {
 };
 
 const createBooking = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
 
   try {
     // --- NEW: Get initialPayments array from the start ---
@@ -605,7 +605,7 @@ const getBookings = async (req, res) => {
 };
 
 const updateBooking = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { id } = req.params;
   const updates = req.body;
 
@@ -879,7 +879,7 @@ const getRecentBookings = async (req, res) => {
 
 
 const updateInstalment = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { id } = req.params;
   const { amount, status, transactionMethod, paymentDate } = req.body;
 
@@ -1144,7 +1144,7 @@ const getCustomerDeposits = async (req, res) => {
 
 const createSupplierPaymentSettlement = async (req, res) => {
 
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { costItemSupplierId, amount, transactionMethod, settlementDate } = req.body;
 
   try {
@@ -1422,7 +1422,7 @@ const getSuppliersInfo = async (req, res) => {
 };
 
 const updatePendingBooking = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { id } = req.params;
   const updates = req.body;
   try {
@@ -1697,7 +1697,7 @@ const updatePendingBooking = async (req, res) => {
 
 const recordSettlementPayment = async (req, res) => {
   // --- AUDIT LOG ---
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { bookingId } = req.params;
   const { amount, transactionMethod, paymentDate } = req.body;
 
@@ -2018,7 +2018,7 @@ const getTransactions = async (req, res) => {
 
 
 const createCancellation = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const { id: triggerBookingId } = req.params;
   const { supplierCancellationFee, adminFee, refundTransactionMethod } = req.body;
 
@@ -2194,7 +2194,7 @@ const getAvailableCreditNotes = async (req, res) => {
 // In server/controllers/bookingController.js
 
 const createDateChangeBooking = async (req, res) => {
-  const { userId } = req.user;
+  const { id: userId } = req.user;
   const originalBookingId = parseInt(req.params.id);
   const data = req.body;
 
@@ -2350,7 +2350,7 @@ const createDateChangeBooking = async (req, res) => {
 
 const createSupplierPayableSettlement = async (req, res) => {
     // --- AUDIT LOG ---
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const { payableId, amount, transactionMethod, settlementDate } = req.body;
 
     try {
@@ -2450,7 +2450,7 @@ const createSupplierPayableSettlement = async (req, res) => {
 
 const settleCustomerPayable = async (req, res) => {
     // --- AUDIT LOG ---
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const { id: payableId } = req.params;
     const { amount, transactionMethod, paymentDate } = req.body;
 
@@ -2536,7 +2536,7 @@ const settleCustomerPayable = async (req, res) => {
 
 const recordPassengerRefund = async (req, res) => {
     // --- AUDIT LOG ---
-    const { userId } = req.user;
+    const { id: userId } = req.user;
     const { id: cancellationId } = req.params;
     const { amount, transactionMethod, refundDate } = req.body;
 
@@ -2619,7 +2619,7 @@ const recordPassengerRefund = async (req, res) => {
 const voidBooking = async (req, res) => {
     const { id } = req.params;
     const { reason } = req.body;
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     if (!reason) {
         return apiResponse.error(res, 'A reason is required to void a booking.', 400);
@@ -2664,7 +2664,7 @@ const voidBooking = async (req, res) => {
 
 const unvoidBooking = async (req, res) => {
     const { id } = req.params;
-    const { userId } = req.user;
+    const { id: userId } = req.user;
 
     try {
         const updatedBooking = await prisma.$transaction(async (tx) => {

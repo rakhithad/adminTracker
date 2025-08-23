@@ -33,7 +33,7 @@ const ProfileSelect = ({ label, children, ...props }) => (
 
 export default function ProfilePage() {
     const [profile, setProfile] = useState(null);
-    const [originalProfile, setOriginalProfile] = useState(null); // To handle cancellation
+    const [originalProfile, setOriginalProfile] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -44,8 +44,11 @@ export default function ProfilePage() {
         const fetchProfile = async () => {
             try {
                 const response = await getMyProfile();
-                setProfile(response.data.data);
-                setOriginalProfile(response.data.data); // Keep a copy for reset
+                // ===================================
+                // == FIX #1: Correct data access
+                // ===================================
+                setProfile(response.data);
+                setOriginalProfile(response.data);
             } catch (err) {
                 setError('Failed to load your profile. Please try refreshing the page.');
                 console.error(err);
@@ -61,14 +64,12 @@ export default function ProfilePage() {
         setProfile(prev => ({ ...prev, [name]: value }));
     };
 
-        const handleSave = async (e) => {
+    const handleSave = async (e) => {
         e.preventDefault();
         setIsSaving(true);
         setError('');
         setSuccess('');
         try {
-            // Explicitly create the object with only the fields we want to update.
-            // This is cleaner and avoids the "unused variable" warning.
             const updateData = {
                 title: profile.title,
                 firstName: profile.firstName,
@@ -78,8 +79,11 @@ export default function ProfilePage() {
             
             const response = await updateMyProfile(updateData);
             
-            setProfile(response.data.data);
-            setOriginalProfile(response.data.data);
+            // The updateUserById endpoint might return a nested data object, so we check
+            const updatedProfileData = response.data.data || response.data;
+
+            setProfile(updatedProfileData);
+            setOriginalProfile(updatedProfileData);
             setIsEditing(false);
             setSuccess('Profile updated successfully!');
             setTimeout(() => setSuccess(''), 3000);
@@ -91,7 +95,7 @@ export default function ProfilePage() {
     };
     
     const handleCancelEdit = () => {
-        setProfile(originalProfile); // Reset changes
+        setProfile(originalProfile);
         setIsEditing(false);
         setError('');
         setSuccess('');
@@ -105,10 +109,13 @@ export default function ProfilePage() {
         );
     }
     
-    if (error && !profile) {
+    // =============================================================
+    // == FIX #2: Add a guard clause to prevent rendering if profile is null
+    // =============================================================
+    if (!profile) {
         return (
             <div className="text-center p-10">
-                <p className="text-red-500">{error}</p>
+                <p className="text-red-500">{error || "Could not load profile data."}</p>
             </div>
         );
     }
@@ -118,7 +125,6 @@ export default function ProfilePage() {
             <div className="bg-white rounded-xl shadow-lg overflow-hidden">
                 <div className="p-6 sm:p-8">
                     <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
-                        {/* Profile picture will go here */}
                         <div className="h-24 w-24 bg-gray-200 rounded-full flex items-center justify-center">
                            <FaUserCircle className="h-20 w-20 text-gray-400" />
                         </div>

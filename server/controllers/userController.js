@@ -1,132 +1,95 @@
 const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const apiResponse = require('../utils/apiResponse'); 
-
+const { createClient } = require('@supabase/supabase-js');
 
 const prisma = new PrismaClient();
 
-const register = async (req, res) => {
-  
-  const { email, password, firstName, lastName, role, team, title, contactNo } = req.body;
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
+const createUser = async (req, res) => {
+  const { email, password, firstName, lastName, title, role, team, contactNo } = req.body;
+
+  // Basic validation
   if (!email || !password || !firstName || !lastName || !role) {
-    return res.status(400).json({ message: 'Please provide all required fields.' });
+    return apiResponse.error(res, 'Missing required fields (email, password, firstName, lastName, role).', 400);
   }
 
   try {
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User with this email already exists.' });
+    // 1. Create the user in Supabase Auth
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: email,
+      password: password,
+      email_confirm: true, // Auto-confirm the email since an admin is creating it
+    });
+
+    if (authError) {
+      // Handle Supabase specific errors, e.g., user already exists
+      return apiResponse.error(res, authError.message, 409);
     }
+    
+    const newUserId = authData.user.id;
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    const user = await prisma.user.create({
+    // 2. Create the user profile in your public.users table with all details
+    const newUserProfile = await prisma.user.create({
       data: {
+        id: newUserId,
         email,
-        password: hashedPassword,
         firstName,
         lastName,
-        role,
-        team,
         title,
+        role,
+        team: team || null, // Handle optional team
         contactNo,
       },
     });
 
-    const userWithoutPassword = { ...user };
-    delete userWithoutPassword.password;
-
-    res.status(201).json({ message: 'User created successfully', user: userWithoutPassword });
+    return apiResponse.success(res, newUserProfile, 201, "User created successfully.");
 
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration.' });
-  }
-};
-
-
-const login = async (req, res) => {
-  // ... your existing login code (it's perfect)
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ message: 'Please provide email and password.' });
-  }
-
-  try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials.' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials.' });
-    }
-
-    const payload = { userId: user.id, role: user.role };
-
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
-
-    res.json({
-      message: 'Logged in successfully',
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        role: user.role,
-        team: user.team,
-      },
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login.' });
+    console.error("Error creating user:", error);
+    // This is a generic fallback error
+    return apiResponse.error(res, 'An unexpected error occurred while creating the user.', 500);
   }
 };
 
 
 const getMyProfile = async (req, res) => {
-    // The userId is attached to the request by our authenticateToken middleware
-    const { userId } = req.user;
+  const supabaseUser = req.user; 
 
-    try {
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            // We explicitly select fields to avoid sending the password hash
-            select: {
-                id: true,
-                email: true,
-                title: true,
-                firstName: true,
-                lastName: true,
-                contactNo: true,
-                role: true,
-                team: true,
-                // Add profilePictureUrl here in the future
-            }
-        });
+  try {
+    let userProfile = await prisma.user.findUnique({
+      where: { id: supabaseUser.id },
+    });
 
-        if (!user) {
-            return apiResponse.error(res, 'User not found.', 404);
-        }
-
-        return apiResponse.success(res, user);
-    } catch (error) {
-        console.error("Error fetching user profile:", error);
-        return apiResponse.error(res, 'Failed to fetch user profile.', 500);
+    if (!userProfile) {
+      userProfile = await prisma.user.create({
+        data: {
+          id: supabaseUser.id, 
+          email: supabaseUser.email,
+          firstName: "New",
+          lastName: "User",
+          role: 'CONSULTANT',
+        },
+      });
     }
+
+    req.user = { ...supabaseUser, ...userProfile };
+
+    res.status(200).json(userProfile);
+  } catch (error) {
+    console.error("Error in getMyProfile:", error);
+    res.status(500).json({ message: "Error fetching or creating user profile." });
+  }
 };
 
-// --- UPDATE CURRENT USER'S PROFILE ---
+
 const updateMyProfile = async (req, res) => {
-    const { userId } = req.user;
-    // We only allow certain fields to be updated
+    const userId = req.user.id;
     const { title, firstName, lastName, contactNo } = req.body;
+
 
     try {
         const updatedUser = await prisma.user.update({
@@ -213,17 +176,16 @@ const getAllUsers = async (req, res) => {
 };
 
 const updateUserById = async (req, res) => {
-    const userIdToUpdate = parseInt(req.params.id);
-    if (isNaN(userIdToUpdate)) {
-        return apiResponse.error(res, 'Invalid user ID provided.', 400);
+    const userIdToUpdate = req.params.id; 
+    if (!userIdToUpdate) {
+        return apiResponse.error(res, 'User ID is required.', 400);
     }
 
-    // These are the fields an admin is allowed to change
     const { title, firstName, lastName, contactNo, role, team } = req.body;
 
     try {
         const updatedUser = await prisma.user.update({
-            where: { id: userIdToUpdate },
+            where: { id: userIdToUpdate }, // This now works correctly with a string ID
             data: {
                 title,
                 firstName,
@@ -232,7 +194,7 @@ const updateUserById = async (req, res) => {
                 role,
                 team,
             },
-            select: { // Return the updated user data, without the password
+            select: {
                 id: true, email: true, title: true, firstName: true,
                 lastName: true, contactNo: true, role: true, team: true,
             }
@@ -253,8 +215,7 @@ const updateUserById = async (req, res) => {
 
 
 module.exports = {
-  register,
-  login,
+  createUser,
   getMyProfile,
   updateMyProfile,
   getAgents,

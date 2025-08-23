@@ -1,17 +1,18 @@
 import axios from 'axios';
+import { supabase } from '../supabaseClient';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000/api',
 });
 
 api.interceptors.request.use(
-  (config) => {
-    // Retrieve the token from localStorage (or wherever you store it after login)
-    const token = localStorage.getItem('token'); // <-- You might have named this 'token', 'jwt', etc.
+  async (config) => {
+    // Retrieve the session from Supabase
+    const { data: { session } } = await supabase.auth.getSession();
     
-    if (token) {
+    if (session) {
       // If the token exists, add the Authorization header
-      config.headers['Authorization'] = `Bearer ${token}`;
+      config.headers['Authorization'] = `Bearer ${session.access_token}`;
     }
     
     return config; // Continue with the request
@@ -52,12 +53,6 @@ export const updateBooking = async (id, updates) => {
 
 export const updatePendingBooking = async (bookingId, updates) => {
   return await api.put(`/bookings/pending/${bookingId}`, updates);
-};
-
-
-
-export const createUser = async (userData) => {
-  return await api.post('/users', userData);
 };
 
 export const getDashboardStats = async () => {
@@ -127,13 +122,10 @@ export const unvoidBooking = async (bookingId) => {
 
 
 
-//auth
-export const registerUser = async (userData) => {
-  return await api.post('/auth/register', userData);
-};
 
-export const loginUser = async (credentials) => {
-  return await api.post('/auth/login', credentials);
+
+export const createUser = async (userData) => {
+  return await api.post('/auth/create', userData);
 };
 
 export const getMyProfile = () => {
