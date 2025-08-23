@@ -276,12 +276,12 @@ export default function BookingsPage() {
                   filteredBookings.map((booking) => {
                     const isCancelled = booking.bookingStatus === 'CANCELLED';
                     const isVoided = booking.bookingStatus === 'VOID';
-                    const isClickable = !isCancelled && !isVoided;
+                    
                     
                     const rowClasses = isVoided
-                      ? "bg-gray-100 text-gray-400 opacity-80"
+                      ? "bg-gray-100 text-gray-400 opacity-80 cursor-pointer hover:bg-gray-200"
                       : isCancelled 
-                      ? "bg-red-50/50" 
+                      ? "bg-red-50/50 cursor-pointer hover:bg-red-100" 
                       : "hover:bg-slate-50 cursor-pointer";
                     
                     const isExpanded = expandedRows[booking.id];
@@ -290,7 +290,7 @@ export default function BookingsPage() {
                       <React.Fragment key={booking.id}>
                         <tr 
                           className={`border-b border-slate-200 transition-colors duration-150 ${rowClasses}`}
-                          onClick={() => isClickable && setSelectedBooking(booking)}
+                          onClick={() => setSelectedBooking(booking)}
                         >
                           <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle">
                             {booking.children && booking.children.length > 0 && (

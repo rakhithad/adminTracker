@@ -157,23 +157,29 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   }, [booking]);
 
   useEffect(() => {
-        const fetchAuditHistory = async () => {
-            if (activeTab === 'history' && auditHistory.length === 0) {
-                try {
-                    setLoadingHistory(true);
-                    const response = await getAuditHistory('Booking', booking.id);
-                    setAuditHistory(response.data.data || []);
-                } catch (err) {
-                    console.error("Failed to fetch audit history", err);
-                    setError("Could not load booking history.");
-                } finally {
-                    setLoadingHistory(false);
-                }
-            }
-        };
+    const fetchAuditHistory = async () => {
+        // Only fetch if the history tab is active.
+        if (activeTab === 'history') {
+            try {
+                setLoadingHistory(true);
+                const response = await getAuditHistory('Booking', booking.id);
 
-        fetchAuditHistory();
-    }, [activeTab, booking.id, auditHistory.length]);
+                // Handle both direct array and nested data responses for safety
+                const historyData = Array.isArray(response.data) ? response.data : response.data.data;
+                setAuditHistory(historyData || []);
+
+            } catch (err) {
+                console.error("Failed to fetch audit history", err);
+                setError("Could not load booking history.");
+                setAuditHistory([]); // Clear history on error
+            } finally {
+                setLoadingHistory(false);
+            }
+        }
+    };
+
+    fetchAuditHistory();
+}, [activeTab, booking.id]);
 
   const handleConfirmCancellation = async (data) => {
     await createCancellation(booking.id, data);
