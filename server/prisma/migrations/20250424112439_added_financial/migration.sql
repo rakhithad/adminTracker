@@ -1,9 +1,0 @@
--- AlterTable
-ALTER TABLE "bookings" ADD COLUMN     "balance" DOUBLE PRECISION,
-ADD COLUMN     "invoice" TEXT,
-ADD COLUMN     "prod_cost" DOUBLE PRECISION,
-ADD COLUMN     "profit" DOUBLE PRECISION,
-ADD COLUMN     "received" DOUBLE PRECISION,
-ADD COLUMN     "revenue" DOUBLE PRECISION,
-ADD COLUMN     "surcharge" DOUBLE PRECISION,
-ADD COLUMN     "trans_fee" DOUBLE PRECISION;
