@@ -1716,7 +1716,10 @@ const recordSettlementPayment = async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.booking.findUnique({
         where: { id: parseInt(bookingId) },
-        include: { instalments: true },
+        include: { 
+          instalments: true,
+          initialPayments: true
+        },
       });
 
       if (!booking) {
@@ -1750,19 +1753,7 @@ const recordSettlementPayment = async (req, res) => {
         },
       });
       
-      // --- AUDIT LOG ---
-      // Log this payment event on the main Booking record.
-      await createAuditLog(tx, {
-          userId,
-          modelName: 'Booking',
-          recordId: booking.id,
-          action: ActionType.SETTLEMENT_PAYMENT,
-          changes: [{
-            fieldName: 'received',
-            oldValue: booking.received,
-            newValue: `(Received settlement of £${paymentAmount.toFixed(2)})`
-          }]
-      });
+      
 
 
       // --- 4. Recalculate Totals for the Booking ---
@@ -1770,6 +1761,8 @@ const recordSettlementPayment = async (req, res) => {
           where: { bookingId: booking.id },
           include: { payments: true }
       });
+
+      const sumOfInitialPayments = booking.initialPayments.reduce((sum, p) => sum + p.amount, 0);
 
       // Recalculating totals...
       const sumOfPaidScheduledInstalments = allInstalments
@@ -1785,10 +1778,22 @@ const recordSettlementPayment = async (req, res) => {
       const newTotalReceived = initialDeposit + sumOfPaidScheduledInstalments + settlementPaymentsTotal;
       const newBalance = parseFloat(booking.revenue) - newTotalReceived;
 
+      await createAuditLog(tx, {
+        userId,
+        modelName: 'Booking',
+        recordId: booking.id,
+        action: ActionType.SETTLEMENT_PAYMENT,
+        changes: [{
+          fieldName: 'balance', 
+          oldValue: booking.balance,
+          newValue: newBalance
+        }]
+    });
+
       const updatedBooking = await tx.booking.update({
         where: { id: booking.id },
         data: {
-          received: newTotalReceived,
+          // received: newTotalReceived, // <-- REMOVE THIS LINE
           balance: newBalance,
           lastPaymentDate: new Date(paymentDate),
         },
@@ -1798,7 +1803,6 @@ const recordSettlementPayment = async (req, res) => {
       return {
           bookingUpdate: {
               id: updatedBooking.id,
-              received: updatedBooking.received,
               balance: updatedBooking.balance
           }
       };
