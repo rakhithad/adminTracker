@@ -2124,11 +2124,45 @@ const createCancellation = async (req, res) => {
             });
         }
       } else if (supplierDifference < 0) {
-        // Your logic for creating a payable to the supplier
+        // --- THIS IS THE NEW LOGIC YOU NEED TO ADD ---
+        // This means the supplier's fee is MORE than the original cost.
+        // You now owe them the difference.
+
+        // First, find the primary supplier for this booking chain.
+        const supplierInfo = await tx.costItemSupplier.findFirst({
+            where: { costItem: { bookingId: rootBookingInChain.id } },
+            select: { supplier: true }
+        });
+
+        // Make sure we found a supplier before creating a payable record.
+        if (supplierInfo) {
+            const amountOwedToSupplier = Math.abs(supplierDifference);
+
+            await tx.supplierPayable.create({
+                data: {
+                    supplier: supplierInfo.supplier,
+                    totalAmount: amountOwedToSupplier,
+                    pendingAmount: amountOwedToSupplier, // The full amount is pending initially
+                    reason: `Cancellation fee shortfall for booking chain ${baseFolderNo}`,
+                    status: 'PENDING',
+                    // Link this payable directly to the cancellation that created it
+                    createdFromCancellationId: newCancellationRecord.id,
+                }
+            });
+        }
       }
       
       if (payableByCustomer > 0) {
-        // Your logic for creating a payable from the customer
+        await tx.customerPayable.create({
+          data: {
+            totalAmount: payableByCustomer,
+            pendingAmount: payableByCustomer, 
+            reason: `Cancellation shortfall for booking chain ${baseFolderNo}`,
+            status: 'PENDING',
+            createdFromCancellationId: newCancellationRecord.id, 
+            bookingId: rootBookingInChain.id,
+          },
+        });
       }
 
       await tx.booking.updateMany({ where: { id: { in: chainBookings.map(b => b.id) } }, data: { bookingStatus: 'CANCELLED' } });
@@ -2453,13 +2487,11 @@ const createSupplierPayableSettlement = async (req, res) => {
 };
 
 const settleCustomerPayable = async (req, res) => {
-    // --- AUDIT LOG ---
     const { id: userId } = req.user;
     const { id: payableId } = req.params;
     const { amount, transactionMethod, paymentDate } = req.body;
 
     try {
-        // --- 1. Validation (remains the same) ---
         if (!payableId || !amount || !transactionMethod || !paymentDate) {
             return apiResponse.error(res, 'Missing required fields.', 400);
         }
@@ -2468,11 +2500,9 @@ const settleCustomerPayable = async (req, res) => {
             return apiResponse.error(res, 'Amount must be a positive number.', 400);
         }
 
-        // --- 2. Database operations in a transaction (already exists, which is perfect) ---
         const result = await prisma.$transaction(async (tx) => {
             const payable = await tx.customerPayable.findUnique({
-                where: { id: parseInt(payableId) },
-                include: { booking: true } // This correctly includes the parent booking
+                where: { id: parseInt(payableId) }
             });
 
             if (!payable) throw new Error('Payable record not found.');
@@ -2480,19 +2510,16 @@ const settleCustomerPayable = async (req, res) => {
                 throw new Error(`Payment amount exceeds pending balance.`);
             }
 
-            // --- AUDIT LOG ---
-            // Log this incoming payment on the parent Booking's history.
-            await createAuditLog(tx, {
-                userId,
-                modelName: 'Booking',
-                recordId: payable.bookingId, // We have the bookingId directly from the payable record
-                action: ActionType.SETTLEMENT_PAYMENT,
-                changes: [{
-                    fieldName: 'customerPayableSettled',
-                    oldValue: `Customer owed ${payable.totalAmount.toFixed(2)}`,
-                    newValue: `Customer paid ${paymentAmount.toFixed(2)} to settle debt`
-                }]
+            // STEP 1: Fetch the full booking and all its payment sources
+            const booking = await tx.booking.findUnique({
+                where: { id: payable.bookingId },
+                include: {
+                    initialPayments: true,
+                    instalments: { include: { payments: true } },
+                    customerPayables: { include: { settlements: true } },
+                }
             });
+            if (!booking) throw new Error('Associated booking not found.');
 
             // A. Create the settlement history record
             await tx.customerPayableSettlement.create({
@@ -2516,12 +2543,39 @@ const settleCustomerPayable = async (req, res) => {
                 },
             });
 
-            // C. CRITICAL: Update the parent Booking's totals
+            // STEP 2: Recalculate the balance from all sources
+            const sumOfInitialPayments = booking.initialPayments.reduce((sum, p) => sum + p.amount, 0);
+
+            const sumOfInstalmentPayments = booking.instalments.reduce((sum, inst) => 
+                sum + inst.payments.reduce((pSum, p) => pSum + p.amount, 0), 0);
+
+            // Fetch the settlements again to include the one we just made
+            const allSettlements = await tx.customerPayableSettlement.findMany({
+                where: { payable: { bookingId: booking.id } }
+            });
+            const sumOfPayableSettlements = allSettlements.reduce((sum, s) => sum + s.amount, 0);
+            
+            const newTotalReceived = sumOfInitialPayments + sumOfInstalmentPayments + sumOfPayableSettlements;
+            const newBalance = booking.revenue - newTotalReceived;
+
+            // Audit Log (Now logging the balance change)
+            await createAuditLog(tx, {
+                userId,
+                modelName: 'Booking',
+                recordId: booking.id,
+                action: ActionType.SETTLEMENT_PAYMENT,
+                changes: [{
+                    fieldName: 'balance',
+                    oldValue: booking.balance,
+                    newValue: newBalance
+                }]
+            });
+
+            // STEP 3: Update only the fields that exist on the Booking model
             const updatedBooking = await tx.booking.update({
                 where: { id: payable.bookingId },
                 data: {
-                    received: (payable.booking.received || 0) + paymentAmount,
-                    balance: (payable.booking.balance || 0) - paymentAmount,
+                    balance: newBalance,
                     lastPaymentDate: new Date(paymentDate),
                 }
             });
