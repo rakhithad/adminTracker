@@ -1167,6 +1167,7 @@ const getCustomerDeposits = async (req, res) => {
   }
 };
 
+
 const createSupplierPaymentSettlement = async (req, res) => {
 
   const { id: userId } = req.user;
