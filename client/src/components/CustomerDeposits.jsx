@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits, recordSettlementPayment } from '../api/api';
+import { getCustomerDeposits } from '../api/api'; // <--- REMOVED recordSettlementPayment from import
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
@@ -22,7 +22,7 @@ const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
     return (
         <button
             onClick={onClick}
-            className={`flex items-center justify-center gap-2 w-full px-3 py-2 text-xs font-bold rounded-lg shadow-sm transition-all duration-200 transform hover:scale-105 ${colorClasses[color]}`}
+            className={`flex items-center justify-center gap-1 w-full px-2 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-all duration-200 transform hover:scale-105 ${colorClasses[color]}`}
         >
             {icon}
             <span>{children}</span>
@@ -38,7 +38,7 @@ const StatusBadge = ({ children, color = 'gray' }) => {
         red: 'bg-red-100 text-red-800',
     };
     return (
-        <div className={`inline-flex items-center gap-2 px-3 py-1 text-sm font-semibold rounded-full ${colorClasses[color]}`}>
+        <div className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${colorClasses[color]}`}>
             {children}
         </div>
     );
@@ -69,7 +69,11 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
         } else {
             status = 'FINAL_SETTLEMENT_DUE';
         }
+    } else if (parseFloat(booking.balance) < 0) {
+        // Handle overpaid for non-cancelled bookings explicitly
+        status = 'OVERPAID';
     }
+
 
     // 2. Render UI based on the determined status
     switch (status) {
@@ -114,10 +118,10 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
         case 'INSTALMENT_DUE': {
             const nextInstalment = (booking.instalments || []).find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
             if (!nextInstalment) {
-                 return <StatusBadge color="gray">Processing...</StatusBadge>;
+                 return <StatusBadge color="gray">Processing...</StatusBadge>; // Should not happen often
             }
             return (
-                <div className="text-center space-y-2">
+                <div className="text-center space-y-1">
                     <ActionButton icon={<FaMoneyBillWave />} onClick={() => onAction('payInstalment', { instalment: nextInstalment, booking })}>
                         Pay Instalment
                     </ActionButton>
@@ -128,13 +132,16 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                         </p>
                     </div>
                      {(booking.instalments || []).length > 1 && (
-                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium">
+                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-1">
                             {expanded ? 'Collapse' : 'Show All'}
                         </button>
                     )}
                 </div>
             );
         }
+
+        case 'OVERPAID':
+            return <StatusBadge color="blue"><FaCheckCircle /> Overpaid</StatusBadge>;
         
         case 'COMPLETED':
         default:
@@ -195,10 +202,13 @@ export default function CustomerDeposits() {
     setPaymentPopup(null);
   };
 
-  const handleSaveSettlement = async (bookingId, paymentData) => {
-    await recordSettlementPayment(bookingId, paymentData);
+  // onSubmit for FinalSettlement and CustomerPayable, and RecordRefund now just refetches bookings
+  // This simplifies client-side state management for these complex flows.
+  const handleActionCompletion = () => {
     fetchBookings();
     setSettlementPopup(null);
+    setCustomerPayablePopup(null);
+    setRecordRefundPopup(null);
   };
 
   const formatDate = (dateStr) => {
@@ -227,13 +237,16 @@ export default function CustomerDeposits() {
     let statusMatch = true;
 
     if (filter === 'ongoing') {
+        // Ongoing means balance > 0 and not cancelled (customer owes us or has instalments)
         statusMatch = balance > 0 && booking.bookingStatus !== 'CANCELLED';
     } else if (filter === 'completed') {
+        // Completed means balance <= 0 and not cancelled (customer has paid us off, or we overpaid them)
         statusMatch = balance <= 0 && booking.bookingStatus !== 'CANCELLED';
     } else if (filter === 'cancelled') {
         statusMatch = booking.bookingStatus === 'CANCELLED';
     }
-    
+    // "all" filter doesn't change statusMatch
+
     if (!statusMatch) return false;
 
     if (searchTerm.trim() === '') return true;
@@ -243,7 +256,8 @@ export default function CustomerDeposits() {
         (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
         (booking.refNo || '').toLowerCase().includes(searchLower) ||
         (booking.paxName || '').toLowerCase().includes(searchLower) ||
-        (booking.agentName || '').toLowerCase().includes(searchLower)
+        (booking.agentName || '').toLowerCase().includes(searchLower) ||
+        (booking.paymentMethod || '').toLowerCase().includes(searchLower) // Search payment method too
     );
   });
 
@@ -297,8 +311,8 @@ export default function CustomerDeposits() {
   }
 
   return (
-    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto"> {/* Reduced overall padding */}
+      <div className="flex justify-between items-center mb-5 flex-wrap gap-4"> {/* Reduced bottom margin */}
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -319,17 +333,18 @@ export default function CustomerDeposits() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-100">
               <tr>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Folder No</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">PC Date</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Ref No</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Passenger</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Agent</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Travel Date</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Revenue (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Deposit (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Total Paid (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Balance (£)</th>
-                <th className="py-3 px-6 text-left text-sm font-semibold text-gray-700">Action / Outcome</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Folder No</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">PC Date</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Ref No</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Passenger</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Agent</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Payment Method</th> {/* NEW COLUMN */}
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Travel Date</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Revenue (£)</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Initial Deposit (£)</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Total Paid (£)</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Balance (£)</th>
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 w-[150px]">Action / Outcome</th> {/* Fixed width for action cell */}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -339,24 +354,29 @@ export default function CustomerDeposits() {
                 const balance = parseFloat(booking.balance);
 
                 return (
-                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
-                    <td className={`py-4 px-6 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>{booking.folderNo}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>
+                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150`} >
+                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'} cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>{booking.folderNo}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>{booking.paymentMethod}</td> {/* NEW CELL */}
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>
                       {formatDate(booking.travelDate)}
                       {!isCancelled && daysLeft !== null && (<span className={`block text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
                     </td>
-                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
-                    <td className={`py-4 px-6 text-sm font-bold ${isCancelled ? 'text-gray-500' : (balance > 0 ? 'text-red-600' : 'text-green-600')}`}>
+                    <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
+                    <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
+                    <td className={`py-3 px-3 text-sm font-bold 
+                        ${isCancelled ? 'text-gray-500' : 
+                          (balance > 0 ? 'text-red-600' : 
+                          (balance < 0 ? 'text-blue-600' : 'text-green-600'))}`}>
                         {balance.toFixed(2)}
                         {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid)</span>)}
+                        {balance < 0 && isCancelled && (<span className="block text-xs font-normal">(Refund Due)</span>)} {/* Clarify refund due */}
                     </td>
-                    <td className="py-4 px-6 text-sm w-48" onClick={e => e.stopPropagation()}>
+                    <td className="py-3 px-3 text-sm w-[150px]" onClick={e => e.stopPropagation()}>
                         <ActionCell 
                             booking={booking}
                             onAction={handleAction}
@@ -377,11 +397,11 @@ export default function CustomerDeposits() {
       )}
       
       {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
-      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}
+      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleActionCompletion} />)}
       {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
-      {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={fetchBookings} /> )}
+      {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={handleActionCompletion} /> )}
       {recordRefundPopup && (
-        <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={fetchBookings} />
+        <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={handleActionCompletion} />
       )}
     </div>
   );

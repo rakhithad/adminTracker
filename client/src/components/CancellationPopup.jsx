@@ -3,14 +3,12 @@ import React, { useState } from 'react';
 export default function CancellationPopup({ booking, onClose, onConfirm }) {
   const [supplierCancellationFee, setSupplierCancellationFee] = useState('');
   const [adminFee, setAdminFee] = useState(''); // New state for Admin Fee
-  const [refundTransactionMethod, setRefundTransactionMethod] = useState('LOYDS');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM'];
-
+  
   const handleSubmit = async () => {
     // Updated validation
-    if (!supplierCancellationFee || !adminFee || !refundTransactionMethod) {
+    if (!supplierCancellationFee || !adminFee) {
       setError('All fields are required.');
       return;
     }
@@ -21,8 +19,7 @@ export default function CancellationPopup({ booking, onClose, onConfirm }) {
       await onConfirm({
         supplierCancellationFee: parseFloat(supplierCancellationFee),
         adminFee: parseFloat(adminFee),
-        refundTransactionMethod: refundTransactionMethod,
-      });
+            });
       onClose();
     } catch (err) {
       setError(err.response?.data?.message || 'An error occurred.');
@@ -46,24 +43,11 @@ export default function CancellationPopup({ booking, onClose, onConfirm }) {
           </div>
           
           <div>
-            <label className="block text-sm font-medium">Your Admin Fee (£)</label>
+            <label className="block text-sm font-medium">Consultant Fee (£)</label>
             <input type="number" step="0.01" value={adminFee} onChange={e => setAdminFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 50" required />
              <p className="text-xs text-gray-500 mt-1">Your company's fee for this cancellation.</p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium">Refund Transaction Method</label>
-            <select
-                value={refundTransactionMethod}
-                onChange={e => setRefundTransactionMethod(e.target.value)}
-                className="w-full p-2 border rounded bg-white"
-            >
-              {transactionMethods.map(method => (
-                <option key={method} value={method}>{method.replace(/_/g, ' ')}</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-1">Method for refunding the passenger, if applicable.</p>
-          </div>
         </div>
 
         <div className="flex justify-end space-x-2 mt-6">

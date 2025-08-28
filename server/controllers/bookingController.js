@@ -993,8 +993,11 @@ const getCustomerDeposits = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
+        // This 'in' clause still filters only 'INTERNAL' and 'INTERNAL_HUMM'.
+        // To show FULL/HUMM bookings in the table, you would need to adjust this.
+        // For now, I'm working within the existing filter.
         paymentMethod: {
-          in: ['INTERNAL', 'INTERNAL_HUMM'],
+          in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'], // <-- MODIFIED THIS LINE
         },
       },
       select: {
@@ -1007,8 +1010,8 @@ const getCustomerDeposits = async (req, res) => {
         travelDate: true,
         revenue: true,
         bookingStatus: true,
-        // REMOVED: received, transactionMethod, receivedDate
-        // ADDED: initialPayments
+        paymentMethod: true, // <-- ADDED THIS TO DETERMINE LOGIC
+        initialDeposit: true, // <-- KEPT THIS AS IS, IT'S FROM THE DB MODEL
         initialPayments: {
           select: {
             amount: true,
@@ -1062,7 +1065,7 @@ const getCustomerDeposits = async (req, res) => {
     const formattedBookings = bookings.map((booking) => {
       const revenue = parseFloat(booking.revenue || 0);
 
-      // STEP 1: Calculate sums from the new structure
+      // --- Base Calculations: Sums of actual money received from customer ---
       const sumOfInitialPayments = (booking.initialPayments || [])
         .reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
@@ -1072,13 +1075,11 @@ const getCustomerDeposits = async (req, res) => {
           return sum + paymentTotal;
         }, 0);
       
-      // The true total received is the sum of both
-      const totalReceived = sumOfInitialPayments + sumOfPaidInstalments;
+      let totalReceived = sumOfInitialPayments + sumOfPaidInstalments; // Total cash-in from customer
+      let currentBalance = revenue - totalReceived; // Initial balance calculation (money owed to us)
 
-      // STEP 2: Rebuild the payment history from the new structure
+      // --- Payment History for Pop-up (remains mostly the same) ---
       const paymentHistory = [];
-
-      // Add each initial payment to the history
       (booking.initialPayments || []).forEach(payment => {
         paymentHistory.push({
           type: 'Initial Payment',
@@ -1087,8 +1088,6 @@ const getCustomerDeposits = async (req, res) => {
           method: payment.transactionMethod,
         });
       });
-
-      // This part for instalments remains the same
       (booking.instalments || []).forEach(instalment => {
         (instalment.payments || []).forEach(payment => {
           paymentHistory.push({
@@ -1100,23 +1099,49 @@ const getCustomerDeposits = async (req, res) => {
         });
       });
       
-      // This part for cancellations remains the same
-      if (booking.cancellation) {
-        if (booking.cancellation.refundPayment) {
+      // --- CANCELLATION SPECIFIC LOGIC ---
+      if (booking.bookingStatus === 'CANCELLED' && booking.cancellation) {
+        const cancellation = booking.cancellation;
+        const refundToPassenger = parseFloat(cancellation.refundToPassenger || 0);
+        const customerPayable = cancellation.createdCustomerPayable;
+
+        // If a refund has been paid, deduct it from totalReceived for a 'net received' view
+        if (cancellation.refundPayment) {
+          totalReceived -= parseFloat(cancellation.refundPayment.amount);
           paymentHistory.push({
             type: 'Passenger Refund Paid',
-            date: booking.cancellation.refundPayment.refundDate,
-            amount: booking.cancellation.refundPayment.amount,
-            method: booking.cancellation.refundPayment.transactionMethod,
+            date: cancellation.refundPayment.refundDate,
+            amount: -parseFloat(cancellation.refundPayment.amount), // Negative to indicate money out
+            method: cancellation.refundPayment.transactionMethod,
           });
         }
-        if (booking.cancellation.createdCustomerPayable) {
-          const settlements = booking.cancellation.createdCustomerPayable.settlements || [];
+
+        // Adjust balance based on cancellation financial outcome
+        if (customerPayable && customerPayable.pendingAmount > 0) {
+            // Customer still owes us money from cancellation
+            currentBalance = parseFloat(customerPayable.pendingAmount);
+        } else if (customerPayable && customerPayable.pendingAmount <= 0.01) {
+            // Customer debt fully settled. If a refund was due, it's now net zero or paid.
+            currentBalance = 0;
+        } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PENDING') {
+            // We owe the customer a refund
+            currentBalance = -refundToPassenger; // Negative balance indicates money owed TO customer
+        } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PAID') {
+            // Refund was due and has been paid. Net balance should be 0 from customer's perspective.
+            currentBalance = 0;
+        } else {
+            // No refund due, no payable pending. Assume settled.
+            currentBalance = 0;
+        }
+
+        // Add customer payable settlements to history if applicable
+        if (customerPayable) {
+          const settlements = customerPayable.settlements || [];
           settlements.forEach(settlement => {
             paymentHistory.push({
               type: 'Cancellation Debt Paid',
               date: settlement.paymentDate,
-              amount: settlement.amount,
+              amount: parseFloat(settlement.amount),
               method: settlement.transactionMethod
             });
           });
@@ -1128,9 +1153,9 @@ const getCustomerDeposits = async (req, res) => {
       return {
         ...booking,
         revenue: revenue.toFixed(2),
-        received: totalReceived.toFixed(2), // Use the newly calculated total
-        balance: (revenue - totalReceived).toFixed(2), // Use the newly calculated total
-        initialDeposit: sumOfInitialPayments.toFixed(2), // This now represents the sum of all initial payments
+        received: totalReceived.toFixed(2), 
+        balance: currentBalance.toFixed(2), 
+        initialDeposit: sumOfInitialPayments.toFixed(2), 
         paymentHistory: paymentHistory,
       };
     });
@@ -2024,9 +2049,9 @@ const getTransactions = async (req, res) => {
 const createCancellation = async (req, res) => {
   const { id: userId } = req.user;
   const { id: triggerBookingId } = req.params;
-  const { supplierCancellationFee, adminFee, refundTransactionMethod } = req.body;
+  const { supplierCancellationFee, adminFee } = req.body;
 
-  if (supplierCancellationFee === undefined || adminFee === undefined || !refundTransactionMethod) {
+  if (supplierCancellationFee === undefined || adminFee === undefined ) {
     return apiResponse.error(res, 'Supplier Fee, Admin Fee, and Refund Method are required.', 400);
   }
 
@@ -2091,20 +2116,17 @@ const createCancellation = async (req, res) => {
         data: {
           originalBookingId: rootBookingInChain.id,
           folderNo: `${baseFolderNo}.C`,
-          refundTransactionMethod,
           originalRevenue: rootBookingInChain.revenue || 0,
           originalProdCost: rootBookingInChain.prodCost || 0,
           supplierCancellationFee: supCancellationFee,
           refundToPassenger: refundToPassenger,
           adminFee: parseFloat(adminFee),
-          creditNoteAmount: creditNoteAmount, // Use the new correct variable
+          creditNoteAmount: creditNoteAmount,
           refundStatus: refundToPassenger > 0 ? 'PENDING' : 'N/A',
           profitOrLoss: profitOrLoss,
           description: `Cancellation for chain ${baseFolderNo}.`,
         },
       });
-
-      // --- (All audit log and status update logic remains the same) ---
       
       if (supplierDifference > 0) {
         const supplierForCreditNote = await tx.costItemSupplier.findFirst({
@@ -2124,17 +2146,11 @@ const createCancellation = async (req, res) => {
             });
         }
       } else if (supplierDifference < 0) {
-        // --- THIS IS THE NEW LOGIC YOU NEED TO ADD ---
-        // This means the supplier's fee is MORE than the original cost.
-        // You now owe them the difference.
-
-        // First, find the primary supplier for this booking chain.
         const supplierInfo = await tx.costItemSupplier.findFirst({
             where: { costItem: { bookingId: rootBookingInChain.id } },
             select: { supplier: true }
         });
 
-        // Make sure we found a supplier before creating a payable record.
         if (supplierInfo) {
             const amountOwedToSupplier = Math.abs(supplierDifference);
 

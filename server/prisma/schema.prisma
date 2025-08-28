@@ -5,7 +5,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
@@ -357,8 +357,6 @@ model Cancellation {
   
   // --- NEW FIELDS TO ADD ---
   folderNo                String         @unique @map("folder_no") // Its own unique folder number
-  refundTransactionMethod String   @map("refund_transaction_method") // How we paid the pax
-
   // Snapshot of the original booking's key financials
   originalRevenue         Float    @map("original_revenue")
   originalProdCost        Float    @map("original_prod_cost")
