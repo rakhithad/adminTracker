@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import logo from '../assets/Logo.png';
-import { supabase } from '../supabaseClient'; // 👈 1. Import the Supabase client
+import { supabase } from '../supabaseClient'; 
 
 export default function NavigationBar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
