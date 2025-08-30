@@ -363,6 +363,7 @@ const approveBooking = async (req, res) => {
       // 3. Create the new Booking by copying data from the pending booking
       const newBooking = await tx.booking.create({
         data: {
+          originalBookingId: pendingBooking.originalBookingId, // Ensure this is also copied if present
           folderNo: newFolderNo,
           refNo: pendingBooking.refNo,
           paxName: pendingBooking.paxName,
@@ -433,10 +434,10 @@ const approveBooking = async (req, res) => {
       // 4. Migrate CostItemSuppliers from pendingCostItemId to costItemId
       // Iterate through the original pendingBooking's cost items to find their suppliers
       for (const [index, pendingItem] of pendingBooking.costItems.entries()) {
+        // Find the corresponding new cost item created in the approved booking
         const newCostItem = newBooking.costItems.find(ci => ci.category === pendingItem.category && ci.amount === pendingItem.amount);
         
         if (!newCostItem) {
-            // This should ideally not happen if costItems were mapped 1:1, but as a safeguard
             console.warn(`Could not find newly created CostItem for pendingItem ID ${pendingItem.id}. Skipping supplier migration for this item.`);
             continue;
         }
@@ -444,7 +445,7 @@ const approveBooking = async (req, res) => {
         // For each supplier attached to the pending cost item
         for (const supplier of pendingItem.suppliers) {
           // Update the existing CostItemSupplier record
-          await tx.costItemSupplier.update({ // Changed from updateMany to update as 'id' is unique
+          await tx.costItemSupplier.update({
             where: { id: supplier.id }, // Target the specific CostItemSupplier record
             data: {
               costItemId: newCostItem.id, // Link to the new CostItem
@@ -492,7 +493,7 @@ const approveBooking = async (req, res) => {
           }
       });
     }, {
-        timeout: 10000 // Increase transaction timeout to 10 seconds
+        timeout: 20000 // <--- INCREASED TIMEOUT HERE TO 20 SECONDS
     }); // End of prisma.$transaction
 
     return apiResponse.success(res, approvedBookingResult, 200);
@@ -3424,8 +3425,8 @@ const recordPassengerRefund = async (req, res) => {
                 throw new Error('This refund has already been paid.');
             }
             // Basic check: ensure the payment amount doesn't exceed the refundToPassenger amount
-            if (parsedAmount > cancellation.refundToPassenger + 0.01) {
-                throw new Error(`Refund amount (£${parsedAmount.toFixed(2)}) exceeds the amount owed to passenger (£${cancellation.refundToPassenger.toFixed(2)}).`);
+            if (parsedAmount > (cancellation.refundToPassenger || 0) + 0.01) { // Added (cancellation.refundToPassenger || 0) for safety
+                throw new Error(`Refund amount (£${parsedAmount.toFixed(2)}) exceeds the amount owed to passenger (£${(cancellation.refundToPassenger || 0).toFixed(2)}).`);
             }
 
             const originalBooking = cancellation.originalBooking;
@@ -3496,7 +3497,7 @@ const recordPassengerRefund = async (req, res) => {
                 },
                 {
                     fieldName: 'passengerRefundPayment',
-                    oldValue: `Owed: ${cancellation.refundToPassenger.toFixed(2)}`,
+                    oldValue: `Owed: ${(cancellation.refundToPassenger || 0).toFixed(2)}`, // <-- FIX APPLIED HERE
                     newValue: `Paid: ${parsedAmount.toFixed(2)} via ${transactionMethod}`
                 }]
             });
@@ -3508,7 +3509,7 @@ const recordPassengerRefund = async (req, res) => {
                 action: ActionType.REFUND_PAYMENT, // Specific action for booking
                 changes: [{
                     fieldName: 'balance',
-                    oldValue: oldBookingBalance !== undefined ? oldBookingBalance.toFixed(2) : 'N/A',
+                    oldValue: typeof oldBookingBalance === 'number' ? oldBookingBalance.toFixed(2) : 'N/A', // <-- FIX APPLIED HERE
                     newValue: newBalance.toFixed(2)
                 }]
             });

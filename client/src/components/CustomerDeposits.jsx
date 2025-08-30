@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits } from '../api/api'; // <--- REMOVED recordSettlementPayment from import
+import { getCustomerDeposits, recordSettlementPayment } from '../api/api'; // <--- RE-IMPORTED recordSettlementPayment
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
@@ -202,6 +202,18 @@ export default function CustomerDeposits() {
     setPaymentPopup(null);
   };
 
+  // This function now correctly calls the API and then the generic completion handler
+  const handleSaveSettlement = async (bookingId, paymentData) => {
+    try {
+      await recordSettlementPayment(bookingId, paymentData);
+      handleActionCompletion(); // Call the generic completion handler
+    } catch (error) {
+      console.error('Final settlement API error:', error);
+      throw error; // Re-throw to be caught by the popup's handleSubmit
+    }
+  };
+
+
   // onSubmit for FinalSettlement and CustomerPayable, and RecordRefund now just refetches bookings
   // This simplifies client-side state management for these complex flows.
   const handleActionCompletion = () => {
@@ -397,7 +409,7 @@ export default function CustomerDeposits() {
       )}
       
       {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
-      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleActionCompletion} />)}
+      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}
       {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
       {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={handleActionCompletion} /> )}
       {recordRefundPopup && (
