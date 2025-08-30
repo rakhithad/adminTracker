@@ -880,23 +880,38 @@ const getRecentBookings = async (req, res) => {
 
 const updateInstalment = async (req, res) => {
   const { id: userId } = req.user;
-  const { id } = req.params;
-  const { amount, status, transactionMethod, paymentDate } = req.body;
+  const { id } = req.params; // This is the Instalment ID
+  const { amount, status, transactionMethod, paymentDate } = req.body; // 'amount' here is the payment amount
 
   try {
-    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0 || !['PENDING', 'PAID', 'OVERDUE'].includes(status)) {
-        return apiResponse.error(res, 'Invalid amount or status.', 400);
+    const paymentAmount = parseFloat(amount);
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
+        return apiResponse.error(res, 'Payment amount must be a positive number.', 400);
+    }
+    // For this flow, we assume a payment means the instalment status will become PAID.
+    // If partial payments were allowed, this logic would be more complex.
+    if (status !== 'PAID') {
+        return apiResponse.error(res, 'Invalid status for payment action. Expected "PAID".', 400);
+    }
+    if (!transactionMethod || !paymentDate) {
+        return apiResponse.error(res, 'Transaction method and payment date are required.', 400);
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      // 1. Fetch the instalment and its associated booking with all necessary details
       const instalmentToUpdate = await tx.instalment.findUnique({
         where: { id: parseInt(id) },
         include: { 
             booking: {
-                include: {
-                    initialPayments: true // We need this to calculate the total received
+                // Select all fields needed for comprehensive balance calculation
+                select: {
+                    id: true,
+                    revenue: true,
+                    initialPayments: true,
+                    // Note: We'll re-fetch all instalments and their payments separately for accuracy
                 }
-            }
+            },
+            payments: true // Include existing payments for this specific instalment
         },
       });
 
@@ -904,86 +919,110 @@ const updateInstalment = async (req, res) => {
         throw new Error('Instalment not found');
       }
 
-      if (status === 'PAID') {
-          await tx.instalmentPayment.create({
-              data: {
-                  instalmentId: parseInt(id),
-                  amount: parseFloat(amount),
-                  transactionMethod,
-                  paymentDate: new Date(paymentDate),
-              },
-          });
-
-          await createAuditLog(tx, {
-            userId,
-            modelName: 'Instalment',
-            recordId: instalmentToUpdate.id,
-            action: ActionType.UPDATE,
-            changes: [{
-              fieldName: 'status',
-              oldValue: instalmentToUpdate.status,
-              newValue: 'PAID'
-            }]
-          });
-
-          await createAuditLog(tx, {
-            userId,
-            modelName: 'Booking',
-            recordId: instalmentToUpdate.bookingId,
-            action: ActionType.SETTLEMENT_PAYMENT,
-            changes: [{
-              fieldName: 'balance',
-              oldValue: instalmentToUpdate.booking.balance,
-              newValue: `(Payment of £${amount} received)`
-            }]
-          });
+      // Prevent re-processing if already paid (based on current flow's assumption)
+      if (instalmentToUpdate.status === 'PAID') {
+          throw new Error('This instalment has already been marked as PAID.');
       }
 
+      // 2. Create the new instalment payment record
+      const newPayment = await tx.instalmentPayment.create({
+          data: {
+              instalmentId: parseInt(id),
+              amount: paymentAmount,
+              transactionMethod,
+              paymentDate: new Date(paymentDate),
+          },
+      });
+
+      // 3. Update the instalment's status (DO NOT update instalment.amount with payment amount)
       const updatedInstalment = await tx.instalment.update({
         where: { id: parseInt(id) },
-        data: { amount: parseFloat(amount), status },
-        include: { payments: true }
+        data: { status: 'PAID' }, // Mark instalment as PAID after successful payment
+        include: { payments: true } // Re-fetch payments to ensure we have the very latest for return
       });
 
-      // --- NEW CALCULATION LOGIC ---
-      // 1. Get the sum of all initial payments for the booking
+      // --- Recalculate Booking's Total Received and Balance from scratch ---
+      // This is the most reliable way to ensure consistency after a payment.
+
+      // Get all initial payments for the booking
       const sumOfInitialPayments = instalmentToUpdate.booking.initialPayments.reduce((sum, p) => sum + p.amount, 0);
 
-      // 2. Get the sum of ALL instalment payments, including the new one
-      const allInstalmentPayments = await tx.instalmentPayment.findMany({
-          where: { instalment: { bookingId: instalmentToUpdate.bookingId } }
+      // Get ALL instalments for the booking (with their latest payments)
+      // This ensures we capture the payment just added and any other existing payments.
+      const allBookingsInstalments = await tx.instalment.findMany({
+          where: { bookingId: instalmentToUpdate.bookingId },
+          include: { payments: true }
       });
-      const totalPaidViaInstalments = allInstalmentPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      // Calculate total paid via all instalments for the booking
+      const totalPaidViaInstalments = allBookingsInstalments.reduce((instSum, inst) => 
+          instSum + inst.payments.reduce((paySum, p) => paySum + p.amount, 0), 0
+      );
       
-      // 3. The new total received is the sum of both
       const newTotalReceived = sumOfInitialPayments + totalPaidViaInstalments;
       const newBalance = (instalmentToUpdate.booking.revenue || 0) - newTotalReceived;
       
-      // 4. Update the parent booking's balance (NO 'received' field)
+      // 4. Update the parent booking's balance and lastPaymentDate
+      const oldBookingBalance = instalmentToUpdate.booking.balance; // Store old balance for audit log
       const updatedBooking = await tx.booking.update({
           where: { id: instalmentToUpdate.bookingId },
           data: {
               balance: newBalance,
-              lastPaymentDate: status === 'PAID' ? new Date(paymentDate) : instalmentToUpdate.booking.lastPaymentDate,
+              lastPaymentDate: new Date(paymentDate), // Update last payment date
           }
       });
-      // --- END OF NEW LOGIC ---
 
+      // 5. Create Audit Logs for both Instalment and Booking
+      await createAuditLog(tx, {
+        userId,
+        modelName: 'Instalment',
+        recordId: instalmentToUpdate.id,
+        action: ActionType.UPDATE,
+        changes: [{
+          fieldName: 'status',
+          oldValue: instalmentToUpdate.status,
+          newValue: 'PAID'
+        },
+        {
+          fieldName: 'payment_recorded', // Specific audit for the payment itself
+          oldValue: `No payment recorded`,
+          newValue: `£${paymentAmount.toFixed(2)} via ${transactionMethod}`
+        }
+        ]
+      });
+
+      await createAuditLog(tx, {
+        userId,
+        modelName: 'Booking',
+        recordId: instalmentToUpdate.bookingId,
+        action: ActionType.SETTLEMENT_PAYMENT,
+        changes: [{
+          fieldName: 'balance',
+          oldValue: oldBookingBalance !== undefined ? oldBookingBalance.toFixed(2) : 'N/A',
+          newValue: newBalance.toFixed(2)
+        }]
+      });
+
+      // 6. Return the updated instalment and booking details for frontend state update
       return {
-          updatedInstalment,
+          updatedInstalment: updatedInstalment, // Already includes the new payment due to include: { payments: true }
           bookingUpdate: {
               id: updatedBooking.id,
-              balance: updatedBooking.balance
+              balance: updatedBooking.balance,
+              received: newTotalReceived.toFixed(2) // Frontend expects this for its state update
           }
       };
-    });
+    }, {
+        timeout: 10000 // Increase transaction timeout to 10 seconds (default is 5s)
+    }); // End of prisma.$transaction
 
     return apiResponse.success(res, result);
   } catch (error) {
     console.error('Error updating instalment:', error);
-    if (error.message === 'Instalment not found') {
+    if (error.message.includes('not found') || error.message.includes('already been marked as PAID')) {
       return apiResponse.error(res, error.message, 404);
     }
+    // Catch generic transaction or other errors
     return apiResponse.error(res, `Failed to update instalment: ${error.message}`, 500);
   }
 };
