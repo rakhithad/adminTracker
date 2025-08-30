@@ -1231,11 +1231,8 @@ const getCustomerDeposits = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
-        // This 'in' clause still filters only 'INTERNAL' and 'INTERNAL_HUMM'.
-        // To show FULL/HUMM bookings in the table, you would need to adjust this.
-        // For now, I'm working within the existing filter.
         paymentMethod: {
-          in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'], // <-- MODIFIED THIS LINE
+          in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'],
         },
       },
       select: {
@@ -1248,13 +1245,14 @@ const getCustomerDeposits = async (req, res) => {
         travelDate: true,
         revenue: true,
         bookingStatus: true,
-        paymentMethod: true, // <-- ADDED THIS TO DETERMINE LOGIC
-        initialDeposit: true, // <-- KEPT THIS AS IS, IT'S FROM THE DB MODEL
+        paymentMethod: true,
+        initialDeposit: true,
         initialPayments: {
           select: {
             amount: true,
             transactionMethod: true,
             paymentDate: true,
+            createdAt: true, // Include createdAt for sorting if paymentDate is the same
           }
         },
         instalments: {
@@ -1270,7 +1268,7 @@ const getCustomerDeposits = async (req, res) => {
                 amount: true,
                 transactionMethod: true,
                 paymentDate: true,
-                createdAt: true,
+                createdAt: true, // Include createdAt for sorting if paymentDate is the same
               },
             },
           },
@@ -1286,13 +1284,22 @@ const getCustomerDeposits = async (req, res) => {
               select: {
                 amount: true,
                 transactionMethod: true,
-                refundDate: true
+                refundDate: true,
+                createdAt: true, // Include createdAt for sorting if refundDate is the same
               }
             },
             refundStatus: true,
             createdCustomerPayable: {
               include: {
-                settlements: true
+                settlements: { // Include settlements directly here
+                  select: {
+                    id: true,
+                    amount: true,
+                    transactionMethod: true,
+                    paymentDate: true,
+                    createdAt: true, // Include createdAt for sorting if paymentDate is the same
+                  }
+                }
               }
             }
           }
@@ -1316,23 +1323,29 @@ const getCustomerDeposits = async (req, res) => {
       let totalReceived = sumOfInitialPayments + sumOfPaidInstalments; // Total cash-in from customer
       let currentBalance = revenue - totalReceived; // Initial balance calculation (money owed to us)
 
-      // --- Payment History for Pop-up (remains mostly the same) ---
+      // --- Payment History for Pop-up ---
       const paymentHistory = [];
+
+      // Add each initial payment to the history
       (booking.initialPayments || []).forEach(payment => {
         paymentHistory.push({
-          type: 'Initial Payment',
+          type: 'Initial Deposit', // More descriptive
           date: payment.paymentDate,
           amount: parseFloat(payment.amount),
           method: payment.transactionMethod,
+          recordedAt: payment.createdAt,
         });
       });
+
+      // Add each instalment payment to the history
       (booking.instalments || []).forEach(instalment => {
         (instalment.payments || []).forEach(payment => {
           paymentHistory.push({
-            type: `Instalment Payment`,
+            type: instalment.status === 'SETTLEMENT' ? 'Final Settlement Payment' : `Instalment Payment (${instalment.id})`, // Differentiate settlement payments
             date: payment.paymentDate,
             amount: parseFloat(payment.amount),
             method: payment.transactionMethod,
+            recordedAt: payment.createdAt,
           });
         });
       });
@@ -1351,24 +1364,20 @@ const getCustomerDeposits = async (req, res) => {
             date: cancellation.refundPayment.refundDate,
             amount: -parseFloat(cancellation.refundPayment.amount), // Negative to indicate money out
             method: cancellation.refundPayment.transactionMethod,
+            recordedAt: cancellation.refundPayment.createdAt,
           });
         }
 
         // Adjust balance based on cancellation financial outcome
         if (customerPayable && customerPayable.pendingAmount > 0) {
-            // Customer still owes us money from cancellation
             currentBalance = parseFloat(customerPayable.pendingAmount);
         } else if (customerPayable && customerPayable.pendingAmount <= 0.01) {
-            // Customer debt fully settled. If a refund was due, it's now net zero or paid.
             currentBalance = 0;
         } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PENDING') {
-            // We owe the customer a refund
-            currentBalance = -refundToPassenger; // Negative balance indicates money owed TO customer
+            currentBalance = -refundToPassenger;
         } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PAID') {
-            // Refund was due and has been paid. Net balance should be 0 from customer's perspective.
             currentBalance = 0;
         } else {
-            // No refund due, no payable pending. Assume settled.
             currentBalance = 0;
         }
 
@@ -1380,13 +1389,21 @@ const getCustomerDeposits = async (req, res) => {
               type: 'Cancellation Debt Paid',
               date: settlement.paymentDate,
               amount: parseFloat(settlement.amount),
-              method: settlement.transactionMethod
+              method: settlement.transactionMethod,
+              recordedAt: settlement.createdAt,
             });
           });
         }
       }
       
-      paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+      // Sort payment history by date, then by recordedAt for consistent order if dates are identical
+      paymentHistory.sort((a, b) => {
+        const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (dateComparison === 0 && a.recordedAt && b.recordedAt) {
+            return new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime();
+        }
+        return dateComparison;
+      });
       
       return {
         ...booking,
@@ -1404,7 +1421,6 @@ const getCustomerDeposits = async (req, res) => {
     return apiResponse.error(res, `Failed to fetch customer deposits: ${error.message}`, 500);
   }
 };
-
 
 const createSupplierPaymentSettlement = async (req, res) => {
   const { id: userId } = req.user;

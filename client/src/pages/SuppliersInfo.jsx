@@ -3,7 +3,7 @@ import { getSuppliersInfo } from '../api/api';
 import SettlePaymentPopup from '../components/SettlePaymentPopup';
 import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup';
 import SettlePayablePopup from '../components/SettlePayablePopup';
-import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaMoneyBillWave, FaHandHoldingUsd, FaFileInvoiceDollar } from 'react-icons/fa'; // Added FaMoneyBillWave for generic payment icon
+import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaMoneyBillWave, FaHandHoldingUsd, FaFileInvoiceDollar } from 'react-icons/fa'; // Added FaMoneyBillWave and FaFileInvoiceDollar for icons
 
 const StatCard = ({ icon, title, value, colorClass }) => (
     <div className={`flex items-center p-4 bg-white shadow-lg rounded-xl border-l-4 ${colorClass}`}>
@@ -46,7 +46,7 @@ export default function SuppliersInfo() {
   }, []);
   
   const handleSettleSubmit = () => {
-    fetchSuppliersInfo();
+    fetchSuppliersInfo(); // Re-fetch all data to ensure UI is up to date
     setSettlePopup(null);
     setSettlePayablePopup(null);
   };
@@ -59,6 +59,7 @@ export default function SuppliersInfo() {
     return { totalOverallPending: pending, totalOverallCredit: credit };
   }, [supplierData]);
 
+  // Unified processing for all transaction types
   const processedData = useMemo(() => {
     const finalData = {};
 
@@ -67,7 +68,9 @@ export default function SuppliersInfo() {
       const allProcessedTransactions = [];
 
       // Create a map of credit notes by refNo for easy lookup
-      const creditNoteMap = (supplier.transactions || [])
+      // Note: This map helps link a credit note created FROM a booking to that booking.
+      // The credit note itself is also a transaction.
+      const creditNoteRefNoMap = (supplier.transactions || [])
         .filter(tx => tx.type === 'CreditNote')
         .reduce((map, tx) => {
           if (tx.data.generatedFromRefNo && tx.data.generatedFromRefNo !== 'N/A') {
@@ -78,7 +81,7 @@ export default function SuppliersInfo() {
 
       // 1. Process BookingCost items
       (supplier.transactions || [])
-        .filter(tx => tx.type === 'BookingCost') // <--- FIXED: Filter for "BookingCost"
+        .filter(tx => tx.type === 'BookingCost')
         .forEach(tx => {
           const bookingCost = tx.data;
           const baseFolderNo = bookingCost.folderNo.toString().split('.')[0];
@@ -89,13 +92,13 @@ export default function SuppliersInfo() {
             uniqueId: `costitem-${bookingCost.id}`, // Unique ID for table key
             type: 'BookingCost',
             folderNo: bookingCost.folderNo,
-            identifier: bookingCost.refNo,
+            identifier: bookingCost.refNo, // RefNo for bookings
             reasonOrCategory: bookingCost.category,
             total: bookingCost.amount || 0,
             paid: bookingCost.paidAmount || 0,
             pending: bookingCost.pendingAmount || 0,
             credit: 0, // Not a credit note itself
-            creditNoteData: creditNoteMap[bookingCost.refNo] || null, // Link credit note if generated from this refNo
+            creditNoteData: creditNoteRefNoMap[bookingCost.refNo] || null, // Link credit note if generated from this refNo
             date: bookingCost.createdAt,
             status: bookingCost.bookingStatus,
             originalData: bookingCost, // Keep original data for popup
@@ -113,12 +116,12 @@ export default function SuppliersInfo() {
             uniqueId: `creditnote-${creditNote.id}`,
             type: 'CreditNote',
             folderNo: creditNote.generatedFromCancellation?.originalBooking?.folderNo || '—',
-            identifier: creditNote.generatedFromRefNo || 'N/A',
+            identifier: creditNote.generatedFromRefNo || 'N/A', // RefNo for generated from
             reasonOrCategory: 'Credit Note Issued',
             total: creditNote.initialAmount || 0,
-            paid: (creditNote.initialAmount - creditNote.remainingAmount) || 0,
+            paid: (creditNote.initialAmount - creditNote.remainingAmount) || 0, // Amount used
             pending: 0, // This is credit, not pending amount owed by us
-            credit: creditNote.remainingAmount || 0,
+            credit: creditNote.remainingAmount || 0, // Available credit
             creditNoteData: creditNote, // Self-reference for details popup
             date: creditNote.createdAt,
             status: creditNote.status,
@@ -134,7 +137,7 @@ export default function SuppliersInfo() {
           uniqueId: `payable-${payable.id}`,
           type: 'SupplierPayable',
           folderNo: payable.originatingFolderNo || '—',
-          identifier: payable.reason, // Use reason as identifier
+          identifier: payable.reason, // Use reason as identifier for payables
           reasonOrCategory: 'Cancellation Payable',
           total: payable.totalAmount || 0,
           paid: payable.paidAmount || 0,
@@ -177,7 +180,9 @@ export default function SuppliersInfo() {
     setExpandedPayableRow(prev => (prev === bookingUniqueId ? null : bookingUniqueId));
   }
   
-  const handleCostItemSettlementClick = (costItemSupplier, supplierName) => {
+  // Adjusted for BookingCost specific settlement
+  const handleBookingCostSettlementClick = (costItemSupplier, supplierName) => {
+    // Note: SettlePaymentPopup expects a 'booking' object which in this context is the CostItemSupplier
     setSettlePopup({ booking: costItemSupplier, supplier: supplierName });
   };
   
@@ -185,7 +190,8 @@ export default function SuppliersInfo() {
     setSelectedCreditNote(creditNote);
   };
 
-  const handlePayableSettlementClick = (payable, supplierName) => {
+  // Adjusted for SupplierPayable specific settlement
+  const handleSupplierPayableSettlementClick = (payable, supplierName) => {
     setSettlePayablePopup({ payable: payable, supplier: supplierName });
   }
 
@@ -285,10 +291,9 @@ export default function SuppliersInfo() {
                                     <React.Fragment key={item.uniqueId}>
                                         <tr 
                                             className={`transition-colors ${item.type === 'BookingCost' && item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} ${item.type === 'CreditNote' ? 'bg-blue-50/50' : ''}`} 
-                                            // Removed direct onClick on tr, actions are now explicit buttons
                                         >
                                             <td className="pl-4 pr-2 py-2.5">
-                                                {/* Expansion button for linked payable */}
+                                                {/* Expansion button for linked payable (only for BookingCost with pending payable) */}
                                                 {item.type === 'BookingCost' && item.isExpandable && (
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); togglePayableExpansion(item.uniqueId); }}
@@ -306,7 +311,7 @@ export default function SuppliersInfo() {
                                             <td className="px-2 py-2.5 font-semibold whitespace-nowrap">{item.type === 'BookingCost' ? 'Booking Cost' : (item.type === 'CreditNote' ? 'Credit Note' : 'Supplier Payable')}</td> {/* Display Type */}
                                             <td className="px-2 py-2.5 font-semibold">{item.folderNo}</td>
                                             <td className="px-2 py-2.5">{item.identifier}</td>
-                                            <td className="px-2 py-2.5">{item.reasonOrCategory}</td> {/* Changed from category to reasonOrCategory */}
+                                            <td className="px-2 py-2.5">{item.reasonOrCategory}</td>
                                             <td className="px-2 py-2.5 text-right font-medium">£{item.total.toFixed(2)}</td>
                                             <td className="px-2 py-2.5 text-right text-green-600">£{item.paid.toFixed(2)}</td>
                                             <td className={`px-2 py-2.5 text-right font-bold ${item.pending > 0 ? 'text-red-600' : 'text-slate-500'}`}>£{item.pending.toFixed(2)}</td>
@@ -314,16 +319,17 @@ export default function SuppliersInfo() {
                                             <td className="pr-4 pl-2 py-2.5 text-right whitespace-nowrap">{formatDate(item.date)}</td>
                                             <td className="pr-4 pl-2 py-2.5 text-right whitespace-nowrap">
                                                 {item.type === 'BookingCost' && item.pending > 0 && item.status !== 'CANCELLED' && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleCostItemSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">Settle</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleBookingCostSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">Settle</button>
                                                 )}
                                                 {item.type === 'CreditNote' && (
                                                     <button onClick={(e) => { e.stopPropagation(); handleCreditNoteDetailsClick(item.creditNoteData); }} className="px-3 py-1 bg-slate-200 text-slate-800 rounded-md text-xs hover:bg-slate-300">Details</button>
                                                 )}
                                                 {item.type === 'SupplierPayable' && item.pending > 0 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handlePayableSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-red-600 text-white rounded-md text-xs hover:bg-red-700">Settle</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleSupplierPayableSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-red-600 text-white rounded-md text-xs hover:bg-red-700">Settle</button>
                                                 )}
                                             </td>
                                         </tr>
+                                        {/* Nested row for linked payable */}
                                         {expandedPayableRow === item.uniqueId && item.type === 'BookingCost' && item.linkedPayable && (
                                           <tr className="bg-red-50/70">
                                               <td colSpan="11" className="p-0"> {/* Adjusted colspan */}
@@ -336,18 +342,18 @@ export default function SuppliersInfo() {
                                                       <div className="flex items-center gap-6 text-sm text-right">
                                                           <div>
                                                             <p className="text-xs text-slate-500">Total Payable</p>
-                                                            <p className="font-semibold">£{item.linkedPayable.totalAmount.toFixed(2)}</p> {/* Changed from .total to .totalAmount */}
+                                                            <p className="font-semibold">£{item.linkedPayable.totalAmount.toFixed(2)}</p>
                                                           </div>
                                                           <div>
                                                             <p className="text-xs text-slate-500">Paid</p>
-                                                            <p className="font-semibold text-green-600">£{item.linkedPayable.paidAmount.toFixed(2)}</p> {/* Changed from .paid to .paidAmount */}
+                                                            <p className="font-semibold text-green-600">£{item.linkedPayable.paidAmount.toFixed(2)}</p>
                                                           </div>
                                                           <div>
                                                             <p className="text-xs text-slate-500">Pending</p>
-                                                            <p className="font-bold text-lg text-red-600">£{item.linkedPayable.pendingAmount.toFixed(2)}</p> {/* Changed from .pending to .pendingAmount */}
+                                                            <p className="font-bold text-lg text-red-600">£{item.linkedPayable.pendingAmount.toFixed(2)}</p>
                                                           </div>
                                                           <button
-                                                              onClick={(e) => { e.stopPropagation(); setSettlePayablePopup({ payable: item.linkedPayable, supplier: supplierName }); }}
+                                                              onClick={(e) => { e.stopPropagation(); handleSupplierPayableSettlementClick(item.linkedPayable, supplierName); }}
                                                               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold shadow"
                                                             >Settle</button>
                                                       </div>
