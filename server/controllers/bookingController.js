@@ -1434,12 +1434,12 @@ const createSupplierPaymentSettlement = async (req, res) => {
       return apiResponse.error(res, 'Missing or invalid required fields: costItemSupplierId, amount, transactionMethod, settlementDate', 400);
     }
 
-    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT', 'BANK_TRANSFER']; // Added BANK_TRANSFER from schema
+    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT', 'BANK_TRANSFER'];
     if (!validTransactionMethods.includes(transactionMethod)) {
       return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
     }
 
-    if (isNaN(new Date(settlementDate).getTime())) { // Use getTime() for robust date validation
+    if (isNaN(new Date(settlementDate).getTime())) {
       return apiResponse.error(res, 'Invalid settlementDate', 400);
     }
 
@@ -1466,14 +1466,15 @@ const createSupplierPaymentSettlement = async (req, res) => {
       if (!costItemSupplier) {
         throw new Error('CostItemSupplier not found');
       }
-      if (!costItemSupplier.costItem?.booking) { // Ensure booking exists before proceeding
+      if (!costItemSupplier.costItem?.booking) {
         throw new Error('Could not find the parent booking for this cost item.');
       }
 
       const currentBooking = costItemSupplier.costItem.booking;
-      const pendingAmount = parseFloat(costItemSupplier.pendingAmount) || 0;
+      // Ensure pendingAmount is always a number for comparison
+      const pendingAmount = parseFloat(costItemSupplier.pendingAmount ?? 0) || 0; 
 
-      if (parsedAmount > pendingAmount + 0.01) { // Allow for tiny floating point discrepancies
+      if (parsedAmount > pendingAmount + 0.01) {
         throw new Error(`Settlement amount (£${parsedAmount.toFixed(2)}) exceeds pending amount (£${pendingAmount.toFixed(2)})`);
       }
 
@@ -1488,7 +1489,8 @@ const createSupplierPaymentSettlement = async (req, res) => {
       });
 
       // 4. Update CostItemSupplier paidAmount and pendingAmount
-      const newPaidAmountForSupplier = (parseFloat(costItemSupplier.paidAmount) || 0) + parsedAmount;
+      // Ensure old paidAmount is treated as 0 if null
+      const newPaidAmountForSupplier = (parseFloat(costItemSupplier.paidAmount ?? 0) || 0) + parsedAmount;
       const newPendingAmountForSupplier = pendingAmount - parsedAmount;
 
       const finalUpdatedSupplier = await tx.costItemSupplier.update({
@@ -1497,7 +1499,7 @@ const createSupplierPaymentSettlement = async (req, res) => {
           paidAmount: newPaidAmountForSupplier,
           pendingAmount: newPendingAmountForSupplier,
         },
-        include: { settlements: true }, // Include for return object
+        include: { settlements: true },
       });
 
       // 5. Recalculate Booking's comprehensive financial state
@@ -1511,25 +1513,29 @@ const createSupplierPaymentSettlement = async (req, res) => {
       const totalReceivedFromCustomer = sumOfInitialPayments + sumOfInstalmentPayments + sumOfCustomerPayableSettlements;
 
       // --- Sum of all payments made to suppliers ---
+      // Ensure all amounts are treated as numbers (0 if null) before summing
       const totalPaidToSuppliers = (currentBooking.costItems || []).reduce((ciSum, costItem) => 
           ciSum + (costItem.suppliers || []).reduce((sSum, supplier) => 
               sSum + (supplier.settlements || []).reduce((setSum, settlement) => setSum + settlement.amount, 0), 0), 0);
       
       // Calculate derived fields (profit, balance) based on the latest figures
-      const newProfit = (currentBooking.revenue || 0) - totalPaidToSuppliers - (currentBooking.transFee || 0) - (currentBooking.surcharge || 0);
-      const newBalance = (currentBooking.revenue || 0) - totalReceivedFromCustomer; // This 'balance' is customer-facing, as before.
-      // NOTE: You might also want a 'net_profit_loss' field on the booking if 'balance' is purely customer-facing.
+      const newRevenue = currentBooking.revenue ?? 0; // Ensure revenue is a number
+      const newTransFee = currentBooking.transFee ?? 0; // Ensure transFee is a number
+      const newSurcharge = currentBooking.surcharge ?? 0; // Ensure surcharge is a number
 
-      // Store old booking balance for audit log
-      const oldBookingBalance = currentBooking.balance;
-      const oldBookingProfit = currentBooking.profit;
+      const newProfit = newRevenue - totalPaidToSuppliers - newTransFee - newSurcharge;
+      const newBalance = newRevenue - totalReceivedFromCustomer;
+
+      // Store old booking balance and profit for audit log, ensuring they are numbers or 'N/A'
+      const oldBookingBalance = currentBooking.balance ?? 0;
+      const oldBookingProfit = currentBooking.profit ?? 0;
 
       // 6. Update the main Booking record with new financials
       const updatedBookingRecord = await tx.booking.update({
           where: { id: currentBooking.id },
           data: {
               balance: newBalance,
-              profit: newProfit, // Update profit based on actual supplier payments
+              profit: newProfit,
               lastPaymentDate: new Date(settlementDate), // Consider if this should be last customer or last overall payment
           }
       });
@@ -1542,12 +1548,14 @@ const createSupplierPaymentSettlement = async (req, res) => {
           action: ActionType.SETTLEMENT_PAYMENT,
           changes: [{
             fieldName: 'supplierPaid',
-            oldValue: `Paid: ${costItemSupplier.paidAmount.toFixed(2)}`,
+            // FIX: Use nullish coalescing operator for costItemSupplier.paidAmount before toFixed()
+            oldValue: `Paid: ${(costItemSupplier.paidAmount ?? 0).toFixed(2)}`, 
             newValue: `Paid: ${newPaidAmountForSupplier.toFixed(2)} (Settlement of £${parsedAmount.toFixed(2)} via ${transactionMethod})`
           },
           {
             fieldName: 'pendingAmount',
-            oldValue: `Pending: ${pendingAmount.toFixed(2)}`,
+            // pendingAmount is already ensured as a number above, so this is safe
+            oldValue: `Pending: ${pendingAmount.toFixed(2)}`, 
             newValue: `Pending: ${newPendingAmountForSupplier.toFixed(2)}`
           }]
       });
@@ -1560,12 +1568,12 @@ const createSupplierPaymentSettlement = async (req, res) => {
           changes: [
               {
                 fieldName: 'balance',
-                oldValue: oldBookingBalance !== undefined ? oldBookingBalance.toFixed(2) : 'N/A',
+                oldValue: oldBookingBalance.toFixed(2), // Now oldBookingBalance is guaranteed a number
                 newValue: newBalance.toFixed(2)
               },
               {
                 fieldName: 'profit',
-                oldValue: oldBookingProfit !== undefined ? oldBookingProfit.toFixed(2) : 'N/A',
+                oldValue: oldBookingProfit.toFixed(2), // Now oldBookingProfit is guaranteed a number
                 newValue: newProfit.toFixed(2)
               }
           ]
@@ -1581,7 +1589,7 @@ const createSupplierPaymentSettlement = async (req, res) => {
     console.error('Error creating supplier payment settlement:', error);
     if (error.message.includes('not found')) return apiResponse.error(res, error.message, 404);
     if (error.message.includes('exceeds pending amount')) return apiResponse.error(res, error.message, 400);
-    if (error.message.includes('Invalid')) return apiResponse.error(res, error.message, 400); // Catch explicit validation errors
+    if (error.message.includes('Invalid')) return apiResponse.error(res, error.message, 400);
     if (error.name === 'PrismaClientValidationError') return apiResponse.error(res, `Invalid data provided: ${error.message}`, 400);
     return apiResponse.error(res, `Failed to create supplier payment settlement: ${error.message}`, 500);
   }
