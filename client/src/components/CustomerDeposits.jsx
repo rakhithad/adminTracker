@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits, recordSettlementPayment } from '../api/api'; // <--- RE-IMPORTED recordSettlementPayment
+import { getCustomerDeposits, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
@@ -21,7 +21,7 @@ const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
 
     return (
         <button
-            onClick={onClick}
+            onClick={(e) => { e.stopPropagation(); onClick(); }}
             className={`flex items-center justify-center gap-1 w-full px-2 py-1.5 text-xs font-bold rounded-lg shadow-sm transition-all duration-200 transform hover:scale-105 ${colorClasses[color]}`}
         >
             {icon}
@@ -132,7 +132,7 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                         </p>
                     </div>
                      {(booking.instalments || []).length > 1 && (
-                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-1">
+                        <button onClick={(e) => { e.stopPropagation(); onToggleExpand(); }} className="text-blue-600 hover:underline text-xs font-medium mt-1">
                             {expanded ? 'Collapse' : 'Show All'}
                         </button>
                     )}
@@ -154,7 +154,7 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState(''); // Correctly declared
   const [paymentPopup, setPaymentPopup] = useState(null);
   const [settlementPopup, setSettlementPopup] = useState(null);
   const [expandedRows, setExpandedRows] = useState({});
@@ -171,6 +171,7 @@ export default function CustomerDeposits() {
   const fetchBookings = async () => {
     try {
       setLoading(true);
+      setErrorMessage(''); // <--- CORRECTED: Use setErrorMessage
       const response = await getCustomerDeposits();
       const data = response.data.data || response.data || [];
       setBookings(Array.isArray(data) ? data : []);
@@ -202,20 +203,17 @@ export default function CustomerDeposits() {
     setPaymentPopup(null);
   };
 
-  // This function now correctly calls the API and then the generic completion handler
   const handleSaveSettlement = async (bookingId, paymentData) => {
     try {
       await recordSettlementPayment(bookingId, paymentData);
-      handleActionCompletion(); // Call the generic completion handler
+      handleActionCompletion();
     } catch (error) {
       console.error('Final settlement API error:', error);
-      throw error; // Re-throw to be caught by the popup's handleSubmit
+      throw error;
     }
   };
 
 
-  // onSubmit for FinalSettlement and CustomerPayable, and RecordRefund now just refetches bookings
-  // This simplifies client-side state management for these complex flows.
   const handleActionCompletion = () => {
     fetchBookings();
     setSettlementPopup(null);
@@ -249,15 +247,12 @@ export default function CustomerDeposits() {
     let statusMatch = true;
 
     if (filter === 'ongoing') {
-        // Ongoing means balance > 0 and not cancelled (customer owes us or has instalments)
         statusMatch = balance > 0 && booking.bookingStatus !== 'CANCELLED';
     } else if (filter === 'completed') {
-        // Completed means balance <= 0 and not cancelled (customer has paid us off, or we overpaid them)
         statusMatch = balance <= 0 && booking.bookingStatus !== 'CANCELLED';
     } else if (filter === 'cancelled') {
         statusMatch = booking.bookingStatus === 'CANCELLED';
     }
-    // "all" filter doesn't change statusMatch
 
     if (!statusMatch) return false;
 
@@ -269,7 +264,7 @@ export default function CustomerDeposits() {
         (booking.refNo || '').toLowerCase().includes(searchLower) ||
         (booking.paxName || '').toLowerCase().includes(searchLower) ||
         (booking.agentName || '').toLowerCase().includes(searchLower) ||
-        (booking.paymentMethod || '').toLowerCase().includes(searchLower) // Search payment method too
+        (booking.paymentMethod || '').toLowerCase().includes(searchLower)
     );
   });
 
@@ -323,8 +318,8 @@ export default function CustomerDeposits() {
   }
 
   return (
-    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto"> {/* Reduced overall padding */}
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-4"> {/* Reduced bottom margin */}
+    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto">
+      <div className="flex justify-between items-center mb-5 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -350,13 +345,13 @@ export default function CustomerDeposits() {
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Ref No</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Passenger</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Agent</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Payment Method</th> {/* NEW COLUMN */}
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Payment Method</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Travel Date</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Revenue (£)</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Initial Deposit (£)</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Total Paid (£)</th>
                 <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Balance (£)</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 w-[150px]">Action / Outcome</th> {/* Fixed width for action cell */}
+                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 w-[150px]">Action / Outcome</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -366,13 +361,13 @@ export default function CustomerDeposits() {
                 const balance = parseFloat(booking.balance);
 
                 return (
-                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150`} >
-                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'} cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>{booking.folderNo}</td>
+                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
+                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>{booking.folderNo}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>{booking.paymentMethod}</td> {/* NEW CELL */}
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>{booking.paymentMethod}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>
                       {formatDate(booking.travelDate)}
                       {!isCancelled && daysLeft !== null && (<span className={`block text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
@@ -386,9 +381,9 @@ export default function CustomerDeposits() {
                           (balance < 0 ? 'text-blue-600' : 'text-green-600'))}`}>
                         {balance.toFixed(2)}
                         {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid)</span>)}
-                        {balance < 0 && isCancelled && (<span className="block text-xs font-normal">(Refund Due)</span>)} {/* Clarify refund due */}
+                        {balance < 0 && isCancelled && (<span className="block text-xs font-normal">(Refund Due)</span>)}
                     </td>
-                    <td className="py-3 px-3 text-sm w-[150px]" onClick={e => e.stopPropagation()}>
+                    <td className="py-3 px-3 text-sm w-[150px]">
                         <ActionCell 
                             booking={booking}
                             onAction={handleAction}

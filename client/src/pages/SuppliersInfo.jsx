@@ -3,7 +3,7 @@ import { getSuppliersInfo } from '../api/api';
 import SettlePaymentPopup from '../components/SettlePaymentPopup';
 import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup';
 import SettlePayablePopup from '../components/SettlePayablePopup';
-import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaMoneyBillWave, FaHandHoldingUsd, FaFileInvoiceDollar } from 'react-icons/fa'; // Added FaMoneyBillWave and FaFileInvoiceDollar for icons
+import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp } from 'react-icons/fa'; // Removed specific icons not needed in this version
 
 const StatCard = ({ icon, title, value, colorClass }) => (
     <div className={`flex items-center p-4 bg-white shadow-lg rounded-xl border-l-4 ${colorClass}`}>
@@ -22,9 +22,9 @@ export default function SuppliersInfo() {
   const [expandedSuppliers, setExpandedSuppliers] = useState({});
   const [expandedPayableRow, setExpandedPayableRow] = useState(null); 
   const [filterPending, setFilterPending] = useState(false);
-  const [settlePopup, setSettlePopup] = useState(null); // For CostItemSupplier settlement
+  const [settlePopup, setSettlePopup] = useState(null);
   const [selectedCreditNote, setSelectedCreditNote] = useState(null);
-  const [settlePayablePopup, setSettlePayablePopup] = useState(null); // For SupplierPayable settlement
+  const [settlePayablePopup, setSettlePayablePopup] = useState(null);
 
   const fetchSuppliersInfo = async () => {
     try {
@@ -68,8 +68,6 @@ export default function SuppliersInfo() {
       const allProcessedTransactions = [];
 
       // Create a map of credit notes by refNo for easy lookup
-      // Note: This map helps link a credit note created FROM a booking to that booking.
-      // The credit note itself is also a transaction.
       const creditNoteRefNoMap = (supplier.transactions || [])
         .filter(tx => tx.type === 'CreditNote')
         .reduce((map, tx) => {
@@ -85,25 +83,24 @@ export default function SuppliersInfo() {
         .forEach(tx => {
           const bookingCost = tx.data;
           const baseFolderNo = bookingCost.folderNo.toString().split('.')[0];
-          // Find if there's an associated payable (from cancellation) for this booking chain
           const linkedPayable = (supplier.payables || []).find(p => p.originatingFolderNo && p.originatingFolderNo.toString().split('.')[0] === baseFolderNo);
 
           allProcessedTransactions.push({
-            uniqueId: `costitem-${bookingCost.id}`, // Unique ID for table key
-            type: 'BookingCost',
+            uniqueId: `costitem-${bookingCost.id}`,
+            type: 'BookingCost', // Keep type for conditional logic in JSX
             folderNo: bookingCost.folderNo,
-            identifier: bookingCost.refNo, // RefNo for bookings
+            identifier: bookingCost.refNo,
             reasonOrCategory: bookingCost.category,
             total: bookingCost.amount || 0,
             paid: bookingCost.paidAmount || 0,
             pending: bookingCost.pendingAmount || 0,
-            credit: 0, // Not a credit note itself
-            creditNoteData: creditNoteRefNoMap[bookingCost.refNo] || null, // Link credit note if generated from this refNo
+            credit: 0,
+            creditNoteData: creditNoteRefNoMap[bookingCost.refNo] || null,
             date: bookingCost.createdAt,
             status: bookingCost.bookingStatus,
-            originalData: bookingCost, // Keep original data for popup
-            linkedPayable: linkedPayable || null, // Link payable if found
-            isExpandable: !!linkedPayable && linkedPayable.pendingAmount > 0 // Only expandable if linked and pending
+            originalData: bookingCost,
+            linkedPayable: linkedPayable || null,
+            isExpandable: !!linkedPayable && linkedPayable.pendingAmount > 0
           });
         });
 
@@ -114,15 +111,15 @@ export default function SuppliersInfo() {
           const creditNote = tx.data;
           allProcessedTransactions.push({
             uniqueId: `creditnote-${creditNote.id}`,
-            type: 'CreditNote',
+            type: 'CreditNote', // Keep type for conditional logic in JSX
             folderNo: creditNote.generatedFromCancellation?.originalBooking?.folderNo || '—',
-            identifier: creditNote.generatedFromRefNo || 'N/A', // RefNo for generated from
+            identifier: creditNote.generatedFromRefNo || 'N/A',
             reasonOrCategory: 'Credit Note Issued',
             total: creditNote.initialAmount || 0,
-            paid: (creditNote.initialAmount - creditNote.remainingAmount) || 0, // Amount used
-            pending: 0, // This is credit, not pending amount owed by us
-            credit: creditNote.remainingAmount || 0, // Available credit
-            creditNoteData: creditNote, // Self-reference for details popup
+            paid: (creditNote.initialAmount - creditNote.remainingAmount) || 0,
+            pending: 0,
+            credit: creditNote.remainingAmount || 0,
+            creditNoteData: creditNote,
             date: creditNote.createdAt,
             status: creditNote.status,
             originalData: creditNote,
@@ -135,9 +132,9 @@ export default function SuppliersInfo() {
       (supplier.payables || []).forEach(payable => {
         allProcessedTransactions.push({
           uniqueId: `payable-${payable.id}`,
-          type: 'SupplierPayable',
+          type: 'SupplierPayable', // Keep type for conditional logic in JSX
           folderNo: payable.originatingFolderNo || '—',
-          identifier: payable.reason, // Use reason as identifier for payables
+          identifier: payable.reason,
           reasonOrCategory: 'Cancellation Payable',
           total: payable.totalAmount || 0,
           paid: payable.paidAmount || 0,
@@ -145,7 +142,7 @@ export default function SuppliersInfo() {
           credit: 0,
           creditNoteData: null,
           date: payable.createdAt,
-          status: payable.status,
+          status: payable.status, // Payable has its own status
           originalData: payable,
           linkedPayable: null,
           isExpandable: false
@@ -157,7 +154,7 @@ export default function SuppliersInfo() {
 
       finalData[supplierName] = {
         ...supplier,
-        processedTransactions: allProcessedTransactions, // This now contains all types
+        processedTransactions: allProcessedTransactions,
       };
     }
 
@@ -167,7 +164,7 @@ export default function SuppliersInfo() {
   // Filter suppliers based on filterPending checkbox
   const filteredSuppliers = useMemo(() => {
     if (filterPending) {
-      return Object.fromEntries(Object.entries(processedData).filter(([, data]) => data.totalPending > 0 || data.totalCreditAvailable > 0)); // Also show if credit is available
+      return Object.fromEntries(Object.entries(processedData).filter(([, data]) => data.totalPending > 0 || data.totalCreditAvailable > 0));
     }
     return processedData;
   }, [processedData, filterPending]);
@@ -244,7 +241,7 @@ export default function SuppliersInfo() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {Object.entries(filteredSuppliers).map(([supplierName, data]) => {
-                   const hasAnyPendingPayables = data.payables.some(p => p.pendingAmount > 0); // Check pending in original payables
+                   const hasAnyPendingPayables = data.payables.some(p => p.pendingAmount > 0);
                    return (
                   <React.Fragment key={supplierName}>
                     <tr className="group">
@@ -274,7 +271,6 @@ export default function SuppliersInfo() {
                                 <thead className="bg-slate-100 text-slate-600">
                                     <tr>
                                       <th className="pl-4 pr-2 py-2 text-left text-xs font-semibold uppercase w-12"></th>
-                                      <th className="px-2 py-2 text-left text-xs font-semibold uppercase">Type</th> {/* NEW: Added Type column */}
                                       <th className="px-2 py-2 text-left text-xs font-semibold uppercase">Folder No</th>
                                       <th className="px-2 py-2 text-left text-xs font-semibold uppercase">Ref / Reason</th>
                                       <th className="px-2 py-2 text-left text-xs font-semibold uppercase">Category</th>
@@ -283,14 +279,24 @@ export default function SuppliersInfo() {
                                       <th className="px-2 py-2 text-right text-xs font-semibold uppercase">Pending</th>
                                       <th className="px-2 py-2 text-right text-xs font-semibold uppercase">Credit</th>
                                       <th className="pr-4 pl-2 py-2 text-right text-xs font-semibold uppercase">Date</th>
-                                      <th className="w-24 pr-4 pl-2 py-2 text-right text-xs font-semibold uppercase">Actions</th> {/* Added Actions column */}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 text-sm">
                                   {data.processedTransactions.map(item => (
                                     <React.Fragment key={item.uniqueId}>
                                         <tr 
-                                            className={`transition-colors ${item.type === 'BookingCost' && item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} ${item.type === 'CreditNote' ? 'bg-blue-50/50' : ''}`} 
+                                            className={`transition-colors cursor-pointer ${item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'}`} 
+                                            // Restore original onClick behavior
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent main supplier row collapse
+                                                if (item.type === 'BookingCost') {
+                                                    handleBookingCostSettlementClick(item.originalData, supplierName);
+                                                } else if (item.type === 'CreditNote') {
+                                                    handleCreditNoteDetailsClick(item.creditNoteData);
+                                                } else if (item.type === 'SupplierPayable' && item.pending > 0) {
+                                                    handleSupplierPayableSettlementClick(item.originalData, supplierName);
+                                                }
+                                            }}
                                         >
                                             <td className="pl-4 pr-2 py-2.5">
                                                 {/* Expansion button for linked payable (only for BookingCost with pending payable) */}
@@ -303,12 +309,7 @@ export default function SuppliersInfo() {
                                                       <FaChevronDown className={`transform transition-transform ${expandedPayableRow === item.uniqueId ? 'rotate-180' : ''}`} />
                                                     </button>
                                                 )}
-                                                {/* Icon for transaction type */}
-                                                {item.type === 'BookingCost' && <FaMoneyBillWave className="text-slate-500"/>}
-                                                {item.type === 'CreditNote' && <FaCreditCard className="text-blue-500"/>}
-                                                {item.type === 'SupplierPayable' && <FaFileInvoiceDollar className="text-red-500"/>}
                                             </td>
-                                            <td className="px-2 py-2.5 font-semibold whitespace-nowrap">{item.type === 'BookingCost' ? 'Booking Cost' : (item.type === 'CreditNote' ? 'Credit Note' : 'Supplier Payable')}</td> {/* Display Type */}
                                             <td className="px-2 py-2.5 font-semibold">{item.folderNo}</td>
                                             <td className="px-2 py-2.5">{item.identifier}</td>
                                             <td className="px-2 py-2.5">{item.reasonOrCategory}</td>
@@ -317,22 +318,11 @@ export default function SuppliersInfo() {
                                             <td className={`px-2 py-2.5 text-right font-bold ${item.pending > 0 ? 'text-red-600' : 'text-slate-500'}`}>£{item.pending.toFixed(2)}</td>
                                             <td className="px-2 py-2.5 text-right font-semibold text-blue-600">£{item.credit.toFixed(2)}</td>
                                             <td className="pr-4 pl-2 py-2.5 text-right whitespace-nowrap">{formatDate(item.date)}</td>
-                                            <td className="pr-4 pl-2 py-2.5 text-right whitespace-nowrap">
-                                                {item.type === 'BookingCost' && item.pending > 0 && item.status !== 'CANCELLED' && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleBookingCostSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">Settle</button>
-                                                )}
-                                                {item.type === 'CreditNote' && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleCreditNoteDetailsClick(item.creditNoteData); }} className="px-3 py-1 bg-slate-200 text-slate-800 rounded-md text-xs hover:bg-slate-300">Details</button>
-                                                )}
-                                                {item.type === 'SupplierPayable' && item.pending > 0 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); handleSupplierPayableSettlementClick(item.originalData, supplierName); }} className="px-3 py-1 bg-red-600 text-white rounded-md text-xs hover:bg-red-700">Settle</button>
-                                                )}
-                                            </td>
                                         </tr>
                                         {/* Nested row for linked payable */}
                                         {expandedPayableRow === item.uniqueId && item.type === 'BookingCost' && item.linkedPayable && (
                                           <tr className="bg-red-50/70">
-                                              <td colSpan="11" className="p-0"> {/* Adjusted colspan */}
+                                              <td colSpan="9" className="p-0"> {/* Adjusted colspan */}
                                                 <div className="py-3 px-4 m-2 border-l-4 border-red-400 bg-white rounded-r-lg shadow">
                                                    <div className="flex justify-between items-center">
                                                       <div>
