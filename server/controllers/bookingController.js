@@ -1589,7 +1589,7 @@ const createSupplierPaymentSettlement = async (req, res) => {
 
 const getSuppliersInfo = async (req, res) => {
     try {
-        // --- 1. Aggregate Booking CostItemSupplier Data (Total for each supplier) ---
+        // --- 1. Fetch all individual CostItemSupplier records for detailed transactions ---
         const detailedBookingCostItems = await prisma.costItemSupplier.findMany({
             select: {
                 id: true,
@@ -1751,11 +1751,11 @@ const getSuppliersInfo = async (req, res) => {
         // --- 4. Construct the final supplierSummary structure ---
         const finalSupplierSummary = {};
         
-        // Correctly reference the Prisma enum for 'Suppliers'
-        const allEnumSuppliers = Object.values(prisma.Suppliers); 
+        // **FIX:** Use nullish coalescing operator to ensure Object.values always gets an object
+        const allEnumSuppliers = Object.values(prisma.Suppliers || {}); 
         
         const allUniqueSuppliers = new Set([
-            ...allEnumSuppliers, // All possible suppliers from the enum
+            ...allEnumSuppliers, 
             ...Object.keys(supplierBookingCostItemSums),
             ...Object.keys(supplierCreditNoteSums),
             ...Object.keys(supplierPayableSums),
