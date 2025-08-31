@@ -1588,185 +1588,242 @@ const createSupplierPaymentSettlement = async (req, res) => {
 };
 
 
+// Assuming `prisma` and `apiResponse` are correctly imported and available.
+// Make sure the `Suppliers` enum is accessible if not already.
+
 const getSuppliersInfo = async (req, res) => {
     try {
-        const supplierSummary = {};
+        // --- 1. Aggregate Booking CostItemSupplier Data (Total for each supplier) ---
+        // This calculates total amount, paid, and pending for each supplier from ALL booking cost items.
+        // It's crucial to filter out pending amounts from CANCELLED bookings at this stage for the summary.
+        const bookingCostItemSupplierAggregations = await prisma.costItemSupplier.groupBy({
+            by: ['supplier'],
+            _sum: {
+                amount: true,
+                paidAmount: true,
+            },
+            _avg: { // Using _avg with a custom case to sum conditionally
+                pendingAmount: true, // This will be the sum of adjusted pending amounts.
+            },
+            where: {
+                costItem: {
+                    booking: {
+                        // Exclude VOID bookings entirely from cost items
+                        bookingStatus: {
+                            not: 'VOID'
+                        }
+                    }
+                }
+            },
+            // This is a placeholder for conditional summing of pending.
+            // Prisma's groupBy doesn't directly support conditional sum in this way without raw queries.
+            // We'll handle the `CANCELLED` booking pending amount adjustment in the next step
+            // where we fetch individual details or in a post-processing step if truly needed aggregated.
+            // For now, _sum.pendingAmount would give the raw pending. Let's adjust it by fetching individual items.
+            // For the overall summary, let's keep it simple and combine later.
+        });
 
-        // Helper function to ensure a supplier entry exists in the summary
-        const ensureSupplier = (supplierName) => {
-            if (!supplierSummary[supplierName]) {
-                supplierSummary[supplierName] = {
-                    totalAmount: 0,        // Total active commitment/charge from supplier (active bookings + payables)
-                    totalPaid: 0,          // Total active payments made to supplier (active bookings + payables)
-                    totalPending: 0,       // Total active amount still owed to supplier (active bookings + payables)
-                    totalCreditAvailable: 0, // Total remaining credit we have with the supplier
-                    transactions: [],      // Detailed list of CostItemSuppliers and SupplierCreditNotes (for display)
-                    payables: [],          // Detailed list of SupplierPayables (for display)
-                };
+        // --- 2. Fetch all individual CostItemSupplier records for detailed transactions ---
+        // We need details like folderNo, refNo, category for the frontend table.
+        // This will also be used to accurately calculate pending amounts for the summary.
+        const detailedBookingCostItems = await prisma.costItemSupplier.findMany({
+            select: {
+                id: true,
+                supplier: true,
+                amount: true,
+                paidAmount: true,
+                pendingAmount: true, // The raw pending amount from the cost item
+                createdAt: true,
+                costItem: {
+                    select: {
+                        category: true,
+                        booking: {
+                            select: {
+                                id: true,
+                                folderNo: true,
+                                refNo: true,
+                                bookingStatus: true,
+                            },
+                        },
+                    },
+                },
+            },
+            where: {
+                costItem: {
+                    booking: {
+                        bookingStatus: {
+                            not: 'VOID' // Ensure we don't fetch from voided bookings
+                        }
+                    }
+                }
             }
-        };
+        });
 
-        // --- 1. Fetch all relevant data concurrently using Promise.all ---
-        const [
-            bookingsData,
-            creditNotesData,
-            payablesData
-        ] = await Promise.all([
-            prisma.booking.findMany({
-                select: {
-                    id: true,
-                    refNo: true,
-                    bookingStatus: true,
-                    folderNo: true,
-                    costItems: {
-                        select: {
-                            category: true,
-                            suppliers: {
-                                select: {
-                                    id: true,
-                                    supplier: true,
-                                    amount: true,        // Original cost item supplier amount
-                                    paidAmount: true,    // Amount already paid for this specific cost item
-                                    pendingAmount: true, // Remaining pending for this specific cost item
-                                    createdAt: true,
-                                    settlements: true    // Include settlements for a complete history if needed
-                                },
-                            },
+        // Pre-process detailedBookingCostItems to get accurate pending sums and prepare for transactions list
+        const supplierBookingCostItemSums = {};
+        const supplierTransactions = {};
+
+        detailedBookingCostItems.forEach(item => {
+            const supplierName = item.supplier;
+            if (!supplierBookingCostItemSums[supplierName]) {
+                supplierBookingCostItemSums[supplierName] = { totalAmount: 0, totalPaid: 0, totalPending: 0 };
+                supplierTransactions[supplierName] = [];
+            }
+
+            const adjustedPendingAmount = item.costItem.booking.bookingStatus === "CANCELLED" ? 0 : item.pendingAmount;
+            
+            supplierBookingCostItemSums[supplierName].totalAmount += item.amount;
+            supplierBookingCostItemSums[supplierName].totalPaid += item.paidAmount;
+            supplierBookingCostItemSums[supplierName].totalPending += adjustedPendingAmount; // Sum adjusted pending
+
+            supplierTransactions[supplierName].push({
+                type: "BookingCostItem",
+                id: item.id, // Unique ID for this transaction item
+                data: {
+                    costItemSupplierId: item.id,
+                    supplier: item.supplier,
+                    amount: item.amount,
+                    paidAmount: item.paidAmount,
+                    pendingAmount: adjustedPendingAmount, // This is the adjusted value for display
+                    createdAt: item.createdAt,
+                    folderNo: item.costItem.booking.folderNo,
+                    refNo: item.costItem.booking.refNo,
+                    category: item.costItem.category,
+                    bookingStatus: item.costItem.booking.bookingStatus,
+                    bookingId: item.costItem.booking.id, // Include booking ID for possible deep linking/popups
+                },
+            });
+        });
+
+        // --- 3. Fetch all Supplier Credit Notes ---
+        const allCreditNotes = await prisma.supplierCreditNote.findMany({
+            select: { // Select only necessary fields for initial display
+                id: true,
+                supplier: true,
+                initialAmount: true,
+                remainingAmount: true,
+                status: true,
+                createdAt: true,
+                generatedFromCancellation: {
+                    select: {
+                        originalBooking: {
+                            select: { refNo: true }
+                        }
+                    }
+                },
+            },
+        });
+
+        // Aggregate credit notes by supplier and add to transactions
+        const supplierCreditNoteSums = {};
+        allCreditNotes.forEach(note => {
+            const supplierName = note.supplier;
+            if (!supplierCreditNoteSums[supplierName]) {
+                supplierCreditNoteSums[supplierName] = { totalAvailableCredit: 0 };
+                if (!supplierTransactions[supplierName]) supplierTransactions[supplierName] = [];
+            }
+            supplierCreditNoteSums[supplierName].totalAvailableCredit += note.remainingAmount || 0;
+
+            supplierTransactions[supplierName].push({
+                type: "CreditNote",
+                id: note.id, // Unique ID for this transaction item
+                data: {
+                    creditNoteId: note.id,
+                    supplier: note.supplier,
+                    initialAmount: note.initialAmount,
+                    remainingAmount: note.remainingAmount,
+                    status: note.status,
+                    createdAt: note.createdAt,
+                    generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || "N/A",
+                },
+            });
+        });
+
+        // --- 4. Fetch all individual pending SupplierPayable records for display ---
+        const allIndividualPendingPayables = await prisma.supplierPayable.findMany({
+            where: { status: "PENDING" },
+            select: {
+                id: true,
+                supplier: true,
+                totalAmount: true,
+                paidAmount: true,
+                pendingAmount: true,
+                reason: true,
+                createdAt: true,
+                createdFromCancellation: {
+                    select: {
+                        originalBooking: {
+                            select: { folderNo: true, refNo: true },
                         },
                     },
                 },
-            }),
-            prisma.supplierCreditNote.findMany({
-                include: {
-                    generatedFromCancellation: {
-                        include: {
-                            originalBooking: {
-                                select: { refNo: true }
-                            }
-                        },
-                    },
-                    usageHistory: {
-                        include: {
-                            usedOnCostItemSupplier: {
-                                include: {
-                                    costItem: {
-                                        include: {
-                                            booking: {
-                                                select: { refNo: true }
-                                            }
-                                        }
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            }),
-            prisma.supplierPayable.findMany({
-                include: {
-                    createdFromCancellation: {
-                        select: {
-                            originalBooking: {
-                                select: { folderNo: true },
-                            },
-                        },
-                    },
-                    settlements: true // Include settlements to track paid amounts on payables
-                },
-            })
+            },
+        });
+
+        // Aggregate pending payables by supplier and add to payables list
+        const supplierPayableSums = {};
+        const supplierPayables = {};
+        allIndividualPendingPayables.forEach(payable => {
+            const supplierName = payable.supplier;
+            if (!supplierPayableSums[supplierName]) {
+                supplierPayableSums[supplierName] = { totalPendingPayables: 0 };
+                supplierPayables[supplierName] = [];
+            }
+            supplierPayableSums[supplierName].totalPendingPayables += payable.pendingAmount || 0;
+
+            supplierPayables[supplierName].push({
+                id: payable.id,
+                total: payable.totalAmount,
+                paid: payable.paidAmount,
+                pending: payable.pendingAmount,
+                reason: payable.reason,
+                createdAt: payable.createdAt,
+                originatingFolderNo: payable.createdFromCancellation?.originalBooking?.folderNo || "N/A",
+                originatingRefNo: payable.createdFromCancellation?.originalBooking?.refNo || "N/A",
+            });
+        });
+
+
+        // --- 5. Construct the final supplierSummary structure ---
+        const finalSupplierSummary = {};
+        // Ensure all enum suppliers are included, even if no data, for consistent UI.
+        // Assuming 'Suppliers' enum is available globally or imported.
+        const allUniqueSuppliers = new Set([
+            ...Object.values(Suppliers), // All possible suppliers
+            ...Object.keys(supplierBookingCostItemSums),
+            ...Object.keys(supplierCreditNoteSums),
+            ...Object.keys(supplierPayableSums),
         ]);
 
 
-        // --- 2. Populate raw data and calculate active totals for each supplier ---
+        let totalOverallPending = 0;
+        let totalOverallCredit = 0;
 
-        // Process CostItemSuppliers from Bookings
-        bookingsData.forEach((booking) => {
-            booking.costItems.forEach((item) => {
-                item.suppliers.forEach((s) => {
-                    ensureSupplier(s.supplier);
-
-                    // Add to raw transactions for detailed view
-                    supplierSummary[s.supplier].transactions.push({
-                        type: "BookingCost", // Renamed from "Booking" for clarity
-                        data: {
-                            ...s,
-                            folderNo: booking.folderNo,
-                            refNo: booking.refNo,
-                            category: item.category,
-                            bookingStatus: booking.bookingStatus,
-                        },
-                    });
-
-                    // Only sum active (non-cancelled) booking cost amounts into totals
-                    // Cancelled booking costs are superseded by SupplierPayables/CreditNotes
-                    if (booking.bookingStatus !== "CANCELLED") {
-                        supplierSummary[s.supplier].totalAmount += s.amount || 0;
-                        supplierSummary[s.supplier].totalPaid += s.paidAmount || 0;
-                        supplierSummary[s.supplier].totalPending += s.pendingAmount || 0;
-                    }
-                });
-            });
-        });
-
-        // Process SupplierCreditNotes
-        creditNotesData.forEach((note) => {
-            if (note.supplier) {
-                ensureSupplier(note.supplier);
-                supplierSummary[note.supplier].transactions.push({
-                    type: "CreditNote",
-                    data: {
-                        ...note,
-                        generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || "N/A",
-                        // Modify usageHistory for display if needed
-                        usageHistory: note.usageHistory.map(usage => ({
-                            ...usage,
-                            usedOnRefNo: usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || "N/A",
-                        })),
-                    },
-                });
-                // Credit notes are money WE HAVE, so add to totalCreditAvailable
-                supplierSummary[note.supplier].totalCreditAvailable += note.remainingAmount || 0;
-            }
-        });
-
-        // Process SupplierPayables
-        payablesData.forEach((payable) => {
-            if (payable.supplier) {
-                ensureSupplier(payable.supplier);
-                supplierSummary[payable.supplier].payables.push({
-                    ...payable,
-                    originatingFolderNo: payable.createdFromCancellation?.originalBooking?.folderNo || "N/A",
-                });
-                // Payables represent amounts WE OWE to the supplier from cancellations
-                supplierSummary[payable.supplier].totalAmount += payable.totalAmount || 0;
-                supplierSummary[payable.supplier].totalPaid += payable.paidAmount || 0;
-                supplierSummary[payable.supplier].totalPending += payable.pendingAmount || 0;
-            }
-        });
-
-        // --- 3. Final Formatting and Sorting for Output ---
-        for (const supplierName in supplierSummary) {
-            const supplier = supplierSummary[supplierName];
+        allUniqueSuppliers.forEach(supplierName => {
+            finalSupplierSummary[supplierName] = {
+                totalAmount: supplierBookingCostItemSums[supplierName]?.totalAmount || 0,
+                totalPaid: supplierBookingCostItemSums[supplierName]?.totalPaid || 0,
+                // Total Pending = (adjusted pending from booking cost items) + (pending from payables)
+                totalPending: (supplierBookingCostItemSums[supplierName]?.totalPending || 0) + (supplierPayableSums[supplierName]?.totalPendingPayables || 0),
+                totalAvailableCredit: supplierCreditNoteSums[supplierName]?.totalAvailableCredit || 0,
+                transactions: supplierTransactions[supplierName] ? 
+                    supplierTransactions[supplierName].sort((a, b) => new Date(b.data.createdAt).getTime() - new Date(a.data.createdAt).getTime()) 
+                    : [],
+                payables: supplierPayables[supplierName] ? 
+                    supplierPayables[supplierName].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) 
+                    : [],
+            };
             
-            // Round all final summary numbers for consistent display
-            supplier.totalAmount = parseFloat(supplier.totalAmount.toFixed(2));
-            supplier.totalPaid = parseFloat(supplier.totalPaid.toFixed(2));
-            supplier.totalPending = parseFloat(supplier.totalPending.toFixed(2));
-            supplier.totalCreditAvailable = parseFloat(supplier.totalCreditAvailable.toFixed(2));
+            totalOverallPending += finalSupplierSummary[supplierName].totalPending;
+            totalOverallCredit += finalSupplierSummary[supplierName].totalAvailableCredit;
+        });
 
-            // Sort transactions for display (latest first by createdAt)
-            supplier.transactions.sort((a, b) => {
-                // Determine the correct date field based on transaction type
-                const dateA = new Date(a.type === 'BookingCost' ? a.data.createdAt : (a.type === 'CreditNote' ? a.data.createdAt : 0));
-                const dateB = new Date(b.type === 'BookingCost' ? b.data.createdAt : (b.type === 'CreditNote' ? b.data.createdAt : 0));
-                return dateB.getTime() - dateA.getTime();
-            });
+        return apiResponse.success(res, {
+            summary: finalSupplierSummary,
+            totalOverallPending,
+            totalOverallCredit
+        });
 
-            // Sort payables for display (latest first by createdAt)
-            supplier.payables.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        }
-
-        return apiResponse.success(res, supplierSummary);
     } catch (error) {
         console.error("Error fetching suppliers info:", error);
         return apiResponse.error(

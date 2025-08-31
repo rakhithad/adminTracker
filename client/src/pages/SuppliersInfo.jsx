@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getSuppliersInfo } from '../api/api';
-import SettlePaymentPopup from '../components/SettlePaymentPopup';
-import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup';
-import SettlePayablePopup from '../components/SettlePayablePopup';
-import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp } from 'react-icons/fa'; // Removed specific icons not needed in this version
+import { getSuppliersInfo } from '../api/api'; // Ensure this path is correct for your project
+import SettlePaymentPopup from '../components/SettlePaymentPopup'; // Ensure this path is correct
+import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup'; // Ensure this path is correct
+import SettlePayablePopup from '../components/SettlePayablePopup'; // Ensure this path is correct
+import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaInfoCircle } from 'react-icons/fa';
 
+// Helper component for statistics cards
 const StatCard = ({ icon, title, value, colorClass }) => (
     <div className={`flex items-center p-4 bg-white shadow-lg rounded-xl border-l-4 ${colorClass}`}>
         <div className={`p-3 rounded-full bg-opacity-20 ${colorClass}`}>{icon}</div>
@@ -16,191 +17,106 @@ const StatCard = ({ icon, title, value, colorClass }) => (
 );
 
 export default function SuppliersInfo() {
+  // State to hold supplier data, now directly structured from the backend 'summary'
   const [supplierData, setSupplierData] = useState({});
+  // State to hold the overall totals from the backend
+  const [overallTotals, setOverallTotals] = useState({ totalOverallPending: 0, totalOverallCredit: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // UI state for expansion and filtering
   const [expandedSuppliers, setExpandedSuppliers] = useState({});
   const [expandedPayableRow, setExpandedPayableRow] = useState(null); 
   const [filterPending, setFilterPending] = useState(false);
-  const [settlePopup, setSettlePopup] = useState(null);
-  const [selectedCreditNote, setSelectedCreditNote] = useState(null);
-  const [settlePayablePopup, setSettlePayablePopup] = useState(null);
 
+  // Popup states
+  const [settlePopup, setSettlePopup] = useState(null); // For BookingCostItem settlements
+  const [selectedCreditNote, setSelectedCreditNote] = useState(null); // For CreditNote details
+  const [settlePayablePopup, setSettlePayablePopup] = useState(null); // For SupplierPayable settlements
+
+  // Function to fetch data from the API
   const fetchSuppliersInfo = async () => {
     try {
       setLoading(true);
       setError('');
-      const response = await getSuppliersInfo();
-      setSupplierData(response.data.data || {});
+      const response = await getSuppliersInfo(); // Your API call
+      // Update state with the structured data from the backend
+      setSupplierData(response.data.data.summary || {});
+      setOverallTotals({
+        totalOverallPending: response.data.data.totalOverallPending || 0,
+        totalOverallCredit: response.data.data.totalOverallCredit || 0,
+      });
     } catch (err) {
       console.error('Error fetching suppliers info:', err);
       setError(err.response?.data?.error || err.message || 'Failed to load supplier data.');
       setSupplierData({});
+      setOverallTotals({ totalOverallPending: 0, totalOverallCredit: 0 }); // Reset totals on error
     } finally {
       setLoading(false);
     }
   };
 
+  // Fetch data on component mount
   useEffect(() => {
     fetchSuppliersInfo();
   }, []);
   
+  // Callback for when a settlement/payable is submitted in a popup
   const handleSettleSubmit = () => {
-    fetchSuppliersInfo(); // Re-fetch all data to ensure UI is up to date
+    fetchSuppliersInfo(); // Re-fetch all data to ensure latest states are reflected
     setSettlePopup(null);
     setSettlePayablePopup(null);
   };
 
-  // Memoized calculation for overall pending and credit, using the fixed backend structure
-  const { totalOverallPending, totalOverallCredit } = useMemo(() => {
-    const values = Object.values(supplierData);
-    const pending = values.reduce((sum, s) => sum + (s.totalPending || 0), 0);
-    const credit = values.reduce((sum, s) => sum + (s.totalCreditAvailable || 0), 0); // Use the new totalCreditAvailable
-    return { totalOverallPending: pending, totalOverallCredit: credit };
-  }, [supplierData]);
-
-  // Unified processing for all transaction types
-  const processedData = useMemo(() => {
-    const finalData = {};
-
-    for (const supplierName in supplierData) {
-      const supplier = supplierData[supplierName];
-      const allProcessedTransactions = [];
-
-      // Create a map of credit notes by refNo for easy lookup
-      const creditNoteRefNoMap = (supplier.transactions || [])
-        .filter(tx => tx.type === 'CreditNote')
-        .reduce((map, tx) => {
-          if (tx.data.generatedFromRefNo && tx.data.generatedFromRefNo !== 'N/A') {
-            map[tx.data.generatedFromRefNo] = tx.data;
-          }
-          return map;
-        }, {});
-
-      // 1. Process BookingCost items
-      (supplier.transactions || [])
-        .filter(tx => tx.type === 'BookingCost')
-        .forEach(tx => {
-          const bookingCost = tx.data;
-          const baseFolderNo = bookingCost.folderNo.toString().split('.')[0];
-          const linkedPayable = (supplier.payables || []).find(p => p.originatingFolderNo && p.originatingFolderNo.toString().split('.')[0] === baseFolderNo);
-
-          allProcessedTransactions.push({
-            uniqueId: `costitem-${bookingCost.id}`,
-            type: 'BookingCost', // Keep type for conditional logic in JSX
-            folderNo: bookingCost.folderNo,
-            identifier: bookingCost.refNo,
-            reasonOrCategory: bookingCost.category,
-            total: bookingCost.amount || 0,
-            paid: bookingCost.paidAmount || 0,
-            pending: bookingCost.pendingAmount || 0,
-            credit: 0,
-            creditNoteData: creditNoteRefNoMap[bookingCost.refNo] || null,
-            date: bookingCost.createdAt,
-            status: bookingCost.bookingStatus,
-            originalData: bookingCost,
-            linkedPayable: linkedPayable || null,
-            isExpandable: !!linkedPayable && linkedPayable.pendingAmount > 0
-          });
-        });
-
-      // 2. Process CreditNote items
-      (supplier.transactions || [])
-        .filter(tx => tx.type === 'CreditNote')
-        .forEach(tx => {
-          const creditNote = tx.data;
-          allProcessedTransactions.push({
-            uniqueId: `creditnote-${creditNote.id}`,
-            type: 'CreditNote', // Keep type for conditional logic in JSX
-            folderNo: creditNote.generatedFromCancellation?.originalBooking?.folderNo || '—',
-            identifier: creditNote.generatedFromRefNo || 'N/A',
-            reasonOrCategory: 'Credit Note Issued',
-            total: creditNote.initialAmount || 0,
-            paid: (creditNote.initialAmount - creditNote.remainingAmount) || 0,
-            pending: 0,
-            credit: creditNote.remainingAmount || 0,
-            creditNoteData: creditNote,
-            date: creditNote.createdAt,
-            status: creditNote.status,
-            originalData: creditNote,
-            linkedPayable: null,
-            isExpandable: false
-          });
-        });
-
-      // 3. Process SupplierPayable items
-      (supplier.payables || []).forEach(payable => {
-        allProcessedTransactions.push({
-          uniqueId: `payable-${payable.id}`,
-          type: 'SupplierPayable', // Keep type for conditional logic in JSX
-          folderNo: payable.originatingFolderNo || '—',
-          identifier: payable.reason,
-          reasonOrCategory: 'Cancellation Payable',
-          total: payable.totalAmount || 0,
-          paid: payable.paidAmount || 0,
-          pending: payable.pendingAmount || 0,
-          credit: 0,
-          creditNoteData: null,
-          date: payable.createdAt,
-          status: payable.status, // Payable has its own status
-          originalData: payable,
-          linkedPayable: null,
-          isExpandable: false
-        });
-      });
-
-      // Sort all transactions by date, latest first
-      allProcessedTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-      finalData[supplierName] = {
-        ...supplier,
-        processedTransactions: allProcessedTransactions,
-      };
-    }
-
-    return finalData;
-  }, [supplierData]);
-
-  // Filter suppliers based on filterPending checkbox
+  // Memoized data for filtering suppliers based on pending balance
   const filteredSuppliers = useMemo(() => {
     if (filterPending) {
-      return Object.fromEntries(Object.entries(processedData).filter(([, data]) => data.totalPending > 0 || data.totalCreditAvailable > 0));
+      return Object.fromEntries(Object.entries(supplierData).filter(([, data]) => data.totalPending > 0));
     }
-    return processedData;
-  }, [processedData, filterPending]);
+    return supplierData;
+  }, [supplierData, filterPending]);
 
+  // Toggle expansion for a main supplier row
   const toggleMainSupplier = (supplier) => {
     setExpandedSuppliers(prev => ({ ...prev, [supplier]: !prev[supplier] }));
   };
 
-  const togglePayableExpansion = (bookingUniqueId) => {
-    setExpandedPayableRow(prev => (prev === bookingUniqueId ? null : bookingUniqueId));
+  // Toggle expansion for a payable linked to a transaction row
+  const togglePayableExpansion = (transactionUniqueId) => {
+    setExpandedPayableRow(prev => (prev === transactionUniqueId ? null : transactionUniqueId));
   }
   
-  // Adjusted for BookingCost specific settlement
-  const handleBookingCostSettlementClick = (costItemSupplier, supplierName) => {
-    // Note: SettlePaymentPopup expects a 'booking' object which in this context is the CostItemSupplier
-    setSettlePopup({ booking: costItemSupplier, supplier: supplierName });
+  // Handles clicks on individual transaction rows (booking cost items or credit notes)
+  const handleTransactionClick = (item, supplierName) => {
+    if (item.type === 'BookingCostItem') {
+        // Pass the item.data (which contains the booking cost item details) to the settlement popup
+        setSettlePopup({ booking: item.data, supplier: supplierName });
+    } else if (item.type === 'CreditNote') {
+        // Pass the item.data (which contains the credit note details) to the credit note details popup
+        setSelectedCreditNote(item.data);
+    }
+    // No action for other transaction types (if any) or if it's already a link to another popup.
   };
   
-  const handleCreditNoteDetailsClick = (creditNote) => {
-    setSelectedCreditNote(creditNote);
-  };
-
-  // Adjusted for SupplierPayable specific settlement
-  const handleSupplierPayableSettlementClick = (payable, supplierName) => {
-    setSettlePayablePopup({ payable: payable, supplier: supplierName });
-  }
-
-  const getStatusPill = (paid, pending) => {
-    if (pending <= 0.01 && (paid > 0 || pending > -0.01)) return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Fully Paid</span>;
-    if (paid > 0 && pending > 0) return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">Partially Paid</span>;
-    if (pending > 0) return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Unpaid</span>;
+  // Helper to determine the status pill text and styling
+  const getStatusPill = (totalPaid, totalPending) => {
+    const epsilon = 0.01; // Small threshold for floating point comparisons
+    if (totalPending <= epsilon && totalPending >= -epsilon && totalPaid > epsilon) {
+        return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Fully Paid</span>;
+    }
+    if (totalPaid > epsilon && totalPending > epsilon) {
+        return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">Partially Paid</span>;
+    }
+    if (totalPending > epsilon) {
+        return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Unpaid</span>;
+    }
     return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">N/A</span>;
   };
   
+  // Helper to format dates
   const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : '—';
 
+  // Loading and error states
   if (loading) return <div className="flex items-center justify-center h-screen bg-slate-50"><FaSpinner className="animate-spin text-blue-500 h-12 w-12" /></div>;
   if (error) return <div className="p-4 text-center text-red-700 bg-red-100 rounded-lg">{error} <button onClick={fetchSuppliersInfo} className="ml-4 font-bold underline">Retry</button></div>;
 
@@ -212,13 +128,14 @@ export default function SuppliersInfo() {
             <p className="text-slate-500 mt-1">Dashboard for tracking all outstanding payments and credits.</p>
         </header>
 
+        {/* Statistics Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <StatCard icon={<FaExclamationTriangle size={24} className="text-red-500" />} title="Total Pending Payments" value={`£${totalOverallPending.toFixed(2)}`} colorClass="border-red-500 bg-red-50" />
-            <StatCard icon={<FaCreditCard size={24} className="text-blue-500" />} title="Total Available Credit" value={`£${totalOverallCredit.toFixed(2)}`} colorClass="border-blue-500 bg-blue-50" />
+            <StatCard icon={<FaExclamationTriangle size={24} className="text-red-500" />} title="Total Pending Payments" value={`£${overallTotals.totalOverallPending.toFixed(2)}`} colorClass="border-red-500 bg-red-50" />
+            <StatCard icon={<FaCreditCard size={24} className="text-blue-500" />} title="Total Available Credit" value={`£${overallTotals.totalOverallCredit.toFixed(2)}`} colorClass="border-blue-500 bg-blue-50" />
             <div className="flex flex-col justify-center gap-2 p-4 bg-white shadow-lg rounded-xl border-l-4 border-slate-400">
                 <label className="flex items-center text-sm font-medium text-slate-700 select-none">
                     <input type="checkbox" checked={filterPending} onChange={() => setFilterPending(!filterPending)} className="mr-2 h-4 w-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500" />
-                    Show Only Pending/Credit Balances
+                    Show Only Pending Balances
                 </label>
                 <button onClick={fetchSuppliersInfo} className="flex items-center justify-center gap-2 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-semibold shadow-sm">
                     <FaSyncAlt className={loading ? 'animate-spin' : ''} /> Refresh Data
@@ -226,6 +143,7 @@ export default function SuppliersInfo() {
             </div>
         </div>
       
+        {/* Main Supplier Table */}
         <div className="bg-white shadow-lg rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full">
@@ -235,13 +153,15 @@ export default function SuppliersInfo() {
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Total Due (£)</th>
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Total Paid (£)</th>
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Pending Balance (£)</th>
-                  <th className="px-4 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Overall Status</th>
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Available Credit (£)</th> {/* New column */}
+                  <th className="w-40 pl-4 pr-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Overall Status</th> {/* Added back for getStatusPill */}
                   <th className="w-40 pl-4 pr-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {Object.entries(filteredSuppliers).map(([supplierName, data]) => {
-                   const hasAnyPendingPayables = data.payables.some(p => p.pendingAmount > 0);
+                   // Check for any pending payables for this specific supplier, for the pulse indicator
+                   const hasAnyPendingPayables = data.payables.some(p => p.pending > 0); 
                    return (
                   <React.Fragment key={supplierName}>
                     <tr className="group">
@@ -254,7 +174,8 @@ export default function SuppliersInfo() {
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-600 text-right font-medium">£{(data.totalAmount || 0).toFixed(2)}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-green-600 font-semibold text-right">£{(data.totalPaid || 0).toFixed(2)}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">£{(data.totalPending || 0).toFixed(2)}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-center">{getStatusPill(data.totalPaid, data.totalPending)}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-blue-600 font-semibold text-right">£{(data.totalAvailableCredit || 0).toFixed(2)}</td> {/* Display available credit */}
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-center">{getStatusPill(data.totalPaid, data.totalPending)}</td> {/* <-- CALL TO getStatusPill ADDED HERE */}
                       <td className="pl-4 pr-6 py-4 whitespace-nowrap text-sm text-center">
                         <button onClick={() => toggleMainSupplier(supplierName)} className="flex items-center gap-2 w-full justify-center px-3 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-100 text-xs font-semibold shadow-sm">
                            {expandedSuppliers[supplierName] ? <><FaChevronUp/> Hide</> : <><FaChevronDown/> Show</>} Details
@@ -263,7 +184,7 @@ export default function SuppliersInfo() {
                     </tr>
                     {expandedSuppliers[supplierName] && (
                       <tr>
-                        <td colSpan="6" className="p-4 bg-slate-50">
+                        <td colSpan="7" className="p-4 bg-slate-50"> {/* Increased colspan from 6 to 7 */}
                           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-inner">
                             <h3 className="text-base font-semibold text-slate-800 mb-3">Transactions for {supplierName}</h3>
                             <div className="overflow-x-auto rounded-md border border-slate-200">
@@ -282,77 +203,102 @@ export default function SuppliersInfo() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 text-sm">
-                                  {data.processedTransactions.map(item => (
-                                    <React.Fragment key={item.uniqueId}>
+                                  {/* Iterate through combined transactions (BookingCostItem and CreditNote) */}
+                                  {data.transactions.map(item => (
+                                    <React.Fragment key={item.type + '-' + item.id}> {/* Unique key based on type and id */}
                                         <tr 
-                                            className={`transition-colors cursor-pointer ${item.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'}`} 
-                                            // Restore original onClick behavior
-                                            onClick={(e) => {
-                                                e.stopPropagation(); // Prevent main supplier row collapse
-                                                if (item.type === 'BookingCost') {
-                                                    handleBookingCostSettlementClick(item.originalData, supplierName);
-                                                } else if (item.type === 'CreditNote') {
-                                                    handleCreditNoteDetailsClick(item.creditNoteData);
-                                                } else if (item.type === 'SupplierPayable' && item.pending > 0) {
-                                                    handleSupplierPayableSettlementClick(item.originalData, supplierName);
-                                                }
-                                            }}
+                                            className={`transition-colors ${item.type === 'BookingCostItem' && item.data.bookingStatus === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} ${item.type !== 'CreditNote' ? 'cursor-pointer' : ''}`} 
+                                            onClick={() => handleTransactionClick(item, supplierName)} // Unified click handler
                                         >
                                             <td className="pl-4 pr-2 py-2.5">
-                                                {/* Expansion button for linked payable (only for BookingCost with pending payable) */}
-                                                {item.type === 'BookingCost' && item.isExpandable && (
+                                                {/* Show payable expansion button ONLY if it's a BookingCostItem and has linked pending payables */}
+                                                {item.type === 'BookingCostItem' && data.payables.some(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && p.pending > 0) && (
                                                     <button 
-                                                        onClick={(e) => { e.stopPropagation(); togglePayableExpansion(item.uniqueId); }}
+                                                        onClick={(e) => { e.stopPropagation(); togglePayableExpansion(item.type + '-' + item.id); }}
                                                         className="w-6 h-6 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200 text-red-600"
                                                         title="Show/Hide associated payable"
                                                     >
-                                                      <FaChevronDown className={`transform transition-transform ${expandedPayableRow === item.uniqueId ? 'rotate-180' : ''}`} />
+                                                      <FaChevronDown className={`transform transition-transform ${expandedPayableRow === (item.type + '-' + item.id) ? 'rotate-180' : ''}`} />
                                                     </button>
                                                 )}
+                                                {item.type === 'CreditNote' && (
+                                                    <FaInfoCircle className="text-blue-500 ml-1" title="This is a Supplier Credit Note" />
+                                                )}
                                             </td>
-                                            <td className="px-2 py-2.5 font-semibold">{item.folderNo}</td>
-                                            <td className="px-2 py-2.5">{item.identifier}</td>
-                                            <td className="px-2 py-2.5">{item.reasonOrCategory}</td>
-                                            <td className="px-2 py-2.5 text-right font-medium">£{item.total.toFixed(2)}</td>
-                                            <td className="px-2 py-2.5 text-right text-green-600">£{item.paid.toFixed(2)}</td>
-                                            <td className={`px-2 py-2.5 text-right font-bold ${item.pending > 0 ? 'text-red-600' : 'text-slate-500'}`}>£{item.pending.toFixed(2)}</td>
-                                            <td className="px-2 py-2.5 text-right font-semibold text-blue-600">£{item.credit.toFixed(2)}</td>
-                                            <td className="pr-4 pl-2 py-2.5 text-right whitespace-nowrap">{formatDate(item.date)}</td>
+                                            <td className="px-2 py-2.5 font-semibold">{item.type === 'BookingCostItem' ? item.data.folderNo : '—'}</td>
+                                            <td className="px-2 py-2.5">{item.type === 'BookingCostItem' ? item.data.refNo : `Credit Note (${item.data.generatedFromRefNo || 'N/A'})`}</td>
+                                            <td className="px-2 py-2.5">{item.type === 'BookingCostItem' ? item.data.category : 'Credit Note'}</td>
+                                            <td className="px-2 py-2.5 text-right font-medium">£{(item.type === 'BookingCostItem' ? item.data.amount : item.data.initialAmount).toFixed(2)}</td>
+                                            <td className="px-2 py-2.5 text-right text-green-600">£{(item.type === 'BookingCostItem' ? item.data.paidAmount : (item.data.initialAmount - item.data.remainingAmount)).toFixed(2)}</td>
+                                            <td className="px-2 py-2.5 text-right font-bold">
+                                                {item.type === 'BookingCostItem' ? (
+                                                    <span className={item.data.pendingAmount > 0 ? 'text-red-600' : 'text-slate-500'}>£{item.data.pendingAmount.toFixed(2)}</span>
+                                                ) : (
+                                                    <span className={item.data.remainingAmount > 0 ? 'text-blue-600' : 'text-slate-500'}>£{(-item.data.remainingAmount).toFixed(2)}</span>
+                                                )}
+                                            </td>
+                                            <td className="px-2 py-2.5 text-right font-semibold">
+                                                {item.type === 'CreditNote' && item.data.remainingAmount !== undefined ? (
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data); }} className="text-blue-600 hover:underline">£{item.data.remainingAmount.toFixed(2)}</button>
+                                                ) : '—'}
+                                            </td>
+                                            <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(item.data.createdAt)}</td>
                                         </tr>
-                                        {/* Nested row for linked payable */}
-                                        {expandedPayableRow === item.uniqueId && item.type === 'BookingCost' && item.linkedPayable && (
-                                          <tr className="bg-red-50/70">
-                                              <td colSpan="9" className="p-0"> {/* Adjusted colspan */}
-                                                <div className="py-3 px-4 m-2 border-l-4 border-red-400 bg-white rounded-r-lg shadow">
-                                                   <div className="flex justify-between items-center">
-                                                      <div>
-                                                          <p className="font-bold text-red-700">Outstanding Payable</p>
-                                                          <p className="text-sm text-slate-600">{item.linkedPayable.reason}</p>
-                                                      </div>
-                                                      <div className="flex items-center gap-6 text-sm text-right">
+                                        {/* Display linked payables for this BookingCostItem transaction if expanded */}
+                                        {expandedPayableRow === (item.type + '-' + item.id) && item.type === 'BookingCostItem' && (
+                                          data.payables
+                                            .filter(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && p.pending > 0)
+                                            .map(payable => (
+                                              <tr key={`payable-linked-${payable.id}`} className="bg-red-50/70">
+                                                  <td colSpan="9" className="p-0">
+                                                    <div className="py-3 px-4 m-2 border-l-4 border-red-400 bg-white rounded-r-lg shadow">
+                                                       <div className="flex justify-between items-center">
                                                           <div>
-                                                            <p className="text-xs text-slate-500">Total Payable</p>
-                                                            <p className="font-semibold">£{item.linkedPayable.totalAmount.toFixed(2)}</p>
+                                                              <p className="font-bold text-red-700">Outstanding Payable</p>
+                                                              <p className="text-sm text-slate-600">{payable.reason}</p>
                                                           </div>
-                                                          <div>
-                                                            <p className="text-xs text-slate-500">Paid</p>
-                                                            <p className="font-semibold text-green-600">£{item.linkedPayable.paidAmount.toFixed(2)}</p>
+                                                          <div className="flex items-center gap-6 text-sm text-right">
+                                                              <div>
+                                                                <p className="text-xs text-slate-500">Total Payable</p>
+                                                                <p className="font-semibold">£{payable.total.toFixed(2)}</p>
+                                                              </div>
+                                                              <div>
+                                                                <p className="text-xs text-slate-500">Paid</p>
+                                                                <p className="font-semibold text-green-600">£{payable.paid.toFixed(2)}</p>
+                                                              </div>
+                                                              <div>
+                                                                <p className="text-xs text-slate-500">Pending</p>
+                                                                <p className="font-bold text-lg text-red-600">£{payable.pending.toFixed(2)}</p>
+                                                              </div>
+                                                              <button
+                                                                  onClick={(e) => { e.stopPropagation(); setSettlePayablePopup({ payable: payable, supplier: supplierName }); }}
+                                                                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold shadow"
+                                                                >Settle</button>
                                                           </div>
-                                                          <div>
-                                                            <p className="text-xs text-slate-500">Pending</p>
-                                                            <p className="font-bold text-lg text-red-600">£{item.linkedPayable.pendingAmount.toFixed(2)}</p>
-                                                          </div>
-                                                          <button
-                                                              onClick={(e) => { e.stopPropagation(); handleSupplierPayableSettlementClick(item.linkedPayable, supplierName); }}
-                                                              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold shadow"
-                                                            >Settle</button>
-                                                      </div>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                              </td>
-                                          </tr>
+                                                  </td>
+                                              </tr>
+                                            ))
                                         )}
                                     </React.Fragment>
+                                  ))}
+                                  {/* Render stand-alone payables that are not directly linked to a displayed BookingCostItem */}
+                                  {data.payables
+                                      .filter(payable => !data.transactions.some(tx => tx.type === 'BookingCostItem' && tx.data.folderNo.toString().split('.')[0] === payable.originatingFolderNo.toString().split('.')[0]))
+                                      .map(payable => (
+                                    <tr key={`payable-${payable.id}`} className="bg-orange-50/70 hover:bg-orange-100 transition-colors cursor-pointer"
+                                        onClick={(e) => { e.stopPropagation(); setSettlePayablePopup({ payable: payable, supplier: supplierName }); }}>
+                                        <td className="pl-4 pr-2 py-2.5"><FaExclamationTriangle className="text-orange-500 ml-1" title="Outstanding Payable" /></td>
+                                        <td className="px-2 py-2.5 font-semibold">{payable.originatingFolderNo}</td>
+                                        <td className="px-2 py-2.5">{payable.originatingRefNo || payable.reason}</td> {/* Use originatingRefNo if available, else reason */}
+                                        <td className="px-2 py-2.5">Payable</td>
+                                        <td className="px-2 py-2.5 text-right font-medium">£{payable.total.toFixed(2)}</td>
+                                        <td className="px-2 py-2.5 text-right text-green-600">£{payable.paid.toFixed(2)}</td>
+                                        <td className="px-2 py-2.5 text-right font-bold text-red-600">£{payable.pending.toFixed(2)}</td>
+                                        <td className="px-2 py-2.5 text-right">—</td>
+                                        <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(payable.createdAt)}</td>
+                                    </tr>
                                   ))}
                                 </tbody>
                                 </table>
@@ -369,6 +315,7 @@ export default function SuppliersInfo() {
         </div>
       </div>
       
+      {/* Popups */}
       {settlePopup && <SettlePaymentPopup booking={settlePopup.booking} supplier={settlePopup.supplier} onClose={() => setSettlePopup(null)} onSubmit={handleSettleSubmit} />}
       {selectedCreditNote && <CreditNoteDetailsPopup note={selectedCreditNote} onClose={() => setSelectedCreditNote(null)} />}
       {settlePayablePopup && <SettlePayablePopup payable={settlePayablePopup.payable} supplier={settlePayablePopup.supplier} onClose={() => setSettlePayablePopup(null)} onSubmit={handleSettleSubmit} />}
