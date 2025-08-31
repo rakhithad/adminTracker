@@ -1590,14 +1590,35 @@ const createSupplierPaymentSettlement = async (req, res) => {
 const getSuppliersInfo = async (req, res) => {
     try {
         // --- 1. Fetch all individual CostItemSupplier records for detailed transactions ---
+        // This includes all necessary details for the SettlePaymentPopup
         const detailedBookingCostItems = await prisma.costItemSupplier.findMany({
             select: {
-                id: true,
+                id: true, // This is the costItemSupplierId
                 supplier: true,
                 amount: true,
                 paidAmount: true,
                 pendingAmount: true, // The raw pending amount from the cost item
                 createdAt: true,
+                paymentMethod: true,     // Added for SettlePaymentPopup payment history
+                firstMethodAmount: true, // Added for SettlePaymentPopup payment history
+                secondMethodAmount: true,// Added for SettlePaymentPopup payment history
+                settlements: {           // Added for SettlePaymentPopup payment history
+                    select: {
+                        amount: true,
+                        transactionMethod: true,
+                        settlementDate: true,
+                        createdAt: true, // For sorting/details
+                    },
+                },
+                paidByCreditNoteUsage: { // Added for SettlePaymentPopup payment history
+                    select: {
+                        amountUsed: true,
+                        usedAt: true,
+                        creditNote: { // Include credit note details if needed for display
+                            select: { id: true, supplier: true, initialAmount: true, remainingAmount: true },
+                        },
+                    },
+                },
                 costItem: {
                     select: {
                         category: true,
@@ -1625,7 +1646,7 @@ const getSuppliersInfo = async (req, res) => {
 
         // Pre-process detailedBookingCostItems to get accurate pending sums and prepare for transactions list
         const supplierBookingCostItemSums = {};
-        const supplierTransactions = {};
+        const supplierTransactions = {}; // This will hold all transactions (BookingCostItem, CreditNote)
 
         detailedBookingCostItems.forEach(item => {
             const supplierName = item.supplier;
@@ -1634,6 +1655,7 @@ const getSuppliersInfo = async (req, res) => {
                 supplierTransactions[supplierName] = [];
             }
 
+            // Adjust pending amount for cancelled bookings
             const adjustedPendingAmount = item.costItem.booking.bookingStatus === "CANCELLED" ? 0 : item.pendingAmount;
             
             supplierBookingCostItemSums[supplierName].totalAmount += item.amount;
@@ -1642,26 +1664,33 @@ const getSuppliersInfo = async (req, res) => {
 
             supplierTransactions[supplierName].push({
                 type: "BookingCostItem",
-                id: item.id, // Unique ID for this transaction item
+                id: item.id, // Unique ID for this transaction item (costItemSupplier.id)
                 data: {
-                    costItemSupplierId: item.id,
+                    costItemSupplierId: item.id, // Explicitly pass it for clarity in popup payload
                     supplier: item.supplier,
                     amount: item.amount,
                     paidAmount: item.paidAmount,
                     pendingAmount: adjustedPendingAmount, // This is the adjusted value for display
                     createdAt: item.createdAt,
+                    // Pass the newly included fields from CostItemSupplier for popup history
+                    paymentMethod: item.paymentMethod,
+                    firstMethodAmount: item.firstMethodAmount,
+                    secondMethodAmount: item.secondMethodAmount,
+                    settlements: item.settlements,
+                    paidByCreditNoteUsage: item.paidByCreditNoteUsage,
+                    // Nested booking details
                     folderNo: item.costItem.booking.folderNo,
                     refNo: item.costItem.booking.refNo,
-                    category: item.costItem.category,
+                    category: item.costItem.category, // Category from CostItem
                     bookingStatus: item.costItem.booking.bookingStatus,
-                    bookingId: item.costItem.booking.id, // Include booking ID for possible deep linking/popups
+                    bookingId: item.costItem.booking.id, // Parent Booking ID
                 },
             });
         });
 
         // --- 2. Fetch all Supplier Credit Notes ---
         const allCreditNotes = await prisma.supplierCreditNote.findMany({
-            select: { // Select only necessary fields for initial display
+            select: { // Select necessary fields for initial display and popup details
                 id: true,
                 supplier: true,
                 initialAmount: true,
@@ -1675,6 +1704,25 @@ const getSuppliersInfo = async (req, res) => {
                         }
                     }
                 },
+                usageHistory: { // To show where the credit note was applied if clicked
+                    select: {
+                        id: true,
+                        amountUsed: true,
+                        usedAt: true,
+                        usedOnCostItemSupplier: {
+                            select: {
+                                id: true,
+                                costItem: {
+                                    select: {
+                                        booking: {
+                                            select: { refNo: true, folderNo: true }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             },
         });
 
@@ -1690,7 +1738,7 @@ const getSuppliersInfo = async (req, res) => {
 
             supplierTransactions[supplierName].push({
                 type: "CreditNote",
-                id: note.id, // Unique ID for this transaction item
+                id: note.id, // Unique ID for this transaction item (creditNote.id)
                 data: {
                     creditNoteId: note.id,
                     supplier: note.supplier,
@@ -1699,6 +1747,14 @@ const getSuppliersInfo = async (req, res) => {
                     status: note.status,
                     createdAt: note.createdAt,
                     generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || "N/A",
+                    usageHistory: note.usageHistory.map(usage => ({ // Format usage history for popup
+                        id: usage.id,
+                        amountUsed: usage.amountUsed,
+                        usedAt: usage.usedAt,
+                        usedOnCostItemSupplierId: usage.usedOnCostItemSupplier?.id,
+                        usedOnRefNo: usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || 'N/A',
+                        usedOnFolderNo: usage.usedOnCostItemSupplier?.costItem?.booking?.folderNo || 'N/A',
+                    })),
                 },
             });
         });
@@ -1726,7 +1782,7 @@ const getSuppliersInfo = async (req, res) => {
 
         // Aggregate pending payables by supplier and add to payables list
         const supplierPayableSums = {};
-        const supplierPayables = {};
+        const supplierPayables = {}; // This will hold individual payable items
         allIndividualPendingPayables.forEach(payable => {
             const supplierName = payable.supplier;
             if (!supplierPayableSums[supplierName]) {
@@ -1751,7 +1807,8 @@ const getSuppliersInfo = async (req, res) => {
         // --- 4. Construct the final supplierSummary structure ---
         const finalSupplierSummary = {};
         
-        // **FIX:** Use nullish coalescing operator to ensure Object.values always gets an object
+        // FIX: Use nullish coalescing operator to ensure Object.values always gets an object
+        // Correctly reference the Prisma enum for 'Suppliers'
         const allEnumSuppliers = Object.values(prisma.Suppliers || {}); 
         
         const allUniqueSuppliers = new Set([

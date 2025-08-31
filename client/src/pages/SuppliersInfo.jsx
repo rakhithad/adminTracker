@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getSuppliersInfo } from '../api/api'; // Ensure this path is correct for your project
-import SettlePaymentPopup from '../components/SettlePaymentPopup'; // Ensure this path is correct
-import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup'; // Ensure this path is correct
-import SettlePayablePopup from '../components/SettlePayablePopup'; // Ensure this path is correct
-import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaInfoCircle } from 'react-icons/fa';
+import { getSuppliersInfo } from '../api/api'; // Adjust this path as necessary for your project
+import SettlePaymentPopup from '../components/SettlePaymentPopup'; // Adjust this path
+import CreditNoteDetailsPopup from '../components/CreditNoteDetailsPopup'; // Adjust this path
+import SettlePayablePopup from '../components/SettlePayablePopup'; // Adjust this path
+import { FaExclamationTriangle, FaCreditCard, FaSyncAlt, FaSpinner, FaChevronDown, FaChevronUp, FaInfoCircle, FaFileInvoiceDollar } from 'react-icons/fa';
 
 // Helper component for statistics cards
 const StatCard = ({ icon, title, value, colorClass }) => (
@@ -87,17 +87,22 @@ export default function SuppliersInfo() {
   }
   
   // Handles clicks on individual transaction rows (booking cost items or credit notes)
-  const handleTransactionClick = (item, supplierName) => {
+  const handleTransactionClick = (item, supplierName, e) => {
+    // Prevent event bubbling if a nested clickable element (like the credit note amount button) was clicked
+    if (e && e.target.closest('button')) {
+        return; 
+    }
+
     if (item.type === 'BookingCostItem') {
-        // Pass the item.data (which contains the booking cost item details) to the settlement popup
+        // Pass the item.data (which contains the cost item supplier details) to the settlement popup
         setSettlePopup({ booking: item.data, supplier: supplierName });
     } else if (item.type === 'CreditNote') {
         // Pass the item.data (which contains the credit note details) to the credit note details popup
         setSelectedCreditNote(item.data);
     }
-    // No action for other transaction types (if any) or if it's already a link to another popup.
+    // No action for other transaction types.
   };
-  
+
   // Helper to determine the status pill text and styling
   const getStatusPill = (totalPaid, totalPending) => {
     const epsilon = 0.01; // Small threshold for floating point comparisons
@@ -153,8 +158,8 @@ export default function SuppliersInfo() {
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Total Due (£)</th>
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Total Paid (£)</th>
                   <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Pending Balance (£)</th>
-                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Available Credit (£)</th> {/* New column */}
-                  <th className="w-40 pl-4 pr-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Overall Status</th> {/* Added back for getStatusPill */}
+                  <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Available Credit (£)</th>
+                  <th className="w-40 pl-4 pr-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Overall Status</th>
                   <th className="w-40 pl-4 pr-6 py-3.5 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -174,8 +179,8 @@ export default function SuppliersInfo() {
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-slate-600 text-right font-medium">£{(data.totalAmount || 0).toFixed(2)}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-green-600 font-semibold text-right">£{(data.totalPaid || 0).toFixed(2)}</td>
                       <td className="px-4 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">£{(data.totalPending || 0).toFixed(2)}</td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-blue-600 font-semibold text-right">£{(data.totalAvailableCredit || 0).toFixed(2)}</td> {/* Display available credit */}
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-center">{getStatusPill(data.totalPaid, data.totalPending)}</td> {/* <-- CALL TO getStatusPill ADDED HERE */}
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-blue-600 font-semibold text-right">£{(data.totalAvailableCredit || 0).toFixed(2)}</td>
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-center">{getStatusPill(data.totalPaid, data.totalPending)}</td>
                       <td className="pl-4 pr-6 py-4 whitespace-nowrap text-sm text-center">
                         <button onClick={() => toggleMainSupplier(supplierName)} className="flex items-center gap-2 w-full justify-center px-3 py-1.5 bg-white text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-100 text-xs font-semibold shadow-sm">
                            {expandedSuppliers[supplierName] ? <><FaChevronUp/> Hide</> : <><FaChevronDown/> Show</>} Details
@@ -184,7 +189,7 @@ export default function SuppliersInfo() {
                     </tr>
                     {expandedSuppliers[supplierName] && (
                       <tr>
-                        <td colSpan="7" className="p-4 bg-slate-50"> {/* Increased colspan from 6 to 7 */}
+                        <td colSpan="7" className="p-4 bg-slate-50">
                           <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-inner">
                             <h3 className="text-base font-semibold text-slate-800 mb-3">Transactions for {supplierName}</h3>
                             <div className="overflow-x-auto rounded-md border border-slate-200">
@@ -207,8 +212,9 @@ export default function SuppliersInfo() {
                                   {data.transactions.map(item => (
                                     <React.Fragment key={item.type + '-' + item.id}> {/* Unique key based on type and id */}
                                         <tr 
+                                            // The whole row is clickable unless it's a specific button within it
                                             className={`transition-colors ${item.type === 'BookingCostItem' && item.data.bookingStatus === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} ${item.type !== 'CreditNote' ? 'cursor-pointer' : ''}`} 
-                                            onClick={() => handleTransactionClick(item, supplierName)} // Unified click handler
+                                            onClick={(e) => handleTransactionClick(item, supplierName, e)} // Unified click handler
                                         >
                                             <td className="pl-4 pr-2 py-2.5">
                                                 {/* Show payable expansion button ONLY if it's a BookingCostItem and has linked pending payables */}
@@ -238,8 +244,15 @@ export default function SuppliersInfo() {
                                                 )}
                                             </td>
                                             <td className="px-2 py-2.5 text-right font-semibold">
-                                                {item.type === 'CreditNote' && item.data.remainingAmount !== undefined ? (
-                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data); }} className="text-blue-600 hover:underline">£{item.data.remainingAmount.toFixed(2)}</button>
+                                                {/* Show credit note amount (clickable) if it's a CreditNote OR if it's a BookingCostItem that used a credit note */}
+                                                {item.type === 'CreditNote' ? (
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data); }} className="text-blue-600 hover:underline">
+                                                        £{item.data.remainingAmount.toFixed(2)}
+                                                    </button>
+                                                ) : item.type === 'BookingCostItem' && item.data.paidByCreditNoteUsage?.length > 0 ? (
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data.paidByCreditNoteUsage[0].creditNote); }} className="text-blue-600 hover:underline">
+                                                        £{item.data.paidByCreditNoteUsage.reduce((sum, usage) => sum + usage.amountUsed, 0).toFixed(2)} Used
+                                                    </button>
                                                 ) : '—'}
                                             </td>
                                             <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(item.data.createdAt)}</td>
@@ -289,9 +302,9 @@ export default function SuppliersInfo() {
                                       .map(payable => (
                                     <tr key={`payable-${payable.id}`} className="bg-orange-50/70 hover:bg-orange-100 transition-colors cursor-pointer"
                                         onClick={(e) => { e.stopPropagation(); setSettlePayablePopup({ payable: payable, supplier: supplierName }); }}>
-                                        <td className="pl-4 pr-2 py-2.5"><FaExclamationTriangle className="text-orange-500 ml-1" title="Outstanding Payable" /></td>
+                                        <td className="pl-4 pr-2 py-2.5"><FaFileInvoiceDollar className="text-orange-500 ml-1" title="Outstanding Payable" /></td> {/* Changed icon */}
                                         <td className="px-2 py-2.5 font-semibold">{payable.originatingFolderNo}</td>
-                                        <td className="px-2 py-2.5">{payable.originatingRefNo || payable.reason}</td> {/* Use originatingRefNo if available, else reason */}
+                                        <td className="px-2 py-2.5">{payable.originatingRefNo || payable.reason}</td>
                                         <td className="px-2 py-2.5">Payable</td>
                                         <td className="px-2 py-2.5 text-right font-medium">£{payable.total.toFixed(2)}</td>
                                         <td className="px-2 py-2.5 text-right text-green-600">£{payable.paid.toFixed(2)}</td>
