@@ -1587,45 +1587,9 @@ const createSupplierPaymentSettlement = async (req, res) => {
   }
 };
 
-
-// Assuming `prisma` and `apiResponse` are correctly imported and available.
-// Make sure the `Suppliers` enum is accessible if not already.
-
 const getSuppliersInfo = async (req, res) => {
     try {
         // --- 1. Aggregate Booking CostItemSupplier Data (Total for each supplier) ---
-        // This calculates total amount, paid, and pending for each supplier from ALL booking cost items.
-        // It's crucial to filter out pending amounts from CANCELLED bookings at this stage for the summary.
-        const bookingCostItemSupplierAggregations = await prisma.costItemSupplier.groupBy({
-            by: ['supplier'],
-            _sum: {
-                amount: true,
-                paidAmount: true,
-            },
-            _avg: { // Using _avg with a custom case to sum conditionally
-                pendingAmount: true, // This will be the sum of adjusted pending amounts.
-            },
-            where: {
-                costItem: {
-                    booking: {
-                        // Exclude VOID bookings entirely from cost items
-                        bookingStatus: {
-                            not: 'VOID'
-                        }
-                    }
-                }
-            },
-            // This is a placeholder for conditional summing of pending.
-            // Prisma's groupBy doesn't directly support conditional sum in this way without raw queries.
-            // We'll handle the `CANCELLED` booking pending amount adjustment in the next step
-            // where we fetch individual details or in a post-processing step if truly needed aggregated.
-            // For now, _sum.pendingAmount would give the raw pending. Let's adjust it by fetching individual items.
-            // For the overall summary, let's keep it simple and combine later.
-        });
-
-        // --- 2. Fetch all individual CostItemSupplier records for detailed transactions ---
-        // We need details like folderNo, refNo, category for the frontend table.
-        // This will also be used to accurately calculate pending amounts for the summary.
         const detailedBookingCostItems = await prisma.costItemSupplier.findMany({
             select: {
                 id: true,
@@ -1695,7 +1659,7 @@ const getSuppliersInfo = async (req, res) => {
             });
         });
 
-        // --- 3. Fetch all Supplier Credit Notes ---
+        // --- 2. Fetch all Supplier Credit Notes ---
         const allCreditNotes = await prisma.supplierCreditNote.findMany({
             select: { // Select only necessary fields for initial display
                 id: true,
@@ -1720,7 +1684,7 @@ const getSuppliersInfo = async (req, res) => {
             const supplierName = note.supplier;
             if (!supplierCreditNoteSums[supplierName]) {
                 supplierCreditNoteSums[supplierName] = { totalAvailableCredit: 0 };
-                if (!supplierTransactions[supplierName]) supplierTransactions[supplierName] = [];
+                if (!supplierTransactions[supplierName]) supplierTransactions[supplierName] = []; // Ensure the array exists
             }
             supplierCreditNoteSums[supplierName].totalAvailableCredit += note.remainingAmount || 0;
 
@@ -1739,7 +1703,7 @@ const getSuppliersInfo = async (req, res) => {
             });
         });
 
-        // --- 4. Fetch all individual pending SupplierPayable records for display ---
+        // --- 3. Fetch all individual pending SupplierPayable records for display ---
         const allIndividualPendingPayables = await prisma.supplierPayable.findMany({
             where: { status: "PENDING" },
             select: {
@@ -1784,12 +1748,14 @@ const getSuppliersInfo = async (req, res) => {
         });
 
 
-        // --- 5. Construct the final supplierSummary structure ---
+        // --- 4. Construct the final supplierSummary structure ---
         const finalSupplierSummary = {};
-        // Ensure all enum suppliers are included, even if no data, for consistent UI.
-        // Assuming 'Suppliers' enum is available globally or imported.
+        
+        // Correctly reference the Prisma enum for 'Suppliers'
+        const allEnumSuppliers = Object.values(prisma.Suppliers); 
+        
         const allUniqueSuppliers = new Set([
-            ...Object.values(Suppliers), // All possible suppliers
+            ...allEnumSuppliers, // All possible suppliers from the enum
             ...Object.keys(supplierBookingCostItemSums),
             ...Object.keys(supplierCreditNoteSums),
             ...Object.keys(supplierPayableSums),
