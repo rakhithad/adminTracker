@@ -1,19 +1,21 @@
 import { useState } from 'react';
-import { createSupplierPaymentSettlement } from '../api/api';
+import { createSupplierPaymentSettlement } from '../api/api'; // Ensure this path is correct
 import { FaTimes, FaPiggyBank, FaCreditCard, FaHandshake, FaCalendarAlt, FaInfoCircle } from 'react-icons/fa';
 
 export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     amount: '',
-    transactionMethod: 'LOYDS',
+    transactionMethod: 'BANK_TRANSFER', // Changed default to BANK_TRANSFER as it's common and in backend enum
     settlementDate: new Date().toISOString().split('T')[0],
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
+  // 'booking' prop now correctly represents a detailed CostItemSupplier
   const isCancelled = booking.bookingStatus === 'CANCELLED';
 
-  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  // Include BANK_TRANSFER as it's in your Prisma enum and backend validation
+  const transactionMethods = ['BANK_TRANSFER', 'LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -22,7 +24,13 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
   
   function formatDate(dateStr) {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-GB');
+    // Use try-catch for date parsing to prevent errors on invalid dates
+    try {
+        return new Date(dateStr).toLocaleDateString('en-GB');
+    } catch (e) {
+        console.error("Error formatting date:", dateStr, e);
+        return 'Invalid Date';
+    }
   }
 
   async function handleSubmit(e) {
@@ -35,18 +43,20 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
       if (isNaN(amount) || amount <= 0) {
         throw new Error('Amount must be a positive number');
       }
-      if (amount > booking.pendingAmount + 0.01) {
-        throw new Error(`Amount (£${amount.toFixed(2)}) exceeds pending amount (£${booking.pendingAmount.toFixed(2)})`);
+      // Allow for tiny floating point discrepancies when comparing amounts
+      if (amount > booking.pendingAmount + 0.01) { 
+        throw new Error(`Settlement amount (£${amount.toFixed(2)}) exceeds pending amount (£${booking.pendingAmount.toFixed(2)})`);
       }
       if (!transactionMethods.includes(formData.transactionMethod)) {
         throw new Error('Invalid transaction method');
       }
-      if (!formData.settlementDate || isNaN(new Date(formData.settlementDate))) {
+      if (!formData.settlementDate || isNaN(new Date(formData.settlementDate).getTime())) { // Robust date validation
         throw new Error('Invalid settlement date');
       }
 
       const response = await createSupplierPaymentSettlement({
-        costItemSupplierId: booking.id,
+        // FIX: Use booking.costItemSupplierId as expected by backend
+        costItemSupplierId: booking.costItemSupplierId, 
         amount,
         transactionMethod: formData.transactionMethod,
         settlementDate: formData.settlementDate,
@@ -56,59 +66,62 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
         throw new Error(response.data?.error || 'Failed to save settlement');
       }
 
-      onSubmit(response.data.data);
+      onSubmit(response.data.data); // Pass updated data if necessary, then close
       onClose();
     } catch (err) {
       console.error('Settlement error:', err);
-      setError(err.message || 'Failed to save settlement');
+      // Display backend error message if available, otherwise a generic one
+      setError(err.response?.data?.error || err.message || 'Failed to save settlement');
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  // --- PAYMENT HISTORY LOGIC ---
+  // --- PAYMENT HISTORY LOGIC (Now correctly uses data from 'booking' prop) ---
   const paymentHistory = [];
 
-  // 1. Add Initial Bank/Cash Payments
-  // THIS IS THE CORRECTED LINE: Provide a default empty string to prevent the crash.
-  const paymentParts = (booking.paymentMethod || '').split('_AND_');
+  // 1. Add Initial PaymentMethod amounts (e.g., BANK_TRANSFER)
+  // These fields are now available on the 'booking' prop (CostItemSupplier)
+  const paymentMethodParts = (booking.paymentMethod || '').split('_AND_');
   
-  if (paymentParts[0] === 'BANK_TRANSFER' && booking.firstMethodAmount > 0) {
+  if (paymentMethodParts[0] === 'BANK_TRANSFER' && (parseFloat(booking.firstMethodAmount) || 0) > 0) {
       paymentHistory.push({
           type: 'Initial Payment',
           icon: <FaPiggyBank className="text-blue-500" />,
           amount: parseFloat(booking.firstMethodAmount),
-          method: 'Bank Transfer',
-          date: booking.createdAt,
-          details: 'Paid at booking creation'
+          method: 'Bank Transfer (Method 1)',
+          date: booking.createdAt, // Using booking.createdAt as the payment initiation date
+          details: 'Initial payment with booking'
       });
   }
-  if (paymentParts.length > 1 && paymentParts[1] === 'BANK_TRANSFER' && booking.secondMethodAmount > 0) {
+  if (paymentMethodParts.length > 1 && paymentMethodParts[1] === 'BANK_TRANSFER' && (parseFloat(booking.secondMethodAmount) || 0) > 0) {
       paymentHistory.push({
           type: 'Initial Payment',
           icon: <FaPiggyBank className="text-blue-500" />,
           amount: parseFloat(booking.secondMethodAmount),
-          method: 'Bank Transfer',
-          date: booking.createdAt,
-          details: 'Paid at booking creation'
+          method: 'Bank Transfer (Method 2)',
+          date: booking.createdAt, // Using booking.createdAt as the payment initiation date
+          details: 'Initial payment with booking'
       });
   }
 
-  // 2. Add Credit Notes used at Booking Creation
+  // 2. Add Credit Notes used at CostItemSupplier Creation
+  // 'paidByCreditNoteUsage' is now correctly included in 'booking' prop
   if (booking.paidByCreditNoteUsage?.length > 0) {
     booking.paidByCreditNoteUsage.forEach(usage => {
       paymentHistory.push({
-        type: 'Credit Note',
+        type: 'Credit Note Usage', // Clarified type
         icon: <FaCreditCard className="text-green-500" />,
         amount: parseFloat(usage.amountUsed),
         method: 'Credit Note',
         date: usage.usedAt,
-        details: `Used Note ID: ${usage.creditNote?.id || 'N/A'}` // Added safe navigation
+        details: `Used Note ID: ${usage.creditNote?.id || 'N/A'} (Supplier: ${usage.creditNote?.supplier || 'N/A'})` 
       });
     });
   }
 
-  // 3. Add subsequent Settlements
+  // 3. Add subsequent Settlements made for this CostItemSupplier
+  // 'settlements' is now correctly included in 'booking' prop
   if (booking.settlements?.length > 0) {
     booking.settlements.forEach((settlement) => {
       paymentHistory.push({
@@ -117,13 +130,13 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
         amount: parseFloat(settlement.amount),
         method: settlement.transactionMethod.replace('_', ' '),
         date: settlement.settlementDate,
-        details: `Recorded on: ${formatDate(settlement.createdAt)}`
+        details: `Recorded on: ${formatDate(settlement.createdAt)}` // settlement.createdAt is for audit
       });
     });
   }
   
   // 4. Sort all transactions chronologically
-  paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
+  paymentHistory.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
 
   return (
@@ -139,32 +152,26 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
         <div className="overflow-y-auto pr-4 flex-grow">
             <div className="bg-gray-50 p-4 rounded-lg mb-6">
                 <p className="text-sm font-medium text-gray-700">Booking Ref No: <span className="font-bold text-gray-900">{booking.refNo}</span></p>
-                <p className="text-sm text-gray-600">Passenger: {booking.paxName}, Category: {booking.category}</p>
+                {/* Assuming category and paxName are from the parent booking, adjust if needed */}
+                <p className="text-sm text-gray-600">Parent Booking: {booking.folderNo}, Category: {booking.category}</p> 
                 <div className="mt-2 grid grid-cols-3 gap-4 text-center">
-                    <div><span className="block text-xs text-gray-500">Total</span><span className="font-bold text-lg">£{booking.amount.toFixed(2)}</span></div>
-                    <div><span className="block text-xs text-green-500">Paid</span><span className="font-bold text-lg text-green-600">£{booking.paidAmount.toFixed(2)}</span></div>
+                    <div><span className="block text-xs text-gray-500">Total Due</span><span className="font-bold text-lg">£{booking.amount.toFixed(2)}</span></div>
+                    <div><span className="block text-xs text-green-500">Total Paid</span><span className="font-bold text-lg text-green-600">£{booking.paidAmount.toFixed(2)}</span></div>
                     <div><span className="block text-xs text-red-500">Pending</span><span className="font-bold text-lg text-red-600">£{booking.pendingAmount.toFixed(2)}</span></div>
                 </div>
             </div>
 
-            {isCancelled && booking.cancellationOutcome && (
-                <div className="mb-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
-                    <h3 className="text-lg font-semibold text-yellow-800 mb-2 flex items-center">
-                        <FaInfoCircle className="mr-3" />
-                        Cancellation Outcome
-                    </h3>
-                    <div className="text-sm text-yellow-900">
-                        {booking.cancellationOutcome.creditNoteAmount > 0 ? (
-                            <p>This cancellation resulted in a <strong>Credit Note of £{booking.cancellationOutcome.creditNoteAmount.toFixed(2)}</strong> from the supplier.</p>
-                        ) : booking.cancellationOutcome.payable ? (
-                            <p>This cancellation resulted in a <strong>New Payable of £{booking.cancellationOutcome.payable.totalAmount.toFixed(2)}</strong> to the supplier. You can find and settle this in the 'Outstanding Payables' table.</p>
-                        ) : (
-                            <p>This cancellation was settled with no outstanding credit or debt.</p>
-                        )}
-                    </div>
-                </div>
+            {/* If you have cancellationOutcome data linked to CostItemSupplier, add it here */}
+            {/* If `booking` here specifically represents a CostItemSupplier related to a cancellation,
+                you might need to fetch `cancellationOutcome` explicitly in the backend for that `CostItemSupplier` if desired.
+                The current `booking.cancellationOutcome` would not be present directly on CostItemSupplier.
+             */}
+            {isCancelled && (
+                 <div className="mb-6 p-4 rounded-lg bg-gray-100 text-center">
+                    <p className="text-sm font-medium text-gray-700">This item belongs to a cancelled booking. No further settlements can be made on this transaction.</p>
+                 </div>
             )}
-
+            
             {!isCancelled && booking.pendingAmount > 0.01 && (
             <div className="mb-6">
                 <h3 className="text-lg font-semibold mb-4 text-gray-700">Record New Settlement</h3>
