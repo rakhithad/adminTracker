@@ -3347,7 +3347,7 @@ const settleCustomerPayable = async (req, res) => {
         if (isNaN(new Date(paymentDate).getTime())) {
             return apiResponse.error(res, 'Invalid payment date.', 400);
         }
-        const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT', 'BANK_TRANSFER']; // Ensure this list is complete
+        const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT', 'BANK_TRANSFER'];
         if (!validTransactionMethods.includes(transactionMethod)) {
           return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
         }
@@ -3361,7 +3361,8 @@ const settleCustomerPayable = async (req, res) => {
                         include: {
                             initialPayments: true,
                             instalments: { include: { payments: true } },
-                            customerPayables: { include: { settlements: true } }, // Include all payable settlements for accurate total received
+                            // We don't need to include payable settlements here if we're re-fetching them below
+                            // customerPayables: { include: { settlements: true } }, 
                         }
                     }
                 }
@@ -3375,8 +3376,8 @@ const settleCustomerPayable = async (req, res) => {
             }
             const currentBooking = payable.booking;
 
-            const pendingAmount = parseFloat(payable.pendingAmount) || 0;
-            if (paymentAmount > pendingAmount + 0.01) { // Add tolerance for floating-point issues
+            const pendingAmount = parseFloat(payable.pendingAmount ?? 0) || 0; // Use ?? 0 for safety
+            if (paymentAmount > pendingAmount + 0.01) {
                 throw new Error(`Payment amount (£${paymentAmount.toFixed(2)}) exceeds pending balance (£${pendingAmount.toFixed(2)}).`);
             }
 
@@ -3391,7 +3392,7 @@ const settleCustomerPayable = async (req, res) => {
             });
 
             // 4. Update the parent CustomerPayable record's amounts and status
-            const newPaidAmountForPayable = (parseFloat(payable.paidAmount) || 0) + paymentAmount;
+            const newPaidAmountForPayable = (parseFloat(payable.paidAmount ?? 0) || 0) + paymentAmount; // Use ?? 0 for safety
             const newPendingAmountForPayable = pendingAmount - paymentAmount;
             
             const updatedPayableRecord = await tx.customerPayable.update({
@@ -3401,33 +3402,36 @@ const settleCustomerPayable = async (req, res) => {
                     pendingAmount: newPendingAmountForPayable,
                     status: newPendingAmountForPayable < 0.01 ? 'PAID' : 'PENDING',
                 },
-                include: { settlements: true } // Include settlements for return object
+                include: { settlements: true }
             });
 
             // 5. Recalculate Booking's comprehensive Total Received and Balance from scratch
-            // --- Sum of all payments received from customer ---
             const totalInitialPayments = (currentBooking.initialPayments || []).reduce((sum, p) => sum + p.amount, 0);
             const totalInstalmentPayments = (currentBooking.instalments || []).reduce((sum, inst) => 
                 sum + (inst.payments || []).reduce((pSum, p) => pSum + p.amount, 0), 0);
             
-            // Re-fetch customer payables settlements to include the one just made
+            // FIX: Correctly filter `customerPayableSettlement` through the `payable` relation
             const allCustomerPayableSettlements = await tx.customerPayableSettlement.findMany({
-                where: { customerPayable: { bookingId: currentBooking.id } }
+                where: { 
+                    payable: { // This refers to the 'payable' relation field in CustomerPayableSettlement
+                        bookingId: currentBooking.id // This then filters on the bookingId of the related CustomerPayable
+                    }
+                }
             });
             const totalCustomerPayableSettlements = allCustomerPayableSettlements.reduce((sum, s) => sum + s.amount, 0);
             
             const newTotalReceived = totalInitialPayments + totalInstalmentPayments + totalCustomerPayableSettlements;
-            const newBalance = (currentBooking.revenue || 0) - newTotalReceived;
+            const newBalance = (currentBooking.revenue ?? 0) - newTotalReceived; // Use ?? 0 for currentBooking.revenue
 
             // Store old balance for audit log
-            const oldBookingBalance = currentBooking.balance;
+            const oldBookingBalance = currentBooking.balance ?? 0; // Use ?? 0 for safety before toFixed()
 
             // 6. Update the main Booking record with new balance and last payment date
             const updatedBookingRecord = await tx.booking.update({
                 where: { id: currentBooking.id },
                 data: {
                     balance: newBalance,
-                    lastPaymentDate: new Date(paymentDate), // Update last payment date
+                    lastPaymentDate: new Date(paymentDate),
                 }
             });
 
@@ -3456,7 +3460,7 @@ const settleCustomerPayable = async (req, res) => {
                 action: ActionType.SETTLEMENT_PAYMENT,
                 changes: [{
                     fieldName: 'balance',
-                    oldValue: oldBookingBalance !== undefined ? oldBookingBalance.toFixed(2) : 'N/A',
+                    oldValue: oldBookingBalance.toFixed(2), // oldBookingBalance is now guaranteed a number
                     newValue: newBalance.toFixed(2)
                 }]
             });
@@ -3473,7 +3477,7 @@ const settleCustomerPayable = async (req, res) => {
         console.error("Error settling customer payable:", error);
         if (error.message.includes('not found')) return apiResponse.error(res, error.message, 404);
         if (error.message.includes('exceeds pending balance')) return apiResponse.error(res, error.message, 400);
-        if (error.message.includes('Invalid')) return apiResponse.error(res, error.message, 400); // Catch explicit validation errors
+        if (error.message.includes('Invalid')) return apiResponse.error(res, error.message, 400);
         if (error.name === 'PrismaClientValidationError') return apiResponse.error(res, `Invalid data provided: ${error.message}`, 400);
         return apiResponse.error(res, `Failed to settle payable: ${error.message}`, 500);
     }

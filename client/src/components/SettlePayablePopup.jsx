@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
-import { createSupplierPayableSettlement } from '../api/api';
+import React, { useState, useEffect } from 'react'; // Added useEffect for initial check
+import { createSupplierPayableSettlement } from '../api/api'; // Ensure this path is correct
 import { FaTimes, FaFileInvoiceDollar, FaHistory } from 'react-icons/fa';
 
 export default function SettlePayablePopup({ payable, supplier, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     amount: '',
-    transactionMethod: 'LOYDS',
+    transactionMethod: 'BANK_TRANSFER', // Changed default to a common method
     settlementDate: new Date().toISOString().split('T')[0],
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM'];
+  // Updated transaction methods to match backend (or be more comprehensive)
+  const transactionMethods = ['BANK_TRANSFER', 'LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+
+  // Effect to set initial amount to full pending if the form opens
+  useEffect(() => {
+    if (payable && (payable.pendingAmount ?? 0) > 0) {
+      setFormData(prev => ({
+        ...prev,
+        amount: (payable.pendingAmount ?? 0).toFixed(2), // Pre-fill with max pending
+      }));
+    }
+  }, [payable]);
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -21,7 +33,12 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
   // Helper function to format dates consistently
   const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-GB');
+    try {
+        return new Date(dateStr).toLocaleDateString('en-GB');
+    } catch (e) {
+        console.error("Error formatting date:", dateStr, e);
+        return 'Invalid Date';
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -34,8 +51,9 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
       if (isNaN(amount) || amount <= 0) {
         throw new Error('Amount must be a positive number.');
       }
-      if (amount > payable.pendingAmount + 0.01) {
-        throw new Error(`Amount (£${amount.toFixed(2)}) exceeds the pending amount (£${payable.pendingAmount.toFixed(2)}).`);
+      // FIX: Use nullish coalescing for payable.pendingAmount
+      if (amount > (payable.pendingAmount ?? 0) + 0.01) { 
+        throw new Error(`Amount (£${amount.toFixed(2)}) exceeds the pending amount (£${(payable.pendingAmount ?? 0).toFixed(2)}).`);
       }
       
       const payload = {
@@ -51,12 +69,13 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
         throw new Error(response.data?.error || 'Failed to save the settlement.');
       }
 
-      onSubmit();
+      onSubmit(); // This should trigger the re-fetch in SuppliersInfo
       onClose();
 
     } catch (err) {
       console.error('Payable settlement error:', err);
-      setError(err.message || 'An unexpected error occurred.');
+      // More robust error message display
+      setError(err.response?.data?.error || err.message || 'An unexpected error occurred.');
     } finally {
       setIsSubmitting(false);
     }
@@ -77,21 +96,21 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
         
         <div className="overflow-y-auto pr-2">
           <div className="bg-gray-50 p-4 rounded-lg mb-6 text-center">
+            <p className="text-sm text-gray-600">Originating Folder No: <span className="font-semibold text-gray-800">{payable.originatingFolderNo || 'N/A'}</span></p>
             <p className="text-sm text-gray-600">Reason: <span className="font-semibold text-gray-800">{payable.reason}</span></p>
             <p className="text-sm text-gray-600 mt-1">
-              Pending Amount: <span className="font-bold text-xl text-red-600">£{payable.pendingAmount.toFixed(2)}</span>
+              Pending Amount: <span className="font-bold text-xl text-red-600">£{(payable.pendingAmount ?? 0).toFixed(2)}</span> {/* FIX: Use nullish coalescing */}
             </p>
           </div>
           
           {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">{error}</div>}
 
-          {/* Settlement form will only show if there is a pending amount */}
-          {payable.pendingAmount > 0.01 && (
+          
+          {(payable.pendingAmount ?? 0) > 0.01 && (
             <form onSubmit={handleSubmit} className="space-y-4 mb-6">
-              {/* Form fields for Amount, Method, Date */}
               <div>
                 <label htmlFor="amount" className="block text-sm font-medium text-gray-700">Settlement Amount (£)</label>
-                <input id="amount" type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md bg-white focus:ring-blue-500 focus:border-blue-500" placeholder={`Max £${payable.pendingAmount.toFixed(2)}`} required />
+                <input id="amount" type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md bg-white focus:ring-blue-500 focus:border-blue-500" placeholder={`Max £${(payable.pendingAmount ?? 0).toFixed(2)}`} required /> {/* FIX: Use nullish coalescing */}
               </div>
               <div>
                 <label htmlFor="transactionMethod" className="block text-sm font-medium text-gray-700">Transaction Method</label>
@@ -113,7 +132,7 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
             </form>
           )}
 
-          {/* --- NEW: PAYMENT HISTORY SECTION --- */}
+          {/* --- PAYMENT HISTORY SECTION --- */}
           {payable.settlements && payable.settlements.length > 0 && (
             <div className="mt-4 border-t pt-4">
               <h4 className="text-md font-semibold text-gray-700 mb-2 flex items-center">
@@ -132,7 +151,7 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {payable.settlements.map((settlement, index) => (
                       <tr key={settlement.id || index}>
-                        <td className="px-4 py-2 text-sm text-gray-800 font-medium">£{settlement.amount.toFixed(2)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-800 font-medium">£{(settlement.amount ?? 0).toFixed(2)}</td> {/* FIX: Use nullish coalescing */}
                         <td className="px-4 py-2 text-sm text-gray-600">{settlement.transactionMethod.replace('_', ' ')}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{formatDate(settlement.settlementDate)}</td>
                       </tr>
