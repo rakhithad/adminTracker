@@ -2914,7 +2914,7 @@ const getAvailableCreditNotes = async (req, res) => {
 const createDateChangeBooking = async (req, res) => {
   const { id: userId } = req.user;
   const originalBookingId = parseInt(req.params.id);
-  const data = req.body;
+  const data = req.body; // 'data' now contains snake_case keys from the frontend
 
   try {
     // --- 1. Initial Input Validation (Pre-transaction) ---
@@ -2922,18 +2922,23 @@ const createDateChangeBooking = async (req, res) => {
       return apiResponse.error(res, 'Invalid original booking ID', 400);
     }
 
-    const requiredFields = ['refNo', 'paxName', 'agentName', 'teamName', 'pnr', 'airline', 'fromTo', 'paymentMethod', 'pcDate', 'travelDate', 'revenue', 'numPax'];
+    // FIX: Update requiredFields to use snake_case to match frontend payload
+    const requiredFields = [
+      'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to',
+      'paymentMethod', 'pcDate', 'travelDate', 'revenue', 'numPax'
+    ];
+    
     const missingFields = requiredFields.filter(field => !data[field] && data[field] !== 0);
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields for new booking: ${missingFields.join(', ')}`, 400);
     }
 
-    // Validate numeric fields for the new booking
+    // Validate numeric fields for the new booking (using snake_case where appropriate)
     const parsedRevenue = parseFloat(data.revenue || 0);
     if (isNaN(parsedRevenue) || parsedRevenue < 0) return apiResponse.error(res, 'Revenue must be a non-negative number.', 400);
     const parsedProdCost = parseFloat(data.prodCost || 0);
     if (isNaN(parsedProdCost) || parsedProdCost < 0) return apiResponse.error(res, 'Production Cost must be a non-negative number.', 400);
-    const parsedTransFee = parseFloat(data.transFee || 0);
+    const parsedTransFee = parseFloat(data.transFee || 0); // Assuming transFee is camelCase from frontend
     if (isNaN(parsedTransFee) || parsedTransFee < 0) return apiResponse.error(res, 'Transaction Fee must be a non-negative number.', 400);
     const parsedSurcharge = parseFloat(data.surcharge || 0);
     if (isNaN(parsedSurcharge) || parsedSurcharge < 0) return apiResponse.error(res, 'Surcharge must be a non-negative number.', 400);
@@ -3018,7 +3023,7 @@ const createDateChangeBooking = async (req, res) => {
       const newBookingBalance = parsedRevenue - newBookingReceived;
       
       // Determine lastPaymentDate from initialPayments for the new booking
-      const sortedInitialPayments = [...(data.initialPayments || [])].sort((a, b) => new Date(a.receivedDate || a.paymentDate) - new Date(b.receivedDate || b.paymentDate));
+      const sortedInitialPayments = [...(data.initialPayments || [])].sort((a, b) => new Date(a.receivedDate || a.paymentDate).getTime() - new Date(b.receivedDate || b.paymentDate).getTime());
       const latestPaymentDate = sortedInitialPayments.length > 0 
                                 ? new Date(sortedInitialPayments[sortedInitialPayments.length - 1].receivedDate || sortedInitialPayments[sortedInitialPayments.length - 1].paymentDate) 
                                 : null;
@@ -3031,13 +3036,13 @@ const createDateChangeBooking = async (req, res) => {
           folderNo: newFolderNo,
           bookingStatus: 'CONFIRMED', // New date change booking is confirmed
           bookingType: 'DATE_CHANGE',
-          refNo: data.refNo,
-          paxName: data.paxName,
-          agentName: data.agentName,
-          teamName: data.teamName,
+          refNo: data.ref_no,          // FIX: Use snake_case
+          paxName: data.pax_name,      // FIX: Use snake_case
+          agentName: data.agent_name,  // FIX: Use snake_case
+          teamName: data.team_name,    // FIX: Use snake_case
           pnr: data.pnr,
           airline: data.airline,
-          fromTo: data.fromTo,
+          fromTo: data.from_to,        // FIX: Use snake_case
           pcDate: new Date(data.pcDate),
           issuedDate: data.issuedDate ? new Date(data.issuedDate) : null,
           paymentMethod: data.paymentMethod,
@@ -3066,12 +3071,12 @@ const createDateChangeBooking = async (req, res) => {
             create: (data.passengers || []).map(pax => ({
                 title: pax.title,
                 firstName: pax.firstName,
-                middleName: pax.middleName || null, // Ensure nullable
+                middleName: pax.middleName || null,
                 lastName: pax.lastName,
                 gender: pax.gender,
-                email: pax.email || null, // Ensure nullable
-                contactNo: pax.contactNo || null, // Ensure nullable
-                nationality: pax.nationality || null, // Ensure nullable
+                email: pax.email || null,
+                contactNo: pax.contactNo || null,
+                nationality: pax.nationality || null,
                 birthday: pax.birthday ? new Date(pax.birthday) : null,
                 category: pax.category,
             }))
@@ -3109,7 +3114,7 @@ const createDateChangeBooking = async (req, res) => {
         userId,
         modelName: 'Booking',
         recordId: newBookingRecord.id,
-        action: ActionType.CREATE,
+        action: ActionType.CREATE, // Use CREATE or CREATE_DATE_CHANGE if you have that
         // Potentially add changes for the new booking's core fields
       });
 
@@ -3128,7 +3133,8 @@ const createDateChangeBooking = async (req, res) => {
     if (error.message.includes('not found') || error.message.includes('cancelled')) {
         return apiResponse.error(res, error.message, 404);
     }
-    if (error.message.includes('required') || error.message.includes('Invalid')) {
+    // Added specific check for 'Missing required fields' to provide the correct 400 status
+    if (error.message.includes('required') || error.message.includes('Invalid') || error.message.includes('must be')) {
         return apiResponse.error(res, error.message, 400);
     }
     if (error.code === 'P2002') { // Unique constraint violation (e.g., refNo or folderNo if not unique chain)
