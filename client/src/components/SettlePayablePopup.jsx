@@ -16,11 +16,15 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
 
   // Effect to set initial amount to full pending if the form opens
   useEffect(() => {
+    // FIX: Ensure payable and pendingAmount are defined and greater than 0
     if (payable && (payable.pendingAmount ?? 0) > 0) {
       setFormData(prev => ({
         ...prev,
         amount: (payable.pendingAmount ?? 0).toFixed(2), // Pre-fill with max pending
       }));
+    } else {
+      // If pending amount is 0 or undefined, clear amount to avoid confusion
+      setFormData(prev => ({ ...prev, amount: '' }));
     }
   }, [payable]);
 
@@ -99,18 +103,18 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
             <p className="text-sm text-gray-600">Originating Folder No: <span className="font-semibold text-gray-800">{payable.originatingFolderNo || 'N/A'}</span></p>
             <p className="text-sm text-gray-600">Reason: <span className="font-semibold text-gray-800">{payable.reason}</span></p>
             <p className="text-sm text-gray-600 mt-1">
-              Pending Amount: <span className="font-bold text-xl text-red-600">£{(payable.pendingAmount ?? 0).toFixed(2)}</span> {/* FIX: Use nullish coalescing */}
+              Pending Amount: <span className="font-bold text-xl text-red-600">£{(payable.pendingAmount ?? 0).toFixed(2)}</span>
             </p>
           </div>
           
           {error && <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">{error}</div>}
 
-          
+          {/* Settlement form will only show if there is a pending amount */}
           {(payable.pendingAmount ?? 0) > 0.01 && (
             <form onSubmit={handleSubmit} className="space-y-4 mb-6">
               <div>
                 <label htmlFor="amount" className="block text-sm font-medium text-gray-700">Settlement Amount (£)</label>
-                <input id="amount" type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md bg-white focus:ring-blue-500 focus:border-blue-500" placeholder={`Max £${(payable.pendingAmount ?? 0).toFixed(2)}`} required /> {/* FIX: Use nullish coalescing */}
+                <input id="amount" type="number" step="0.01" name="amount" value={formData.amount} onChange={handleChange} className="mt-1 w-full p-2 border rounded-md bg-white focus:ring-blue-500 focus:border-blue-500" placeholder={`Max £${(payable.pendingAmount ?? 0).toFixed(2)}`} required />
               </div>
               <div>
                 <label htmlFor="transactionMethod" className="block text-sm font-medium text-gray-700">Transaction Method</label>
@@ -151,7 +155,7 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {payable.settlements.map((settlement, index) => (
                       <tr key={settlement.id || index}>
-                        <td className="px-4 py-2 text-sm text-gray-800 font-medium">£{(settlement.amount ?? 0).toFixed(2)}</td> {/* FIX: Use nullish coalescing */}
+                        <td className="px-4 py-2 text-sm text-gray-800 font-medium">£{(settlement.amount ?? 0).toFixed(2)}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{settlement.transactionMethod.replace('_', ' ')}</td>
                         <td className="px-4 py-2 text-sm text-gray-600">{formatDate(settlement.settlementDate)}</td>
                       </tr>

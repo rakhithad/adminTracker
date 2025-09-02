@@ -1597,8 +1597,61 @@ const createSupplierPaymentSettlement = async (req, res) => {
 
 const getSuppliersInfo = async (req, res) => {
     try {
-        // --- 1. Fetch all individual CostItemSupplier records for detailed transactions ---
-        // This includes all necessary details for the SettlePaymentPopup
+        // --- 1. Fetch relevant Cancellations that generated SupplierCreditNotes ---
+        // This is needed to link credit notes to the original booking's cost items
+        const cancellationsWithCreditNotes = await prisma.cancellation.findMany({
+            where: {
+                generatedCreditNote: {
+                    isNot: null // Only cancellations that generated a credit note
+                }
+            },
+            select: {
+                originalBookingId: true, // Key to link back to the booking
+                generatedCreditNote: { // The actual credit note generated
+                    select: {
+                        id: true,
+                        supplier: true,
+                        initialAmount: true,
+                        remainingAmount: true,
+                        status: true,
+                        createdAt: true,
+                        usageHistory: { // Include usage history for the CreditNoteDetailsPopup
+                            select: {
+                                id: true,
+                                amountUsed: true,
+                                usedAt: true,
+                                usedOnCostItemSupplier: {
+                                    select: {
+                                        id: true,
+                                        costItem: {
+                                            select: {
+                                                booking: {
+                                                    select: { refNo: true, folderNo: true }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Create a map for quick lookup: originalBookingId -> generatedCreditNote
+        const generatedCreditNotesMap = new Map();
+        cancellationsWithCreditNotes.forEach(c => {
+            if (c.generatedCreditNote) {
+                generatedCreditNotesMap.set(c.originalBookingId, {
+                    ...c.generatedCreditNote,
+                    fullCreditNoteObject: c.generatedCreditNote, // Keep full object for popup
+                    generatedFromCancellationId: c.id // Link back to cancellation if needed
+                });
+            }
+        });
+
+        // --- 2. Fetch all individual CostItemSupplier records for detailed transactions ---
         const detailedBookingCostItems = await prisma.costItemSupplier.findMany({
             select: {
                 id: true, // This is the costItemSupplierId
@@ -1622,7 +1675,7 @@ const getSuppliersInfo = async (req, res) => {
                     select: {
                         amountUsed: true,
                         usedAt: true,
-                        creditNote: { // Include credit note details if needed for display
+                        creditNote: { // Include credit note details for popup
                             select: { id: true, supplier: true, initialAmount: true, remainingAmount: true },
                         },
                     },
@@ -1652,7 +1705,6 @@ const getSuppliersInfo = async (req, res) => {
             }
         });
 
-        // Pre-process detailedBookingCostItems to get accurate pending sums and prepare for transactions list
         const supplierBookingCostItemSums = {};
         const supplierTransactions = {}; // This will hold all transactions (BookingCostItem, CreditNote)
 
@@ -1666,9 +1718,12 @@ const getSuppliersInfo = async (req, res) => {
             // Adjust pending amount for cancelled bookings
             const adjustedPendingAmount = item.costItem.booking.bookingStatus === "CANCELLED" ? 0 : item.pendingAmount;
             
-            supplierBookingCostItemSums[supplierName].totalAmount += item.amount;
-            supplierBookingCostItemSums[supplierName].totalPaid += item.paidAmount;
-            supplierBookingCostItemSums[supplierName].totalPending += adjustedPendingAmount; // Sum adjusted pending
+            supplierBookingCostItemSums[supplierName].totalAmount += (item.amount ?? 0);
+            supplierBookingCostItemSums[supplierName].totalPaid += (item.paidAmount ?? 0);
+            supplierBookingCostItemSums[supplierName].totalPending += (adjustedPendingAmount ?? 0);
+
+            // Get the generated credit note for this booking, if any
+            const generatedCreditNoteForBooking = generatedCreditNotesMap.get(item.costItem.booking.id);
 
             supplierTransactions[supplierName].push({
                 type: "BookingCostItem",
@@ -1676,29 +1731,40 @@ const getSuppliersInfo = async (req, res) => {
                 data: {
                     costItemSupplierId: item.id, // Explicitly pass it for clarity in popup payload
                     supplier: item.supplier,
-                    amount: item.amount,
-                    paidAmount: item.paidAmount,
-                    pendingAmount: adjustedPendingAmount, // This is the adjusted value for display
+                    amount: item.amount ?? 0,
+                    paidAmount: item.paidAmount ?? 0,
+                    pendingAmount: adjustedPendingAmount ?? 0, // This is the adjusted value for display
                     createdAt: item.createdAt,
                     // Pass the newly included fields from CostItemSupplier for popup history
                     paymentMethod: item.paymentMethod,
-                    firstMethodAmount: item.firstMethodAmount,
-                    secondMethodAmount: item.secondMethodAmount,
+                    firstMethodAmount: item.firstMethodAmount ?? 0,
+                    secondMethodAmount: item.secondMethodAmount ?? 0,
                     settlements: item.settlements,
-                    paidByCreditNoteUsage: item.paidByCreditNoteUsage,
+                    paidByCreditNoteUsage: item.paidByCreditNoteUsage.map(usage => ({ // Ensure usage amounts are numbers
+                        ...usage, 
+                        amountUsed: usage.amountUsed ?? 0,
+                        creditNote: usage.creditNote ? {
+                            ...usage.creditNote,
+                            initialAmount: usage.creditNote.initialAmount ?? 0,
+                            remainingAmount: usage.creditNote.remainingAmount ?? 0,
+                        } : null
+                    })),
                     // Nested booking details
                     folderNo: item.costItem.booking.folderNo,
                     refNo: item.costItem.booking.refNo,
                     category: item.costItem.category, // Category from CostItem
                     bookingStatus: item.costItem.booking.bookingStatus,
                     bookingId: item.costItem.booking.id, // Parent Booking ID
+                    // ATTACH THE GENERATED CREDIT NOTE DIRECTLY TO THE BOOKING COST ITEM IF FOUND
+                    generatedCreditNote: generatedCreditNoteForBooking || null,
                 },
             });
         });
 
-        // --- 2. Fetch all Supplier Credit Notes ---
+        // --- 3. Fetch all Supplier Credit Notes (now filtering out those already linked) ---
+        // Only fetch standalone credit notes, or those not linked to a displayed BookingCostItem
         const allCreditNotes = await prisma.supplierCreditNote.findMany({
-            select: { // Select necessary fields for initial display and popup details
+            select: {
                 id: true,
                 supplier: true,
                 initialAmount: true,
@@ -1708,11 +1774,11 @@ const getSuppliersInfo = async (req, res) => {
                 generatedFromCancellation: {
                     select: {
                         originalBooking: {
-                            select: { refNo: true }
+                            select: { refNo: true, id: true }
                         }
                     }
                 },
-                usageHistory: { // To show where the credit note was applied if clicked
+                usageHistory: {
                     select: {
                         id: true,
                         amountUsed: true,
@@ -1726,11 +1792,11 @@ const getSuppliersInfo = async (req, res) => {
                                             select: { refNo: true, folderNo: true }
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
+                                },
+                            },
+                        },
+                    },
+                },
             },
         });
 
@@ -1738,26 +1804,48 @@ const getSuppliersInfo = async (req, res) => {
         const supplierCreditNoteSums = {};
         allCreditNotes.forEach(note => {
             const supplierName = note.supplier;
+            
+            // Check if this credit note was already linked to a BookingCostItem's cancellation
+            // If it's a generated credit note AND its original booking ID has a corresponding BookingCostItem in supplierTransactions
+            const isAlreadyLinked = note.generatedFromCancellation?.originalBooking?.id && 
+                                    supplierTransactions[supplierName]?.some(tx => 
+                                        tx.type === 'BookingCostItem' && 
+                                        tx.data.bookingId === note.generatedFromCancellation.originalBooking.id &&
+                                        tx.data.generatedCreditNote?.id === note.id // Ensure it's this specific credit note
+                                    );
+            
+            if (isAlreadyLinked) {
+                // If it's already linked to a BookingCostItem row, we don't need a separate CreditNote transaction row
+                // We still need to count it for the totalAvailableCredit sum
+                if (!supplierCreditNoteSums[supplierName]) {
+                    supplierCreditNoteSums[supplierName] = { totalAvailableCredit: 0 };
+                }
+                supplierCreditNoteSums[supplierName].totalAvailableCredit += (note.remainingAmount ?? 0);
+                return; // Skip adding as a separate transaction
+            }
+
+
             if (!supplierCreditNoteSums[supplierName]) {
                 supplierCreditNoteSums[supplierName] = { totalAvailableCredit: 0 };
-                if (!supplierTransactions[supplierName]) supplierTransactions[supplierName] = []; // Ensure the array exists
+                if (!supplierTransactions[supplierName]) supplierTransactions[supplierName] = [];
             }
-            supplierCreditNoteSums[supplierName].totalAvailableCredit += note.remainingAmount || 0;
+            supplierCreditNoteSums[supplierName].totalAvailableCredit += (note.remainingAmount ?? 0);
 
             supplierTransactions[supplierName].push({
                 type: "CreditNote",
-                id: note.id, // Unique ID for this transaction item (creditNote.id)
+                id: note.id,
                 data: {
                     creditNoteId: note.id,
                     supplier: note.supplier,
-                    initialAmount: note.initialAmount,
-                    remainingAmount: note.remainingAmount,
+                    initialAmount: note.initialAmount ?? 0,
+                    remainingAmount: note.remainingAmount ?? 0,
                     status: note.status,
                     createdAt: note.createdAt,
                     generatedFromRefNo: note.generatedFromCancellation?.originalBooking?.refNo || "N/A",
-                    usageHistory: note.usageHistory.map(usage => ({ // Format usage history for popup
+                    // Pass the full usageHistory for the popup
+                    usageHistory: note.usageHistory.map(usage => ({
                         id: usage.id,
-                        amountUsed: usage.amountUsed,
+                        amountUsed: usage.amountUsed ?? 0,
                         usedAt: usage.usedAt,
                         usedOnCostItemSupplierId: usage.usedOnCostItemSupplier?.id,
                         usedOnRefNo: usage.usedOnCostItemSupplier?.costItem?.booking?.refNo || 'N/A',
@@ -1767,15 +1855,15 @@ const getSuppliersInfo = async (req, res) => {
             });
         });
 
-        // --- 3. Fetch all individual pending SupplierPayable records for display ---
+        // --- 4. Fetch all SupplierPayable records (including settlements for history) ---
+        // No longer filtering by 'PENDING' status here, as we want to include `settlements` for history
         const allIndividualPendingPayables = await prisma.supplierPayable.findMany({
-            where: { status: "PENDING" },
             select: {
                 id: true,
                 supplier: true,
                 totalAmount: true,
                 paidAmount: true,
-                pendingAmount: true,
+                pendingAmount: true, // This is the crucial field.
                 reason: true,
                 createdAt: true,
                 createdFromCancellation: {
@@ -1785,10 +1873,22 @@ const getSuppliersInfo = async (req, res) => {
                         },
                     },
                 },
+                settlements: { // INCLUDE SETTLEMENTS FOR POPUP HISTORY
+                    select: {
+                        id: true,
+                        amount: true,
+                        transactionMethod: true,
+                        settlementDate: true,
+                        createdAt: true,
+                    },
+                    orderBy: {
+                        createdAt: 'asc' // Order settlements by creation date
+                    }
+                }
             },
         });
 
-        // Aggregate pending payables by supplier and add to payables list
+        // Aggregate payables by supplier and add to payables list
         const supplierPayableSums = {};
         const supplierPayables = {}; // This will hold individual payable items
         allIndividualPendingPayables.forEach(payable => {
@@ -1797,22 +1897,27 @@ const getSuppliersInfo = async (req, res) => {
                 supplierPayableSums[supplierName] = { totalPendingPayables: 0 };
                 supplierPayables[supplierName] = [];
             }
-            supplierPayableSums[supplierName].totalPendingPayables += payable.pendingAmount || 0;
+            // Only sum up truly pending amounts for the overall summary
+            supplierPayableSums[supplierName].totalPendingPayables += (payable.pendingAmount ?? 0);
 
             supplierPayables[supplierName].push({
                 id: payable.id,
-                total: payable.totalAmount,
-                paid: payable.paidAmount,
-                pending: payable.pendingAmount,
+                total: payable.totalAmount ?? 0,
+                paid: payable.paidAmount ?? 0,
+                pending: payable.pendingAmount ?? 0,
                 reason: payable.reason,
                 createdAt: payable.createdAt,
                 originatingFolderNo: payable.createdFromCancellation?.originalBooking?.folderNo || "N/A",
                 originatingRefNo: payable.createdFromCancellation?.originalBooking?.refNo || "N/A",
+                settlements: payable.settlements.map(s => ({ // Ensure settlement amounts are numbers
+                    ...s,
+                    amount: s.amount ?? 0
+                })),
             });
         });
 
 
-        // --- 4. Construct the final supplierSummary structure ---
+        // --- 5. Construct the final supplierSummary structure ---
         const finalSupplierSummary = {};
         
         // FIX: Use nullish coalescing operator to ensure Object.values always gets an object
@@ -1834,7 +1939,6 @@ const getSuppliersInfo = async (req, res) => {
             finalSupplierSummary[supplierName] = {
                 totalAmount: supplierBookingCostItemSums[supplierName]?.totalAmount || 0,
                 totalPaid: supplierBookingCostItemSums[supplierName]?.totalPaid || 0,
-                // Total Pending = (adjusted pending from booking cost items) + (pending from payables)
                 totalPending: (supplierBookingCostItemSums[supplierName]?.totalPending || 0) + (supplierPayableSums[supplierName]?.totalPendingPayables || 0),
                 totalAvailableCredit: supplierCreditNoteSums[supplierName]?.totalAvailableCredit || 0,
                 transactions: supplierTransactions[supplierName] ? 

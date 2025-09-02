@@ -71,7 +71,7 @@ export default function SuppliersInfo() {
   // Memoized data for filtering suppliers based on pending balance
   const filteredSuppliers = useMemo(() => {
     if (filterPending) {
-      return Object.fromEntries(Object.entries(supplierData).filter(([, data]) => data.totalPending > 0));
+      return Object.fromEntries(Object.entries(supplierData).filter(([, data]) => (data.totalPending ?? 0) > 0)); // FIX: Nullish coalescing
     }
     return supplierData;
   }, [supplierData, filterPending]);
@@ -97,8 +97,8 @@ export default function SuppliersInfo() {
         // Pass the item.data (which contains the cost item supplier details) to the settlement popup
         setSettlePopup({ booking: item.data, supplier: supplierName });
     } else if (item.type === 'CreditNote') {
-        // This case should theoretically be rare or non-existent with the new backend logic
-        // But keep as a fallback in case a standalone credit note needs to be displayed/clicked
+        // This case should theoretically be rare or non-existent for standalone credit notes
+        // but kept for robustness.
         setSelectedCreditNote(item.data);
     }
     // No action for other transaction types.
@@ -107,13 +107,13 @@ export default function SuppliersInfo() {
   // Helper to determine the status pill text and styling
   const getStatusPill = (totalPaid, totalPending) => {
     const epsilon = 0.01; // Small threshold for floating point comparisons
-    if (totalPending <= epsilon && totalPending >= -epsilon && totalPaid > epsilon) {
+    if ((totalPending ?? 0) <= epsilon && (totalPending ?? 0) >= -epsilon && (totalPaid ?? 0) > epsilon) { // FIX: Nullish coalescing
         return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">Fully Paid</span>;
     }
-    if (totalPaid > epsilon && totalPending > epsilon) {
+    if ((totalPaid ?? 0) > epsilon && (totalPending ?? 0) > epsilon) { // FIX: Nullish coalescing
         return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">Partially Paid</span>;
     }
-    if (totalPending > epsilon) {
+    if ((totalPending ?? 0) > epsilon) { // FIX: Nullish coalescing
         return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">Unpaid</span>;
     }
     return <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">N/A</span>;
@@ -167,7 +167,7 @@ export default function SuppliersInfo() {
               <tbody className="divide-y divide-slate-200">
                 {Object.entries(filteredSuppliers).map(([supplierName, data]) => {
                    // Check for any pending payables for this specific supplier, for the pulse indicator
-                   const hasAnyPendingPayables = data.payables.some(p => p.pending > 0); 
+                   const hasAnyPendingPayables = data.payables.some(p => (p.pending ?? 0) > 0); 
                    return (
                   <React.Fragment key={supplierName}>
                     <tr className="group">
@@ -209,19 +209,17 @@ export default function SuppliersInfo() {
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 text-sm">
-                                  {/* Iterate through ONLY BookingCostItem transactions. Credit notes are now embedded. */}
-                                  {data.transactions
-                                    .filter(item => item.type === 'BookingCostItem') // Explicitly filter for BookingCostItem
-                                    .map(item => (
+                                  {/* Iterate through ALL transactions (BookingCostItem and CreditNote, some CreditNote might be filtered out) */}
+                                  {data.transactions.map(item => (
                                     <React.Fragment key={item.type + '-' + item.id}>
                                         <tr 
                                             // The whole row is clickable unless it's a specific button within it
-                                            className={`transition-colors ${item.data.bookingStatus === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} cursor-pointer`} 
+                                            className={`transition-colors ${item.type === 'BookingCostItem' && item.data.bookingStatus === 'CANCELLED' ? 'bg-slate-100 text-slate-500 hover:bg-slate-200' : 'hover:bg-blue-50'} ${item.type !== 'CreditNote' ? 'cursor-pointer' : ''}`} 
                                             onClick={(e) => handleTransactionClick(item, supplierName, e)} // Unified click handler
                                         >
                                             <td className="pl-4 pr-2 py-2.5">
                                                 {/* Show payable expansion button ONLY if it's a BookingCostItem and has linked pending payables */}
-                                                {data.payables.some(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && p.pending > 0) && (
+                                                {item.type === 'BookingCostItem' && data.payables.some(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && (p.pending ?? 0) > 0) && (
                                                     <button 
                                                         onClick={(e) => { e.stopPropagation(); togglePayableExpansion(item.type + '-' + item.id); }}
                                                         className="w-6 h-6 flex items-center justify-center rounded-full bg-red-100 hover:bg-red-200 text-red-600"
@@ -230,32 +228,64 @@ export default function SuppliersInfo() {
                                                       <FaChevronDown className={`transform transition-transform ${expandedPayableRow === (item.type + '-' + item.id) ? 'rotate-180' : ''}`} />
                                                     </button>
                                                 )}
+                                                {item.type === 'CreditNote' && ( // Standalone Credit Note icon
+                                                    <FaInfoCircle className="text-blue-500 ml-1" title="This is a Supplier Credit Note" />
+                                                )}
                                             </td>
-                                            <td className="px-2 py-2.5 font-semibold">{item.data.folderNo}</td>
-                                            <td className="px-2 py-2.5">{item.data.refNo}</td>
-                                            <td className="px-2 py-2.5">{item.data.category}</td>
-                                            <td className="px-2 py-2.5 text-right font-medium">£{(item.data.amount ?? 0).toFixed(2)}</td>
-                                            <td className="px-2 py-2.5 text-right text-green-600">£{(item.data.paidAmount ?? 0).toFixed(2)}</td>
-                                            <td className="px-2 py-2.5 text-right font-bold">
-                                                <span className={(item.data.pendingAmount ?? 0) > 0 ? 'text-red-600' : 'text-slate-500'}>£{(item.data.pendingAmount ?? 0).toFixed(2)}</span>
-                                            </td>
-                                            <td className="px-2 py-2.5 text-right font-semibold">
-                                                {/* Display generated credit note here if exists */}
-                                                {item.data.generatedCreditNote ? (
-                                                    <button 
-                                                        onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data.generatedCreditNote.fullCreditNoteObject); }} 
-                                                        className="text-blue-600 hover:underline flex items-center justify-end gap-1"
-                                                    >
-                                                        <FaCreditCard className="text-sm" /> £{(item.data.generatedCreditNote.remainingAmount ?? 0).toFixed(2)}
-                                                    </button>
-                                                ) : '—'}
-                                            </td>
-                                            <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(item.data.createdAt)}</td>
+                                            {/* Render details based on transaction type */}
+                                            {item.type === 'BookingCostItem' ? (
+                                                <>
+                                                    <td className="px-2 py-2.5 font-semibold">{item.data.folderNo}</td>
+                                                    <td className="px-2 py-2.5">{item.data.refNo}</td>
+                                                    <td className="px-2 py-2.5">{item.data.category}</td>
+                                                    <td className="px-2 py-2.5 text-right font-medium">£{(item.data.amount ?? 0).toFixed(2)}</td>
+                                                    <td className="px-2 py-2.5 text-right text-green-600">£{(item.data.paidAmount ?? 0).toFixed(2)}</td>
+                                                    <td className="px-2 py-2.5 text-right font-bold">
+                                                        <span className={(item.data.pendingAmount ?? 0) > 0 ? 'text-red-600' : 'text-slate-500'}>£{(item.data.pendingAmount ?? 0).toFixed(2)}</span>
+                                                    </td>
+                                                    <td className="px-2 py-2.5 text-right font-semibold">
+                                                        {item.data.generatedCreditNote ? ( // Display generated credit note here if exists
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data.generatedCreditNote.fullCreditNoteObject); }} 
+                                                                className="text-blue-600 hover:underline flex items-center justify-end gap-1"
+                                                            >
+                                                                <FaCreditCard className="text-sm" /> £{(item.data.generatedCreditNote.remainingAmount ?? 0).toFixed(2)}
+                                                            </button>
+                                                        ) : item.data.paidByCreditNoteUsage?.length > 0 ? ( // Display credit notes used to pay for this cost item
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data.paidByCreditNoteUsage[0].creditNote); }} 
+                                                                className="text-blue-600 hover:underline flex items-center justify-end gap-1"
+                                                            >
+                                                                <FaCreditCard className="text-sm" /> £{item.data.paidByCreditNoteUsage.reduce((sum, usage) => sum + (usage.amountUsed ?? 0), 0).toFixed(2)} Used
+                                                            </button>
+                                                        ) : '—'}
+                                                    </td>
+                                                    <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(item.data.createdAt)}</td>
+                                                </>
+                                            ) : item.type === 'CreditNote' ? ( // Separate row for standalone Credit Notes
+                                                <>
+                                                    <td className="px-2 py-2.5 font-semibold">—</td>
+                                                    <td className="px-2 py-2.5">{`Credit Note (${item.data.generatedFromRefNo || 'N/A'})`}</td>
+                                                    <td className="px-2 py-2.5">Credit Note</td>
+                                                    <td className="px-2 py-2.5 text-right font-medium">£{(item.data.initialAmount ?? 0).toFixed(2)}</td>
+                                                    <td className="px-2 py-2.5 text-right text-green-600">£{((item.data.initialAmount ?? 0) - (item.data.remainingAmount ?? 0)).toFixed(2)}</td>
+                                                    <td className="px-2 py-2.5 text-right font-bold text-blue-600">£{(-(item.data.remainingAmount ?? 0)).toFixed(2)}</td>
+                                                    <td className="px-2 py-2.5 text-right font-semibold">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setSelectedCreditNote(item.data); }} 
+                                                            className="text-blue-600 hover:underline flex items-center justify-end gap-1"
+                                                        >
+                                                            <FaCreditCard className="text-sm" /> £{(item.data.remainingAmount ?? 0).toFixed(2)}
+                                                        </button>
+                                                    </td>
+                                                    <td className="pr-4 pl-2 py-2.5 text-right">{formatDate(item.data.createdAt)}</td>
+                                                </>
+                                            ) : null /* Add other types here if needed */ }
                                         </tr>
                                         {/* Display linked payables for this BookingCostItem transaction if expanded */}
-                                        {expandedPayableRow === (item.type + '-' + item.id) && (
+                                        {expandedPayableRow === (item.type + '-' + item.id) && item.type === 'BookingCostItem' && (
                                           data.payables
-                                            .filter(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && p.pending > 0)
+                                            .filter(p => p.originatingFolderNo === item.data.folderNo.toString().split('.')[0] && (p.pending ?? 0) > 0)
                                             .map(payable => (
                                               <tr key={`payable-linked-${payable.id}`} className="bg-red-50/70">
                                                   <td colSpan="9" className="p-0">
@@ -295,7 +325,7 @@ export default function SuppliersInfo() {
                                   {data.payables
                                       .filter(payable => !data.transactions.some(tx => tx.type === 'BookingCostItem' && tx.data.folderNo.toString().split('.')[0] === payable.originatingFolderNo.toString().split('.')[0]))
                                       .map(payable => (
-                                    <tr key={`payable-${payable.id}`} className="bg-orange-50/70 hover:bg-orange-100 transition-colors cursor-pointer"
+                                    <tr key={`payable-standalone-${payable.id}`} className="bg-orange-50/70 hover:bg-orange-100 transition-colors cursor-pointer"
                                         onClick={(e) => { e.stopPropagation(); setSettlePayablePopup({ payable: payable, supplier: supplierName }); }}>
                                         <td className="pl-4 pr-2 py-2.5"><FaFileInvoiceDollar className="text-orange-500 ml-1" title="Outstanding Payable" /></td>
                                         <td className="px-2 py-2.5 font-semibold">{payable.originatingFolderNo}</td>
