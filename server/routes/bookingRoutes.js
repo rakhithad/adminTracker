@@ -26,7 +26,8 @@ const {
   settleCustomerPayable,
   recordPassengerRefund,
   voidBooking,
-  unvoidBooking
+  unvoidBooking,
+  generateInvoice
 } = require('../controllers/bookingController');
 
 
@@ -55,6 +56,6 @@ router.post('/cancellations/:id/record-refund', authenticateToken, recordPasseng
 router.post('/:id/void', authenticateToken, voidBooking);
 router.post('/:id/unvoid', authenticateToken, unvoidBooking);
 
-
+router.post('/:id/invoice', authenticateToken, generateInvoice);
 
 module.exports = router;

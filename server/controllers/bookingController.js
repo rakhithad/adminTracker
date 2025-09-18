@@ -1,6 +1,8 @@
 const { PrismaClient } = require('@prisma/client');
 
 const apiResponse = require('../utils/apiResponse');
+const { generateNextInvoiceNumber } = require('../utils/invoiceService');
+const { createInvoicePdf } = require('../utils/pdfService');
 const { createAuditLog, ActionType } = require('../utils/auditLogger');
 
 const prisma = new PrismaClient();
@@ -2778,6 +2780,76 @@ const unvoidBooking = async (req, res) => {
     }
 };
 
+const generateInvoice = async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user ? req.user.id : 'SYSTEM';
+
+    try {
+        const bookingId = parseInt(id);
+        
+        // Fetch all booking data needed for the invoice in one go
+        const booking = await prisma.booking.findUnique({
+            where: { id: bookingId },
+            include: { 
+                passengers: true, 
+                initialPayments: true,
+                instalments: {
+                    include: {
+                        payments: true
+                    }
+                }
+            },
+        });
+
+        if (!booking) {
+            return apiResponse.error(res, 'Booking not found', 404);
+        }
+
+        let invoiceNumber = booking.invoiced;
+
+        if (!invoiceNumber) {
+            await prisma.$transaction(async (tx) => {
+                invoiceNumber = await generateNextInvoiceNumber(tx);
+                
+                await tx.booking.update({
+                    where: { id: bookingId },
+                    data: { invoiced: invoiceNumber },
+                });
+
+                await createAuditLog(tx, {
+                    userId,
+                    modelName: 'Booking',
+                    recordId: bookingId,
+                    action: ActionType.GENERATE_INVOICE,
+                    newValue: `Generated invoice ${invoiceNumber}`,
+                });
+            });
+        }
+        
+        const updatedBooking = { ...booking, invoiced: invoiceNumber };
+
+        const totalReceived = (booking.initialPayments || []).reduce((sum, p) => sum + p.amount, 0) +
+                              (booking.instalments || []).reduce((sum, inst) => sum + (inst.payments || []).reduce((pSum, p) => pSum + p.amount, 0), 0);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=invoice-${invoiceNumber}.pdf`);
+
+        // Now this call should work correctly
+        createInvoicePdf(
+            updatedBooking, 
+            totalReceived,
+            (chunk) => res.write(chunk),
+            () => res.end()
+        );
+
+    } catch (error) {
+        console.error("Error generating invoice:", error);
+        return apiResponse.error(res, "Failed to generate invoice: " + error.message, 500);
+    }
+};
+
+
+
 
 module.exports = {
   createPendingBooking,
@@ -2803,5 +2875,6 @@ module.exports = {
   settleCustomerPayable,
   recordPassengerRefund,
   voidBooking,
-  unvoidBooking
+  unvoidBooking,
+  generateInvoice
 };

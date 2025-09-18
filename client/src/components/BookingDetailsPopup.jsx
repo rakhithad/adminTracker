@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner, FaUndo } from 'react-icons/fa';
-import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking } from '../api/api';
+import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner, FaUndo, FaFileInvoice  } from 'react-icons/fa';
+import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking, generateInvoicePDF  } from '../api/api';
 import CancellationPopup from './CancellationPopup';
 
 const TabButton = ({ label, isActive, onClick }) => (
@@ -136,6 +136,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
   const [showVoidPopup, setShowVoidPopup] = useState(false);
   const [auditHistory, setAuditHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
 
   const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'balance', 'profit'];
   const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
@@ -191,6 +192,27 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const { name, value } = e.target;
     setEditData(prev => ({ ...prev, [name]: value }));
   };
+
+  const handleGenerateInvoice = async () => {
+    setIsGeneratingInvoice(true);
+    setError('');
+    try {
+        const result = await generateInvoicePDF(booking.id, booking.invoiced);
+        if (result.success) {
+            // If this was the first invoice, we should refresh the data
+            if (!booking.invoiced) {
+                onSave();
+            }
+        } else {
+            setError(result.message || 'Failed to generate invoice.');
+        }
+    } catch (err) {
+        setError("An unexpected error occurred while generating the invoice.", err);
+    } finally {
+        setIsGeneratingInvoice(false);
+    }
+  };
+
 
   const handleSave = async () => {
     setError('');
@@ -411,6 +433,14 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
               </>
             ) : (
               <>
+                <ActionButton 
+                onClick={handleGenerateInvoice} 
+                icon={isGeneratingInvoice ? <FaSpinner className="animate-spin" /> : <FaFileInvoice />}
+                className="bg-teal-600 text-white hover:bg-teal-700"
+                disabled={isGeneratingInvoice || isVoided}
+                >
+                {isGeneratingInvoice ? 'Generating...' : (booking.invoiced ? 'Re-Download Invoice' : 'Generate Invoice')}
+                </ActionButton>
                 <ActionButton onClick={() => setIsEditing(true)} disabled={isVoided} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
                 {booking.bookingStatus !== 'CANCELLED' && (
                   <ActionButton

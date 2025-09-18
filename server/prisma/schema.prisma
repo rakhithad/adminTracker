@@ -538,6 +538,7 @@ enum ActionType {
   CREATE_CANCELLATION
   SETTLEMENT_PAYMENT
   REFUND_PAYMENT
+  GENERATE_INVOICE
 }
 
 model InitialPayment {
@@ -558,4 +559,15 @@ model InitialPayment {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("initial_payments")
+}
+
+
+//invoicing
+model InvoiceCounter {
+  id          Int      @id @default(autoincrement())
+  prefix      String   @unique // Will store "YYYY-MM-DD-external"
+  lastNumber  Int      @map("last_number")
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoice_counters")
 }

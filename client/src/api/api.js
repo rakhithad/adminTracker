@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabase } from '../supabaseClient';
+import { saveAs } from 'file-saver';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000/api',
@@ -151,4 +152,31 @@ export const updateUserById = async (userId, userData) => {
 //audit history
 export const getAuditHistory = (modelName, recordId) => {
     return api.get(`/audit-history?modelName=${modelName}&recordId=${recordId}`);
+};
+
+
+export const generateInvoicePDF = async (bookingId, invoiceNumber) => {
+  try {
+    // FIX: Use the 'api' instance, not the global 'axios'
+    const response = await api.post(`/bookings/${bookingId}/invoice`, {}, {
+      responseType: 'blob', // Important: we expect a file back
+    });
+
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    // Use the invoiceNumber from the response if available, otherwise create a new one
+    const contentDisposition = response.headers['content-disposition'];
+    let fileName = `invoice-${invoiceNumber || 'download'}.pdf`;
+    if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (fileNameMatch.length === 2)
+            fileName = fileNameMatch[1];
+    }
+    
+    saveAs(blob, fileName);
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Error generating invoice PDF:", error);
+    return { success: false, message: "Could not generate PDF." };
+  }
 };
