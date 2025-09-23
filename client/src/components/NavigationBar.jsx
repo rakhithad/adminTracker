@@ -41,6 +41,7 @@ export default function NavigationBar() {
     { name: 'User Management', path: '/user-management' },
     { name: 'Create User', path: '/create-user' },
     { name: 'My Profile', path: '/profile' },
+    { name: 'Reports', path: '/reports' },
   ];
 
   return (

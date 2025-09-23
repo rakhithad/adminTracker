@@ -25,6 +25,10 @@ app.use('/api/bookings', bookingRoutes);
 const auditLogRoutes = require('./routes/auditLog.routes');
 app.use('/api/audit-history', auditLogRoutes);
 
+const internalInvoiceRoutes = require('./routes/internalInvoiceRoutes');
+app.use('/api/reports/internal-invoicing', internalInvoiceRoutes);
+
+
 app.listen(PORT, () => {
     console.log("server is running on Port " + PORT);
 });

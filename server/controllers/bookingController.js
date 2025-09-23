@@ -293,6 +293,7 @@ const approveBooking = async (req, res) => {
           bookingType: pendingBooking.bookingType,
           bookingStatus: 'CONFIRMED',
           pcDate: pendingBooking.pcDate,
+          accountingMonth: new Date(pendingBooking.createdAt.getFullYear(), pendingBooking.createdAt.getMonth(), 1),
           issuedDate: pendingBooking.issuedDate || null,
           paymentMethod: pendingBooking.paymentMethod,
           lastPaymentDate: pendingBooking.lastPaymentDate || null,
@@ -473,7 +474,7 @@ const createBooking = async (req, res) => {
   const { id: userId } = req.user;
 
   try {
-    // --- NEW: Get initialPayments array from the start ---
+    // --- Get initialPayments array from the start ---
     const initialPayments = req.body.initialPayments || [];
 
     const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'travelDate' ];
@@ -481,7 +482,7 @@ const createBooking = async (req, res) => {
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
     }
-    // --- NEW: Validate the payments array ---
+    // --- Validate the payments array ---
     if (initialPayments.length === 0) {
       return apiResponse.error(res, "At least one initial payment must be provided.", 400);
     }
@@ -492,7 +493,6 @@ const createBooking = async (req, res) => {
     const booking = await prisma.$transaction(async (tx) => {
       const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
       
-      // --- NEW: Calculate received amount from the payments array ---
       const calculatedReceived = initialPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
 
       const revenue = req.body.revenue ? parseFloat(req.body.revenue) : 0;
@@ -501,6 +501,9 @@ const createBooking = async (req, res) => {
 
       const profit = revenue - calculatedProdCost - transFee - surcharge;
       const balance = revenue - calculatedReceived;
+
+      // --- NEW: Prepare pcDate once to use for default accounting month ---
+      const pcDate = new Date(req.body.pcDate);
 
       const newBooking = await tx.booking.create({
         data: {
@@ -513,13 +516,12 @@ const createBooking = async (req, res) => {
           fromTo: req.body.from_to,
           bookingType: req.body.bookingType,
           bookingStatus: req.body.bookingStatus || 'PENDING',
-          pcDate: new Date(req.body.pcDate),
+          pcDate: pcDate, // Use the date object we created
           issuedDate: new Date(req.body.issuedDate),
           paymentMethod: req.body.paymentMethod,
           lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
           travelDate: new Date(req.body.travelDate),
           description: req.body.description || null,
-          // --- Financial data updates ---
           revenue,
           prodCost: calculatedProdCost,
           transFee,
@@ -527,20 +529,17 @@ const createBooking = async (req, res) => {
           profit,
           balance,
           invoiced: req.body.invoiced || null,
-          // --- REMOVE OLD FIELDS ---
-          // received: ...,
-          // transactionMethod: ...,
-          // receivedDate: ...,
 
-          // --- ADD NEW RELATION ---
+          // --- NEW: Set the default accounting month based on the provided pcDate ---
+          accountingMonth: new Date(pcDate.getFullYear(), pcDate.getMonth(), 1),
+
           initialPayments: {
             create: initialPayments.map(p => ({
               amount: parseFloat(p.amount),
               transactionMethod: p.transactionMethod,
-              paymentDate: new Date(p.receivedDate), // Assuming frontend sends receivedDate
+              paymentDate: new Date(p.receivedDate), 
             })),
           },
-
           costItems: {
             create: prodCostBreakdown.map(item => ({
               category: item.category, amount: parseFloat(item.amount),
@@ -2848,6 +2847,68 @@ const generateInvoice = async (req, res) => {
     }
 };
 
+const updateAccountingMonth = async (req, res) => {
+    const { id } = req.params;
+    const { accountingMonth } = req.body;
+    const { id: userId } = req.user;
+
+    try {
+        const booking = await prisma.booking.findUnique({ where: { id: parseInt(id) }});
+
+        const updatedBooking = await prisma.booking.update({
+            where: { id: parseInt(id) },
+            data: { accountingMonth: new Date(accountingMonth) },
+        });
+
+        await createAuditLog(prisma, {
+            userId,
+            modelName: 'Booking',
+            recordId: updatedBooking.id,
+            action: ActionType.UPDATE_ACCOUNTING_MONTH,
+            fieldName: 'accountingMonth',
+            oldValue: booking.accountingMonth,
+            newValue: updatedBooking.accountingMonth,
+        });
+
+        return apiResponse.success(res, updatedBooking, 200, "Accounting month updated.");
+    } catch (error) {
+        console.error("Error updating accounting month:", error);
+        return apiResponse.error(res, "Failed to update month: " + error.message, 500);
+    }
+};
+
+const updateCommissionAmount = async (req, res) => {
+    const { id } = req.params;
+    const { commissionAmount } = req.body;
+    const { id: userId } = req.user;
+
+    try {
+        const originalBooking = await prisma.booking.findUnique({ where: { id: parseInt(id) } });
+        if (!originalBooking) {
+            return apiResponse.error(res, "Booking not found", 404);
+        }
+
+        const updatedBooking = await prisma.booking.update({
+            where: { id: parseInt(id) },
+            data: { commissionAmount: parseFloat(commissionAmount) },
+        });
+
+        await createAuditLog(prisma, {
+            userId,
+            modelName: 'Booking',
+            recordId: updatedBooking.id,
+            action: ActionType.UPDATE_COMMISSION_AMOUNT,
+            fieldName: 'commissionAmount',
+            oldValue: originalBooking.commissionAmount,
+            newValue: updatedBooking.commissionAmount,
+        });
+
+        return apiResponse.success(res, updatedBooking, 200, "Commission amount updated.");
+    } catch (error) {
+        console.error("Error updating commission amount:", error);
+        return apiResponse.error(res, "Failed to update commission amount: " + error.message, 500);
+    }
+};
 
 
 
@@ -2876,5 +2937,7 @@ module.exports = {
   recordPassengerRefund,
   voidBooking,
   unvoidBooking,
-  generateInvoice
+  generateInvoice,
+  updateAccountingMonth,
+  updateCommissionAmount
 };

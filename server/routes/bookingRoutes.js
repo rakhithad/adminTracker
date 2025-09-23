@@ -27,7 +27,9 @@ const {
   recordPassengerRefund,
   voidBooking,
   unvoidBooking,
-  generateInvoice
+  generateInvoice,
+  updateAccountingMonth,
+  updateCommissionAmount
 } = require('../controllers/bookingController');
 
 
@@ -57,5 +59,9 @@ router.post('/:id/void', authenticateToken, voidBooking);
 router.post('/:id/unvoid', authenticateToken, unvoidBooking);
 
 router.post('/:id/invoice', authenticateToken, generateInvoice);
+router.put('/:id/accounting-month', authenticateToken, updateAccountingMonth);
+router.put('/:id/commission-amount', authenticateToken, updateCommissionAmount);
+
+
 
 module.exports = router;

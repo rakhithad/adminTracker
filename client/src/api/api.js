@@ -180,3 +180,60 @@ export const generateInvoicePDF = async (bookingId, invoiceNumber) => {
     return { success: false, message: "Could not generate PDF." };
   }
 };
+
+export const getInternalInvoicingReport = async () => {
+  return await api.get('/reports/internal-invoicing');
+};
+
+export const createInternalInvoice = async (data) => {
+    // data can be { bookingId, amount, invoiceDate, commissionAmount? }
+    try {
+        const response = await api.post('/reports/internal-invoicing', data, {
+            responseType: 'blob', // Expect a PDF file back
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        // Extract filename from headers if possible
+        const contentDisposition = response.headers['content-disposition'];
+        let fileName = 'commission-receipt.pdf';
+        if (contentDisposition) {
+            const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (fileNameMatch && fileNameMatch.length === 2) fileName = fileNameMatch[1];
+        }
+        saveAs(blob, fileName);
+        return { success: true };
+    } catch (error) {
+        console.error("Error creating internal invoice:", error);
+        return { success: false, message: "Could not generate PDF receipt." };
+    }
+};
+
+export const updateInternalInvoice = async (invoiceId, data) => {
+  // data should be { amount, invoiceDate }
+  return await api.put(`/reports/internal-invoicing/${invoiceId}`, data);
+};
+
+export const getInvoiceHistoryForBooking = async (bookingId) => {
+  return await api.get(`/reports/internal-invoicing/${bookingId}/history`);
+};
+
+export const updateBookingAccountingMonth = async (bookingId, accountingMonth) => {
+  return await api.put(`/bookings/${bookingId}/accounting-month`, { accountingMonth });
+};
+
+export const updateCommissionAmount = async (bookingId, commissionAmount) => {
+    return await api.put(`/bookings/${bookingId}/commission-amount`, { commissionAmount });
+};
+
+export const downloadInvoiceReceipt = async (invoiceId, folderNo) => {
+    try {
+        const response = await api.get(`/reports/internal-invoicing/${invoiceId}/pdf`, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, `commission-receipt-${folderNo}-${invoiceId}.pdf`);
+        return { success: true };
+    } catch (error) {
+        console.error("Error downloading receipt:", error);
+        return { success: false, message: "Could not download PDF." };
+    }
+};

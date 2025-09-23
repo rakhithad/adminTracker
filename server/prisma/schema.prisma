@@ -58,6 +58,10 @@ model Booking {
 
   cancellation      Cancellation?   
 
+  accountingMonth  DateTime?         @map("accounting_month")
+  internalInvoices InternalInvoice[]
+  commissionAmount Float?            @map("commission_amount")
+
   @@map("bookings")
 }
 
@@ -159,6 +163,8 @@ model User {
   createdPendingBookings PendingBooking[]
   voidedBookings Booking[] @relation("VoidedBookings")
   auditLogs AuditLog[]
+  InternalInvoices InternalInvoice[]
+
 
   @@map("users")
 }
@@ -539,6 +545,10 @@ enum ActionType {
   SETTLEMENT_PAYMENT
   REFUND_PAYMENT
   GENERATE_INVOICE
+  CREATE_INTERNAL_INVOICE
+  UPDATE_INTERNAL_INVOICE
+  UPDATE_ACCOUNTING_MONTH
+  UPDATE_COMMISSION_AMOUNT
 }
 
 model InitialPayment {
@@ -570,4 +580,19 @@ model InvoiceCounter {
   updatedAt   DateTime @updatedAt
 
   @@map("invoice_counters")
+}
+
+
+model InternalInvoice {
+  id          Int      @id @default(autoincrement())
+  amount      Float
+  invoiceDate DateTime @map("invoice_date")
+  bookingId   Int      @map("booking_id")
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("internal_invoices")
 }

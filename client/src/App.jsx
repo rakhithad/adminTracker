@@ -12,7 +12,10 @@ import ProfilePage from './pages/ProfilePage';
 import UserManagementPage from './pages/UserManagementPage';
 import AuthPage from './components/Auth';
 import CreateUserPage from './pages/CreateUserPage';
-import NavigationBar from './components/NavigationBar';                                                               
+import NavigationBar from './components/NavigationBar';     
+import InternalInvoicingPage from './pages/InternalInvoicingPage';  
+import ReportsPage from './pages/ReportsPage';
+
 
 
 const ProtectedRoutes = ({ session }) => {
@@ -71,6 +74,8 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/user-management" element={<UserManagementPage />} />
           <Route path="/create-user" element={<CreateUserPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/reports/internal-invoicing" element={<InternalInvoicingPage />} />
         </Route>
         
         <Route path="*" element={<Navigate to="/" />} />
