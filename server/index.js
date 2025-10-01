@@ -31,6 +31,10 @@ app.use('/api/reports/internal-invoicing', internalInvoiceRoutes);
 const transactionRoutes = require('./routes/transactionRoutes')
 app.use('/api/transactions', transactionRoutes);
 
+const supplierReportRoutes = require('./routes/supplierReportRoutes');
+app.use('/api/supplier-reports', supplierReportRoutes);
+
+
 app.listen(PORT, () => {
     console.log("server is running on Port " + PORT);
 });

@@ -274,3 +274,17 @@ export const generateTransactionReportPDF = async (filters) => {
         return { success: false };
     }
 };
+
+export const generateSupplierReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/supplier-reports/pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'supplier-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating supplier report PDF:", error);
+        return { success: false };
+    }
+};

@@ -1,4 +1,3 @@
-import React from 'react';
 import { FaTimes, FaFileInvoiceDollar, FaBook } from 'react-icons/fa';
 
 export default function CreditNoteDetailsPopup({ note, onClose }) {

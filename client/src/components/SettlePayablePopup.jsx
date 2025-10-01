@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createSupplierPayableSettlement } from '../api/api';
 import { FaTimes, FaFileInvoiceDollar, FaHistory } from 'react-icons/fa';
 
