@@ -260,3 +260,17 @@ export const generateCommissionSummaryPDF = async (filters) => {
         return { success: false };
     }
 };
+
+export const generateTransactionReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/transactions/summary-pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'transaction-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating transaction PDF:", error);
+        return { success: false };
+    }
+};

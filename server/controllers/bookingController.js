@@ -1849,13 +1849,7 @@ const recordSettlementPayment = async (req, res) => {
 
 const getTransactions = async (req, res) => {
   try {
-    // --- 1. FETCH ALL FINANCIAL EVENTS ---
-
-    // === MONEY IN ===
-
-    // A) ALL Initial Payments from customers, for ALL booking types.
-    // This single query replaces the old 'nonInstalmentPayments' and 'internalBookings' fetches.
-    const allInitialPayments = await prisma.initialPayment.findMany({
+        const allInitialPayments = await prisma.initialPayment.findMany({
       where: {
         bookingId: { not: null } // Ensure it's from an approved booking
       },
@@ -2046,6 +2040,9 @@ const getTransactions = async (req, res) => {
     return apiResponse.error(res, `Failed to fetch transactions: ${error.message}`, 500);
   }
 };
+
+
+
 
 
 const createCancellation = async (req, res) => {

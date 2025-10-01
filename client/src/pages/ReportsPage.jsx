@@ -31,7 +31,6 @@ export default function ReportsPage() {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* --- Link to the Internal Invoicing Report --- */}
                 <ReportCard
                     to="/reports/internal-invoicing"
                     icon={<FaFileInvoiceDollar size={24} />}
@@ -39,15 +38,14 @@ export default function ReportsPage() {
                     description="Track and invoice profit from bookings for accounting."
                 />
 
-                {/* 
-                  Future reports can be easily added here. For example:
-                  <ReportCard 
-                    to="/reports/sales-summary" 
-                    icon={<FaChartBar size={24} />} 
-                    title="Sales Summary"
-                    description="View sales performance by agent and team."
-                  />
-                */}
+                <ReportCard
+                    to="/transactions"
+                    icon={<FaFileInvoiceDollar size={24} />}
+                    title="Trnasaction Report"
+                    description="Track and check transactions in the system."
+                />
+
+
             </div>
         </div>
     );

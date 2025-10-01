@@ -37,7 +37,6 @@ export default function NavigationBar() {
     { name: 'Bookings', path: '/bookings' },
     { name: 'Customer Deposits', path: '/customer-deposits' },
     { name: 'Supplier Info', path: '/suppliers-info' },
-    { name: 'Transactions', path: '/transactions' },
     { name: 'User Management', path: '/user-management' },
     { name: 'Create User', path: '/create-user' },
     { name: 'My Profile', path: '/profile' },
