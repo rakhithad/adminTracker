@@ -389,6 +389,10 @@ model Cancellation {
   createdPayable          SupplierPayable?
   generatedCreditNote     SupplierCreditNote?
 
+  accountingMonth  DateTime?         @map("accounting_month")
+  commissionAmount Float?            @map("commission_amount")
+  internalInvoices InternalInvoice[]
+
 
 
   @@map("cancellations")
@@ -587,8 +591,12 @@ model InternalInvoice {
   id          Int      @id @default(autoincrement())
   amount      Float
   invoiceDate DateTime @map("invoice_date")
-  bookingId   Int      @map("booking_id")
-  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId   Int?      @map("booking_id")
+  commissionMonth DateTime @map("commission_month")
+  booking     Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  cancellationId Int?            @map("cancellation_id")
+  cancellation   Cancellation?   @relation(fields: [cancellationId], references: [id], onDelete: Cascade)
+  
   createdById String   @map("created_by_id")
   createdBy   User     @relation(fields: [createdById], references: [id])
   createdAt   DateTime @default(now()) @map("created_at")

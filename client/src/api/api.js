@@ -212,16 +212,17 @@ export const updateInternalInvoice = async (invoiceId, data) => {
   return await api.put(`/reports/internal-invoicing/${invoiceId}`, data);
 };
 
-export const getInvoiceHistoryForBooking = async (bookingId) => {
-  return await api.get(`/reports/internal-invoicing/${bookingId}/history`);
+export const getInvoiceHistoryForBooking = async (recordId, recordType) => {
+  return await api.get(`/reports/internal-invoicing/${recordType}/${recordId}/history`);
 };
 
-export const updateBookingAccountingMonth = async (bookingId, accountingMonth) => {
-  return await api.put(`/bookings/${bookingId}/accounting-month`, { accountingMonth });
-};
 
-export const updateCommissionAmount = async (bookingId, commissionAmount) => {
-    return await api.put(`/bookings/${bookingId}/commission-amount`, { commissionAmount });
+export const updateCommissionAmount = async (recordId, recordType, commissionAmount) => {
+  return await api.put(`/reports/internal-invoicing/commission-amount`, { 
+    recordId, 
+    recordType, 
+    commissionAmount 
+  });
 };
 
 export const downloadInvoiceReceipt = async (invoiceId, folderNo) => {
@@ -235,5 +236,27 @@ export const downloadInvoiceReceipt = async (invoiceId, folderNo) => {
     } catch (error) {
         console.error("Error downloading receipt:", error);
         return { success: false, message: "Could not download PDF." };
+    }
+};
+
+export const updateRecordAccountingMonth = async (recordId, recordType, accountingMonth) => {
+  return await api.put('/reports/internal-invoicing/accounting-month', {
+    recordId,
+    recordType,
+    accountingMonth,
+  });
+};
+
+export const generateCommissionSummaryPDF = async (filters) => {
+    try {
+        const response = await api.post('/reports/internal-invoicing/summary-pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'commission-summary-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating summary PDF:", error);
+        return { success: false };
     }
 };

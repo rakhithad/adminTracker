@@ -2878,32 +2878,45 @@ const updateAccountingMonth = async (req, res) => {
 };
 
 const updateCommissionAmount = async (req, res) => {
-    const { id } = req.params;
-    const { commissionAmount } = req.body;
+    // Now expecting recordType from the body as well
+    const { recordId, recordType, commissionAmount } = req.body;
     const { id: userId } = req.user;
 
-    try {
-        const originalBooking = await prisma.booking.findUnique({ where: { id: parseInt(id) } });
-        if (!originalBooking) {
-            return apiResponse.error(res, "Booking not found", 404);
-        }
+    if (!recordId || !recordType || commissionAmount === undefined) {
+        return apiResponse.error(res, "Missing required fields.", 400);
+    }
 
-        const updatedBooking = await prisma.booking.update({
-            where: { id: parseInt(id) },
-            data: { commissionAmount: parseFloat(commissionAmount) },
-        });
+    try {
+        let updatedRecord;
+        let originalRecord;
+
+        if (recordType === 'booking') {
+            originalRecord = await prisma.booking.findUnique({ where: { id: parseInt(recordId) } });
+            updatedRecord = await prisma.booking.update({
+                where: { id: parseInt(recordId) },
+                data: { commissionAmount: parseFloat(commissionAmount) },
+            });
+        } else if (recordType === 'cancellation') {
+            originalRecord = await prisma.cancellation.findUnique({ where: { id: parseInt(recordId) } });
+            updatedRecord = await prisma.cancellation.update({
+                where: { id: parseInt(recordId) },
+                data: { commissionAmount: parseFloat(commissionAmount) },
+            });
+        } else {
+            return apiResponse.error(res, "Invalid record type provided.", 400);
+        }
 
         await createAuditLog(prisma, {
             userId,
-            modelName: 'Booking',
-            recordId: updatedBooking.id,
+            modelName: recordType === 'booking' ? 'Booking' : 'Cancellation',
+            recordId: updatedRecord.id,
             action: ActionType.UPDATE_COMMISSION_AMOUNT,
             fieldName: 'commissionAmount',
-            oldValue: originalBooking.commissionAmount,
-            newValue: updatedBooking.commissionAmount,
+            oldValue: originalRecord.commissionAmount,
+            newValue: updatedRecord.commissionAmount,
         });
 
-        return apiResponse.success(res, updatedBooking, 200, "Commission amount updated.");
+        return apiResponse.success(res, updatedRecord, 200, "Commission amount updated.");
     } catch (error) {
         console.error("Error updating commission amount:", error);
         return apiResponse.error(res, "Failed to update commission amount: " + error.message, 500);

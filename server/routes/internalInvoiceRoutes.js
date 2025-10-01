@@ -7,13 +7,20 @@ const {
     updateInternalInvoice,
     getInvoiceHistoryForBooking,
     downloadInvoicePdf,
+    updateAccountingMonth,
+    generateCommissionSummaryPdf
 } = require('../controllers/internalInvoiceController');
+const { updateCommissionAmount } = require('../controllers/bookingController');
 const { authenticateToken } = require('../middleware/auth.middleware.js');
 
 router.get('/', authenticateToken, getInternalInvoicingReport);
 router.post('/', authenticateToken, createInternalInvoice);
+router.put('/accounting-month', authenticateToken, updateAccountingMonth);
 router.put('/:invoiceId', authenticateToken, updateInternalInvoice);
-router.get('/:bookingId/history', authenticateToken, getInvoiceHistoryForBooking);
+router.get('/:recordType/:recordId/history', authenticateToken, getInvoiceHistoryForBooking);
 router.get('/:invoiceId/pdf', authenticateToken, downloadInvoicePdf);
+router.put('/commission-amount', authenticateToken, updateCommissionAmount);
+router.post('/summary-pdf', authenticateToken, generateCommissionSummaryPdf);
+
 
 module.exports = router;
