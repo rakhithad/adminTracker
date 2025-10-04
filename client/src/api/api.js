@@ -288,3 +288,22 @@ export const generateSupplierReportPDF = async (filters) => {
         return { success: false };
     }
 };
+
+export const generateCustomerDepositReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/reports/customer-deposits', filters, {
+            responseType: 'blob', // IMPORTANT: This tells axios to expect a file
+        });
+        
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const filename = `Customer-Deposit-Report-${new Date().toISOString().split('T')[0]}.pdf`;
+        
+        saveAs(blob, filename); // Uses file-saver to trigger download
+        
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating customer deposit report PDF:", error);
+        // You might want to handle cases where the server returns a JSON error instead of a blob
+        return { success: false, message: "Could not generate PDF report." };
+    }
+};

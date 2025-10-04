@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getCustomerDeposits } from '../api/api'; // <--- REMOVED recordSettlementPayment from import
+import { getCustomerDeposits, generateCustomerDepositReportPDF } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
 import { FaSearch, FaExclamationCircle, FaCheckCircle, FaBan, FaMoneyBillWave, FaHandHoldingUsd, FaReceipt } from 'react-icons/fa';
 import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
 import RecordRefundPopup from '../components/RecordRefundPopup';
+import { FaDownload } from 'react-icons/fa'; 
 
 
 // --- Reusable Styled Components ---
@@ -280,6 +281,34 @@ export default function CustomerDeposits() {
       }
   };
 
+  
+
+  const [startDate, setStartDate] = useState(() => {
+    const date = new Date();
+    date.setMonth(date.getMonth() - 3); // Default to 3 months ago
+    return date.toISOString().split('T')[0];
+  });
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+
+
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    const filters = {
+        status: filter,
+        searchTerm,
+        startDate,
+        endDate
+    };
+    const result = await generateCustomerDepositReportPDF(filters);
+    if (!result.success) {
+        // You can add a more sophisticated error notification here
+        alert(result.message);
+    }
+    setIsGeneratingReport(false);
+  };
+
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
@@ -311,13 +340,25 @@ export default function CustomerDeposits() {
   }
 
   return (
-    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto"> {/* Reduced overall padding */}
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-4"> {/* Reduced bottom margin */}
+    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto">
+      {/* --- UPDATE THE FILTER SECTION --- */}
+      <div className="flex justify-between items-center mb-5 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap"> {/* Allow wrapping */}
+          {/* Date Filters */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">From:</label>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="p-2 border rounded-lg text-sm" />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">To:</label>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="p-2 border rounded-lg text-sm" />
+          </div>
+          
+          {/* Existing Search and Filter */}
           <div className="relative">
             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input type="text" placeholder="Search by Folder, Ref..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
+            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
           </div>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="p-2 border rounded-lg">
             <option value="all">All Bookings</option>
@@ -325,6 +366,16 @@ export default function CustomerDeposits() {
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
+          
+          {/* New Report Button */}
+          <button 
+            onClick={handleGenerateReport}
+            disabled={isGeneratingReport}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+          >
+            <FaDownload />
+            <span>{isGeneratingReport ? 'Generating...' : 'Download Report'}</span>
+          </button>
         </div>
       </div>
       

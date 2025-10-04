@@ -34,6 +34,8 @@ app.use('/api/transactions', transactionRoutes);
 const supplierReportRoutes = require('./routes/supplierReportRoutes');
 app.use('/api/supplier-reports', supplierReportRoutes);
 
+const customerDepositReportRoutes = require('./routes/CustomerDepositReport');
+app.use('/api', customerDepositReportRoutes);
 
 app.listen(PORT, () => {
     console.log("server is running on Port " + PORT);
