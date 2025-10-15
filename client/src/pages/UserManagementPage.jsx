@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FaEdit, FaTimesCircle, FaCheckCircle, FaSpinner } from 'react-icons/fa';
-// Make sure to import the correct functions from your api.js file
+import { FaEdit, FaTimesCircle, FaCheckCircle, FaSpinner, FaPlus } from 'react-icons/fa';
+import { Link } from 'react-router-dom';
 import { getAllUsers, updateUserById } from '../api/api';
 
 // Reusable form components for consistency
@@ -93,7 +93,18 @@ export default function UserManagementPage() {
 
   return (
     <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg w-full">
-      <h3 className="text-2xl font-bold mb-6 text-gray-900">User Management</h3>
+      
+      {/* 2. ADDED HEADER WITH TITLE AND BUTTON */}
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-2xl font-bold text-gray-900">User Management</h3>
+        <Link 
+          to="/create-user" // Change this to your "add user" page route
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors"
+        >
+          <FaPlus />
+          Add New User
+        </Link>
+      </div>
 
       {error && <div className="mb-6 p-4 bg-red-100 text-red-800 rounded-lg"><FaTimesCircle className="inline mr-3" />{error}</div>}
       {success && <div className="mb-6 p-4 bg-green-100 text-green-800 rounded-lg"><FaCheckCircle className="inline mr-3" />{success}</div>}

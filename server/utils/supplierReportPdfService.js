@@ -12,6 +12,14 @@ function createSupplierStatementPdf(supplierName, data, filters, callback, endCa
     doc.on('end', endCallback);
 
     // Header
+
+    const logoPath = path.join(__dirname, '..', 'public', 'logo.png');
+        if (fs.existsSync(logoPath)) {
+            doc.image(logoPath, (doc.page.width - 120) / 2, 30, { width: 120 });
+            doc.moveDown(3);
+        }
+
+    doc.moveDown(5);
     doc.fontSize(18).font('Helvetica-Bold').text('Supplier Statement', { align: 'center' });
     doc.fontSize(12).font('Helvetica-Bold').text(supplierName, { align: 'center' });
     doc.moveDown(0.5);
@@ -54,10 +62,7 @@ function createSupplierStatementPdf(supplierName, data, filters, callback, endCa
         ['Date', 'Folder #', 'Ref #', 'Category', 'Total', 'Paid', 'Pending'],
         data.processedTransactions.map(t => [formatDate(t.date), t.folderNo, t.identifier, t.category, `£${t.total.toFixed(2)}`, `£${t.paid.toFixed(2)}`, `£${t.pending.toFixed(2)}`])
     );
-    drawTable('Outstanding Payables (from Cancellations)',
-        ['Date', 'Orig. Folder #', 'Reason', '', 'Total', 'Paid', 'Pending'],
-        data.payables.map(p => [formatDate(p.createdAt), p.originatingFolderNo, p.reason, '', `£${p.totalAmount.toFixed(2)}`, `£${p.paidAmount.toFixed(2)}`, `£${p.pendingAmount.toFixed(2)}`])
-    );
+    
     doc.end();
 }
 
@@ -67,7 +72,7 @@ function createAgedPayablesSummaryPdf(data, callback, endCallback) {
     doc.on('data', callback);
     doc.on('end', endCallback);
 
-    doc.fontSize(18).font('Helvetica-Bold').text('Aged Payables & Supplier Balances', { align: 'center' });
+    doc.fontSize(18).font('Helvetica-Bold').text('Payables & Supplier Balances', { align: 'center' });
     doc.moveDown(2);
 
     const tableTop = doc.y + 10;

@@ -49,40 +49,89 @@ export default function SuppliersInfo() {
         fetchSuppliersInfo();
     }, []);
 
-    const handleSettleSubmit = () => {
-        fetchSuppliersInfo();
+    const handleSettleSubmit = (responseData) => {
+    const { updatedCostItemSupplier } = responseData;
+
+    if (!updatedCostItemSupplier) {
+        console.error("handleSettleSubmit did not receive valid data.");
         setSettlePopup(null);
-        setSettlePayablePopup(null);
-    };
+        return;
+    }
+
+    setSupplierData(currentData => {
+        const newData = JSON.parse(JSON.stringify(currentData));
+        const supplier = newData[updatedCostItemSupplier.supplier];
+        if (!supplier) return currentData;
+
+        const bookingIndex = supplier.transactions.findIndex(
+            tx => tx.type === 'Booking' && tx.data.id === updatedCostItemSupplier.id
+        );
+
+        if (bookingIndex !== -1) {
+            // --- THIS IS THE FIX ---
+            // Get the old data first
+            const oldBookingData = supplier.transactions[bookingIndex].data;
+            
+            // Merge the old data with the new data. New data overwrites old properties if they conflict.
+            supplier.transactions[bookingIndex].data = { ...oldBookingData, ...updatedCostItemSupplier };
+        }
+        
+        return newData;
+    });
+
+    setSettlePopup(null);
+};
 
     const processedData = useMemo(() => {
-        const finalData = {};
-        for (const supplierName in supplierData) {
-            const supplier = supplierData[supplierName];
-            const creditNoteMap = (supplier.transactions || []).filter(tx => tx.type === 'CreditNote').reduce((map, tx) => {
-                if (tx.data.generatedFromRefNo && tx.data.generatedFromRefNo !== 'N/A') map[tx.data.generatedFromRefNo] = tx.data;
-                return map;
-            }, {});
-            const processedBookings = (supplier.transactions || []).filter(tx => tx.type === 'Booking').map(tx => {
-                const booking = tx.data;
-                return {
-                    uniqueId: `booking-${booking.id}`, type: 'Booking', folderNo: booking.folderNo, identifier: booking.refNo,
-                    category: booking.category, total: booking.amount || 0, paid: booking.paidAmount || 0,
-                    pending: booking.pendingAmount || 0, creditNote: creditNoteMap[booking.refNo] || null, date: booking.createdAt,
-                    status: booking.bookingStatus, originalData: booking, linkedPayable: null
-                };
-            });
-            const payablesWithFolder = (supplier.payables || []).map(p => ({ ...p, baseFolderNo: p.originatingFolderNo ? p.originatingFolderNo.toString().split('.')[0] : null }));
-            const finalTransactions = processedBookings.map(booking => {
-                const baseFolderNo = booking.folderNo.toString().split('.')[0];
-                const linkedPayable = payablesWithFolder.find(p => p.baseFolderNo === baseFolderNo);
-                return { ...booking, linkedPayable: linkedPayable || null };
-            });
-            finalTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
-            finalData[supplierName] = { ...supplier, processedTransactions: finalTransactions };
-        }
-        return finalData;
-    }, [supplierData]);
+    const finalData = {};
+    for (const supplierName in supplierData) {
+        const supplier = supplierData[supplierName];
+        const creditNoteMap = (supplier.transactions || []).filter(tx => tx.type === 'CreditNote').reduce((map, tx) => {
+            if (tx.data.generatedFromRefNo && tx.data.generatedFromRefNo !== 'N/A') {
+                map[tx.data.generatedFromRefNo] = tx.data;
+            }
+            return map;
+        }, {});
+
+        const processedBookings = (supplier.transactions || []).filter(tx => tx.type === 'Booking').map(tx => {
+            const booking = tx.data;
+
+            // FIX: Check for the credit note and ensure the booking status is 'CANCELLED'
+            const potentialCreditNote = creditNoteMap[booking.refNo];
+            const actualCreditNote = (potentialCreditNote && booking.bookingStatus === 'CANCELLED')
+                ? potentialCreditNote
+                : null;
+
+            return {
+                uniqueId: `booking-${booking.id}`,
+                type: 'Booking',
+                folderNo: booking.folderNo,
+                identifier: booking.refNo,
+                category: booking.category,
+                total: booking.amount || 0,
+                paid: booking.paidAmount || 0,
+                pending: booking.pendingAmount || 0,
+                creditNote: actualCreditNote, // Use the corrected logic here
+                date: booking.createdAt,
+                status: booking.bookingStatus,
+                originalData: booking,
+                linkedPayable: null
+            };
+        });
+
+        const payablesWithFolder = (supplier.payables || []).map(p => ({ ...p, baseFolderNo: p.originatingFolderNo ? p.originatingFolderNo.toString().split('.')[0] : null }));
+        
+        const finalTransactions = processedBookings.map(booking => {
+            const baseFolderNo = booking.folderNo.toString().split('.')[0];
+            const linkedPayable = payablesWithFolder.find(p => p.baseFolderNo === baseFolderNo);
+            return { ...booking, linkedPayable: linkedPayable || null };
+        });
+
+        finalTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        finalData[supplierName] = { ...supplier, processedTransactions: finalTransactions };
+    }
+    return finalData;
+}, [supplierData]);
 
     const filteredSuppliers = useMemo(() => {
         let data = { ...processedData };

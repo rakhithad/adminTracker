@@ -15,6 +15,7 @@ function createCommissionSummaryPdf(reportData, filters, callback, endCallback) 
         doc.moveDown(3);
     }
 
+    doc.moveDown(5);
     doc.fontSize(18).font('Helvetica-Bold').text('Commission Summary Report', { align: 'center' });
     doc.moveDown(1);
 
