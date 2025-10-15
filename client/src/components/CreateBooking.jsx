@@ -85,7 +85,10 @@ export default function CreateBooking({ onBookingCreated }) {
     const originalBooking = location.state?.originalBookingForDateChange;
     if (originalBooking) {
       setOriginalBookingInfo({ id: originalBooking.id, folderNo: originalBooking.folderNo });
-      setSelectedPaymentMethod('FULL');
+      
+      // REMOVED: This line was forcing the "Full Payment" method
+      // setSelectedPaymentMethod('FULL'); 
+
       setFormData({
         ...getInitialFormData(),
         paxName: originalBooking.paxName,
@@ -106,11 +109,11 @@ export default function CreateBooking({ onBookingCreated }) {
 
     let newCalculations = { received: totalReceived.toFixed(2) };
 
-    if (selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM') {
+    if (selectedPaymentMethod === 'FULL') {
         const revenueNum = parseFloat(formData.revenue) || 0;
         newCalculations.profit = (revenueNum - prodCostNum - surchargeNum).toFixed(2);
         newCalculations.balance = (revenueNum - totalReceived).toFixed(2);
-    } else if (selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') {
+    } else if (selectedPaymentMethod === 'INTERNAL') {
         const sellingPriceNum = parseFloat(formData.totalSellingPrice) || 0;
         const balanceAfterDeposit = sellingPriceNum - totalReceived;
 
@@ -136,7 +139,10 @@ export default function CreateBooking({ onBookingCreated }) {
 
   const handlePaymentMethodSelect = (method) => {
     setSelectedPaymentMethod(method);
-    setFormData(getInitialFormData());
+    // Keep original data if it's a date change
+    if (!originalBookingInfo) {
+      setFormData(getInitialFormData());
+    }
     setErrorMessage('');
     setSuccessMessage('');
   };
@@ -170,22 +176,18 @@ export default function CreateBooking({ onBookingCreated }) {
     }));
   };
 
-  // New handler function for the "distribute" button
   const handleDistributeBalance = () => {
     const { balance, customInstalments } = formData;
     if (customInstalments.length === 0 || !balance) {
-      return; // Do nothing if there are no instalments or no balance
+      return;
     }
-
     const balanceNum = parseFloat(balance);
     const numInstalments = customInstalments.length;
     const distributedAmount = (balanceNum / numInstalments).toFixed(2);
-
     const newInstalments = customInstalments.map(instalment => ({
         ...instalment,
         amount: distributedAmount,
     }));
-
     setFormData(prev => ({ ...prev, customInstalments: newInstalments }));
   };
 
@@ -235,7 +237,7 @@ export default function CreateBooking({ onBookingCreated }) {
             issuedDate: formData.issuedDate,
         };
 
-        if (selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM') {
+        if (selectedPaymentMethod === 'FULL') {
             const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'revenue'];
             const missingFields = requiredFields.filter(f => !formData[f]);
             if(missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
@@ -250,7 +252,7 @@ export default function CreateBooking({ onBookingCreated }) {
                 initialPayments: formData.initialPayments,
                 instalments: [],
             };
-        } else if (selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') {
+        } else if (selectedPaymentMethod === 'INTERNAL') {
             const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'prodCost', 'totalSellingPrice'];
             const missingFields = requiredFields.filter(f => !formData[f]);
             if(missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
@@ -354,26 +356,22 @@ export default function CreateBooking({ onBookingCreated }) {
       <div className="flex justify-between items-start mb-6">
         <div>
           <h3 className="text-2xl font-bold mb-1 text-gray-900">{originalBookingInfo ? `Create Date Change for: ${originalBookingInfo.folderNo}` : 'Create New Booking'}</h3>
-          <p className="text-gray-500">{originalBookingInfo ? 'Inherited data is locked.' : 'First, select the payment method for the new booking.'}</p>
+          <p className="text-gray-500">{originalBookingInfo ? 'Select the payment method for the new charges.' : 'First, select the payment method for the new booking.'}</p>
         </div>
-        {!originalBookingInfo && (
-            <div className="w-full max-w-xs">
-                <FormSelect label="Select Payment Method" name="paymentMethod" value={selectedPaymentMethod} onChange={(e) => handlePaymentMethodSelect(e.target.value)}>
-                    <option value="" disabled>-- Choose a method --</option>
-                    <option value="FULL">Full Payment</option>
-                    <option value="HUMM">Humm</option>
-                    <option value="FULL_HUMM">Full / Humm</option>
-                    <option value="INTERNAL">Internal (Instalments)</option>
-                    <option value="INTERNAL_HUMM">Humm / Internal</option>
-                </FormSelect>
-            </div>
-        )}
+        {/* CHANGED: Removed the conditional wrapper to always show the dropdown */}
+        <div className="w-full max-w-xs">
+            <FormSelect label="Select Payment Method" name="paymentMethod" value={selectedPaymentMethod} onChange={(e) => handlePaymentMethodSelect(e.target.value)}>
+                <option value="" disabled>-- Choose a method --</option>
+                <option value="FULL">Full Payment</option>
+                <option value="INTERNAL">Internal (Instalments)</option>
+            </FormSelect>
+        </div>
       </div>
 
       {successMessage && <div className="flex items-center mb-6 p-4 bg-green-100 text-green-800 rounded-lg shadow-sm"><FaCheckCircle className="mr-3 h-5 w-5" /><span className="font-medium">{successMessage}</span></div>}
       {errorMessage && <div className="flex items-center mb-6 p-4 bg-red-100 text-red-800 rounded-lg shadow-sm"><FaTimesCircle className="mr-3 h-5 w-5" /><span className="font-medium">{errorMessage}</span></div>}
 
-      {(selectedPaymentMethod === 'FULL' || selectedPaymentMethod === 'HUMM' || selectedPaymentMethod === 'FULL_HUMM' || originalBookingInfo) && (
+      {(selectedPaymentMethod === 'FULL') && (
         <form onSubmit={handleSubmit} className="space-y-10 animate-fade-in">
           <CoreBookingInfo />
           <div className="border-t border-gray-200 pt-6">
@@ -417,7 +415,7 @@ export default function CreateBooking({ onBookingCreated }) {
         </form>
       )}
 
-      {(selectedPaymentMethod === 'INTERNAL' || selectedPaymentMethod === 'INTERNAL_HUMM') && !originalBookingInfo && (
+      {(selectedPaymentMethod === 'INTERNAL') && (
         <form onSubmit={handleSubmit} className="animate-fade-in space-y-10">
             <CoreBookingInfo />
             <div className="border-t border-gray-200 pt-6">

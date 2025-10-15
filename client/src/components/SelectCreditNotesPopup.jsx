@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react'; // NEW: Added useMemo
 import { FaTimes, FaCheckCircle } from 'react-icons/fa';
 
 export default function SelectCreditNotesPopup({
@@ -10,9 +10,9 @@ export default function SelectCreditNotesPopup({
 }) {
   const [selectedNotes, setSelectedNotes] = useState({});
   const [totalApplied, setTotalApplied] = useState(0);
+  const [filterRefNo, setFilterRefNo] = useState(''); // NEW: State for the filter input
 
   useEffect(() => {
-    // Pre-populate selections from previous state
     const initialSelections = {};
     let initialTotal = 0;
     previouslySelectedNotes.forEach(note => {
@@ -23,16 +23,24 @@ export default function SelectCreditNotesPopup({
     setTotalApplied(initialTotal);
   }, [previouslySelectedNotes]);
 
+  // NEW: Memoized function to filter notes based on the search input
+  const filteredNotes = useMemo(() => {
+    if (!filterRefNo.trim()) {
+      return availableNotes; // Return all notes if filter is empty
+    }
+    return availableNotes.filter(note => {
+      const refNo = note.generatedFromCancellation?.originalBooking?.refNo || '';
+      return refNo.toLowerCase().includes(filterRefNo.trim().toLowerCase());
+    });
+  }, [availableNotes, filterRefNo]);
+
+
   const handleSelectionChange = (noteId, amountStr) => {
     const amount = parseFloat(amountStr) || 0;
     const note = availableNotes.find(n => n.id === noteId);
-
-    // Validate input: cannot be more than available or more than needed
     const remainingToCover = amountToCover - (totalApplied - (selectedNotes[noteId] || 0));
     const maxCanApply = Math.min(note.remainingAmount, remainingToCover);
-    
     const validatedAmount = Math.max(0, Math.min(amount, maxCanApply));
-
     setSelectedNotes(prev => ({
       ...prev,
       [noteId]: validatedAmount,
@@ -54,9 +62,7 @@ export default function SelectCreditNotesPopup({
     }
   };
 
-
   useEffect(() => {
-    // Recalculate total applied whenever selections change
     const newTotal = Object.values(selectedNotes).reduce((sum, val) => sum + val, 0);
     setTotalApplied(newTotal);
   }, [selectedNotes]);
@@ -100,33 +106,53 @@ export default function SelectCreditNotesPopup({
             )}
         </div>
 
+        {/* NEW: Filter input field */}
+        <div className="my-4">
+            <input
+                type="text"
+                placeholder="Filter by original Ref No..."
+                value={filterRefNo}
+                onChange={(e) => setFilterRefNo(e.target.value)}
+                className="w-full p-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500"
+            />
+        </div>
+
         <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
-          {availableNotes.length > 0 ? availableNotes.map(note => (
-            <div key={note.id} className="border p-3 rounded-lg flex items-center gap-4 bg-gray-50">
-              <input
-                type="checkbox"
-                className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
-                checked={!!selectedNotes[note.id]}
-                onChange={e => handleCheckboxChange(note.id, e.target.checked)}
-                disabled={totalApplied >= amountToCover && !selectedNotes[note.id]}
-              />
-              <div className="flex-grow">
-                <p className="font-semibold text-gray-800">ID: {note.id} - Avail: £{note.remainingAmount.toFixed(2)}</p>
-                <p className="text-xs text-gray-500">From Ref: {note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'}</p>
-              </div>
-              <div className="flex items-center">
-                 <span className="mr-1 text-gray-600">£</span>
-                 <input
-                    type="number"
-                    step="0.01"
-                    className="w-28 p-2 border rounded-lg"
-                    value={selectedNotes[note.id] || '0'}
-                    onChange={e => handleSelectionChange(note.id, e.target.value)}
-                    disabled={!selectedNotes[note.id]}
-                 />
-              </div>
-            </div>
-          )) : <p className="text-center text-gray-500">No available credit notes for this supplier.</p>}
+          {/* CHANGED: Logic to handle filtering results */}
+          {availableNotes.length > 0 ? (
+            filteredNotes.length > 0 ? (
+              filteredNotes.map(note => (
+                <div key={note.id} className="border p-3 rounded-lg flex items-center gap-4 bg-gray-50">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500"
+                    checked={!!selectedNotes[note.id]}
+                    onChange={e => handleCheckboxChange(note.id, e.target.checked)}
+                    disabled={totalApplied >= amountToCover && !selectedNotes[note.id]}
+                  />
+                  <div className="flex-grow">
+                    <p className="font-semibold text-gray-800">ID: {note.id} - Avail: £{note.remainingAmount.toFixed(2)}</p>
+                    <p className="text-xs text-gray-500">From Ref: {note.generatedFromCancellation?.originalBooking?.refNo || 'N/A'}</p>
+                  </div>
+                  <div className="flex items-center">
+                     <span className="mr-1 text-gray-600">£</span>
+                     <input
+                       type="number"
+                       step="0.01"
+                       className="w-28 p-2 border rounded-lg"
+                       value={selectedNotes[note.id] || '0'}
+                       onChange={e => handleSelectionChange(note.id, e.target.value)}
+                       disabled={!selectedNotes[note.id]}
+                     />
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center text-gray-500">No credit notes match your filter.</p>
+            )
+          ) : (
+            <p className="text-center text-gray-500">No available credit notes for this supplier.</p>
+          )}
         </div>
 
         <div className="flex justify-end space-x-3 mt-6 pt-4 border-t">
