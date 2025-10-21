@@ -3,11 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { FaUserPlus, FaCalculator, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 import { createPendingBooking, createDateChangeBooking, getAgentsList } from '../api/api';
 
-import ProductCostBreakdown from './ProductCostBreakdown';
 import PaxDetailsPopup from './PaxDetailsPopup';
 import ReceivedAmountPopup from './ReceivedAmountPopup';
 import InternalPaymentForm from './InternalPaymentForm';
 import InitialPaymentsDisplay from './InitialPaymentsDisplay';
+import SimpleCostPopup from './SimpleCostPopup';
 
 const FormInput = ({ label, name, required = false, ...props }) => (
   <div>
@@ -191,9 +191,17 @@ export default function CreateBooking({ onBookingCreated }) {
     setFormData(prev => ({ ...prev, customInstalments: newInstalments }));
   };
 
-  const handleBreakdownSubmit = (breakdown) => {
-    const total = breakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    setFormData((prev) => ({ ...prev, prodCost: total.toFixed(2), prodCostBreakdown: breakdown }));
+  const handleBreakdownSubmit = (simpleBreakdown) => {
+    // The breakdown is now simple: [{ category: 'Flight', amount: 800 }]
+    const total = simpleBreakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+    
+    // We update the total cost and save the simple breakdown structure
+    setFormData((prev) => ({ 
+      ...prev, 
+      prodCost: total.toFixed(2), 
+      prodCostBreakdown: simpleBreakdown 
+    }));
+    
     setShowCostBreakdown(false);
   };
 
@@ -446,7 +454,11 @@ export default function CreateBooking({ onBookingCreated }) {
         </form>
       )}
 
-      {showCostBreakdown && <ProductCostBreakdown initialBreakdown={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} totalCost={parseFloat(formData.prodCost) || 0} />}
+      {showCostBreakdown && <SimpleCostPopup 
+        initialCosts={formData.prodCostBreakdown} 
+        onClose={() => setShowCostBreakdown(false)} 
+        onSubmit={handleBreakdownSubmit} 
+    />}
       {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}
       {showReceivedAmount && <ReceivedAmountPopup
           initialData={{}}

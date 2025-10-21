@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { getAvailableCreditNotes } from '../api/api';
 import SelectCreditNotesPopup from './SelectCreditNotesPopup';
 
-// NEW: Added your list of categories
 const categoryOptions = ['Flight', 'Hotels', 'Cruise', 'Transfers', 'Other'];
 
 export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubmit, totalCost }) {
@@ -14,8 +13,36 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
     ];
 
     const getInitialState = () => {
-        if (initialBreakdown && initialBreakdown.length > 0) {
-            return initialBreakdown.map((item, index) => ({
+        const breakdownData = initialBreakdown || [];
+
+        if (breakdownData.length === 0) {
+            // If there's no data, start with a default structure.
+            return [{ id: 1, category: 'Flight', amount: totalCost || 0, suppliers: [{ supplier: '', amount: totalCost || 0, transactionMethod: 'LOYDS', paymentMethod: 'BANK_TRANSFER', firstMethodAmount: totalCost || '', secondMethodAmount: '', paidAmount: totalCost || 0, pendingAmount: 0, selectedCreditNotes: [] }] }];
+        }
+
+        // Transform simple or complex data into the detailed structure this component expects.
+        return breakdownData.map((item, index) => {
+            // If suppliers array is missing or empty, it's simple data from a new booking.
+            if (!item.suppliers || item.suppliers.length === 0) {
+                return {
+                    ...item,
+                    id: item.id || index + 1,
+                    suppliers: [{
+                        supplier: '',
+                        amount: item.amount || 0,
+                        transactionMethod: 'N/A',
+                        paymentMethod: 'BANK_TRANSFER',
+                        firstMethodAmount: item.amount || '',
+                        secondMethodAmount: '',
+                        paidAmount: item.amount || 0,
+                        pendingAmount: 0,
+                        selectedCreditNotes: []
+                    }]
+                };
+            }
+            
+            // Otherwise, it's already detailed data, so just ensure defaults are set.
+            return {
                 ...item,
                 id: item.id || index + 1,
                 suppliers: item.suppliers.map(s => ({
@@ -26,9 +53,8 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                     secondMethodAmount: s.secondMethodAmount || '',
                     selectedCreditNotes: s.selectedCreditNotes || [],
                 })),
-            }));
-        }
-        return [{ id: 1, category: 'Flight', amount: totalCost || 0, suppliers: [{ supplier: '', amount: totalCost || 0, transactionMethod: 'LOYDS', paymentMethod: 'BANK_TRANSFER', firstMethodAmount: totalCost || '', secondMethodAmount: '', paidAmount: totalCost || 0, pendingAmount: 0, selectedCreditNotes: [] }] }];
+            };
+        });
     };
 
     const [breakdown, setBreakdown] = useState(getInitialState);
@@ -73,7 +99,6 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                     }
 
                     supplier.selectedCreditNotes = selection;
-
                     const updatedItem = { ...item, suppliers: newSuppliers };
                     recalculateSupplierAndItem(updatedItem, itemId, supplierIndex);
                     return updatedItem;
@@ -179,7 +204,6 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                         {breakdown.map((item) => (
                             <div key={item.id} className="border p-4 rounded-lg bg-gray-50">
                                 <div className="flex items-center space-x-2 mb-2">
-                                    {/* CHANGED: Replaced text input with a select dropdown */}
                                     <select
                                         value={item.category}
                                         onChange={e => handleCategoryChange(item.id, 'category', e.target.value)}
@@ -221,7 +245,6 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                                                     )}
                                                     <button type="button" onClick={() => removeSupplier(item.id, index)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg disabled:text-gray-300 disabled:hover:bg-transparent" disabled={item.suppliers.length <= 1}>Remove</button>
                                                 </div>
-
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
                                                     { s.paymentMethod.includes('_AND_') ? (
                                                         <>
@@ -232,7 +255,6 @@ export default function ProductCostBreakdown({ initialBreakdown, onClose, onSubm
                                                         <input type="number" step="0.01" value={s.firstMethodAmount} onChange={e => handleSupplierChange(item.id, index, 'firstMethodAmount', e.target.value)} placeholder="Total Amount" className="p-2 border rounded-lg bg-white md:col-span-2"/>
                                                     )}
                                                 </div>
-
                                                 {involvesCreditNotes && (
                                                     <div className="mt-2 p-3 bg-blue-50 rounded-lg">
                                                         <p className="text-sm font-medium">Credit Note Application</p>

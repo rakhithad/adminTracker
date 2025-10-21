@@ -77,27 +77,7 @@ const createPendingBooking = async (req, res) => {
       }
 
       const prodCostBreakdown = req.body.prodCostBreakdown || [];
-      for (const item of prodCostBreakdown) {
-        for (const s of item.suppliers) {
-          if (s.paymentMethod.includes('CREDIT_NOTES')) {
-            const amountToCoverByNotes = (s.paymentMethod === 'CREDIT_NOTES')
-              ? (parseFloat(s.firstMethodAmount) || 0)
-              : (parseFloat(s.secondMethodAmount) || 0);
-            const totalAppliedFromNotes = (s.selectedCreditNotes || []).reduce((sum, note) => sum + note.amountToUse, 0);
-            if (Math.abs(totalAppliedFromNotes - amountToCoverByNotes) > 0.01) {
-              throw new Error(`For supplier ${s.supplier}, the applied credit notes total (£${totalAppliedFromNotes.toFixed(2)}) does not match the required amount (£${amountToCoverByNotes.toFixed(2)}).`);
-            }
-            for (const usedNote of (s.selectedCreditNotes || [])) {
-              const creditNote = await tx.supplierCreditNote.findUnique({ where: { id: usedNote.id } });
-              if (!creditNote) throw new Error(`Credit Note with ID ${usedNote.id} not found.`);
-              if (creditNote.supplier !== s.supplier) throw new Error(`Credit Note ID ${usedNote.id} does not belong to supplier ${s.supplier}.`);
-              if (creditNote.remainingAmount < usedNote.amountToUse) {
-                throw new Error(`Credit Note ID ${usedNote.id} has insufficient funds.`);
-              }
-            }
-          }
-        }
-      }
+      
 
       const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
       const calculatedReceived = initialPayments.reduce((sum, payment) => sum + parseFloat(payment.amount || 0), 0);
@@ -146,18 +126,7 @@ const createPendingBooking = async (req, res) => {
             create: prodCostBreakdown.map((item) => ({
               category: item.category,
               amount: parseFloat(item.amount),
-              suppliers: {
-                create: item.suppliers.map((s) => ({
-                  supplier: s.supplier,
-                  amount: parseFloat(s.amount),
-                  paymentMethod: s.paymentMethod,
-                  paidAmount: parseFloat(s.paidAmount) || 0,
-                  pendingAmount: parseFloat(s.pendingAmount) || 0,
-                  transactionMethod: s.transactionMethod,
-                  firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                  secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                })),
-              },
+              // We no longer create suppliers here
             })),
           },
           instalments: { create: (req.body.instalments || []).map(inst => ({ dueDate: new Date(inst.dueDate), amount: parseFloat(inst.amount), status: inst.status || 'PENDING' })) },
@@ -166,34 +135,6 @@ const createPendingBooking = async (req, res) => {
         include: { costItems: { include: { suppliers: true } } }
       });
 
-      for (const [itemIndex, item] of prodCostBreakdown.entries()) {
-        for (const [supplierIndex, s] of item.suppliers.entries()) {
-          if (s.paymentMethod.includes('CREDIT_NOTES')) {
-            const createdCostItemSupplier = newPendingBooking.costItems[itemIndex].suppliers[supplierIndex];
-            
-            for (const usedNote of (s.selectedCreditNotes || [])) {
-              const creditNoteToUpdate = await tx.supplierCreditNote.findUnique({ where: { id: usedNote.id } });
-              const newRemainingAmount = creditNoteToUpdate.remainingAmount - usedNote.amountToUse;
-
-              await tx.supplierCreditNote.update({
-                where: { id: usedNote.id },
-                data: {
-                  remainingAmount: newRemainingAmount,
-                  status: newRemainingAmount < 0.01 ? 'USED' : 'PARTIALLY_USED',
-                },
-              });
-
-              await tx.creditNoteUsage.create({
-                data: {
-                  amountUsed: usedNote.amountToUse,
-                  creditNoteId: usedNote.id,
-                  usedOnCostItemSupplierId: createdCostItemSupplier.id,
-                }
-              });
-            }
-          }
-        }
-      }
       await createAuditLog(tx, {
         userId: userId,
         modelName: 'PendingBooking',
@@ -607,193 +548,81 @@ const getBookings = async (req, res) => {
 
 const updateBooking = async (req, res) => {
   const { id: userId } = req.user;
-  const { id } = req.params;
+  const bookingId = parseInt(req.params.id);
   const updates = req.body;
 
+  // Destructure the complex nested array from the rest of the simple updates
+  const { prodCostBreakdown, ...simpleUpdates } = updates;
+
   try {
-    const {
-      refNo,
-      paxName,
-      agentName,
-      teamName,
-      pnr,
-      airline,
-      fromTo,
-      bookingType,
-      bookingStatus,
-      pcDate,
-      issuedDate,
-      paymentMethod,
-      lastPaymentDate,
-      travelDate,
-      revenue,
-      prodCost,
-      transFee,
-      surcharge,
-      profit,
-      invoiced,
-      description,
-      costItems,
-      instalments,
-      passengers,
-      initialPayments, // The new array for payments
-    } = updates;
-
-    // --- Validation (can be kept as is) ---
-    const validTransactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
-    if (updates.transactionMethod && !validTransactionMethods.includes(updates.transactionMethod)) {
-      return apiResponse.error(res, `Invalid transactionMethod. Must be one of: ${validTransactionMethods.join(', ')}`, 400);
-    }
-    // ... any other validation you have for passengers, cost items, etc. ...
-
-    // --- Transaction to ensure data integrity ---
     const updatedBooking = await prisma.$transaction(async (tx) => {
-      const bookingToUpdate = await tx.booking.findUnique({
-        where: { id: parseInt(id) },
-        include: { initialPayments: true } // Include current payments for calculation
-      });
-
-      if (!bookingToUpdate) {
-        throw new Error("Booking not found");
+      // Step 1: Get the state of the booking before we change it for audit logging.
+      const oldBooking = await tx.booking.findUnique({ where: { id: bookingId } });
+      if (!oldBooking) {
+        throw new Error('Booking not found');
       }
 
-      // --- Financial Recalculation ---
-      const newRevenue = revenue !== undefined ? parseFloat(revenue) : bookingToUpdate.revenue;
-      const newProdCost = prodCost !== undefined ? parseFloat(prodCost) : bookingToUpdate.prodCost;
-      const newTransFee = transFee !== undefined ? parseFloat(transFee) : bookingToUpdate.transFee;
-      const newSurcharge = surcharge !== undefined ? parseFloat(surcharge) : bookingToUpdate.surcharge;
-      
-      let calculatedReceived;
-      if (Array.isArray(initialPayments)) {
-        // If the frontend sends a new payments array, use it
-        calculatedReceived = initialPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
-      } else {
-        // Otherwise, calculate from the existing payments in the DB
-        calculatedReceived = bookingToUpdate.initialPayments.reduce((sum, p) => sum + p.amount, 0);
-      }
-      
-      const newProfit = newRevenue - newProdCost - newTransFee - newSurcharge;
-      const newBalance = newRevenue - calculatedReceived;
-
-      // Log changes before updating
-      const oldRecord = await tx.booking.findUnique({ where: { id: parseInt(id) } });
-      
-      const dataForUpdate = {
-        refNo,
-        paxName,
-        agentName,
-        teamName,
-        pnr,
-        airline,
-        fromTo,
-        bookingType,
-        bookingStatus,
-        pcDate: pcDate ? new Date(pcDate) : undefined,
-        issuedDate: issuedDate ? new Date(issuedDate) : undefined,
-        paymentMethod,
-        lastPaymentDate: lastPaymentDate ? new Date(lastPaymentDate) : undefined,
-        travelDate: travelDate ? new Date(travelDate) : undefined,
-        invoiced,
-        description,
-        revenue: newRevenue,
-        prodCost: newProdCost,
-        transFee: newTransFee,
-        surcharge: newSurcharge,
-        profit: newProfit,
-        balance: newBalance,
+      // Step 2: If a new cost breakdown was provided, process it.
+      if (prodCostBreakdown && Array.isArray(prodCostBreakdown)) {
         
-        initialPayments: Array.isArray(initialPayments)
-          ? {
-              deleteMany: {}, // Delete all old payments
-              create: initialPayments.map(p => ({ // Recreate with new data
-                amount: parseFloat(p.amount),
-                transactionMethod: p.transactionMethod,
-                paymentDate: new Date(p.receivedDate), // Assuming frontend sends receivedDate
-              })),
-            }
-          : undefined,
+        // First, delete all old cost items associated with this booking.
+        // Prisma will automatically handle cascade-deleting their related suppliers.
+        await tx.costItem.deleteMany({
+          where: { bookingId: bookingId },
+        });
 
-        costItems: Array.isArray(costItems)
-          ? {
-              deleteMany: {},
-              create: costItems.map(item => ({
-                category: item.category,
-                amount: parseFloat(item.amount),
-                suppliers: {
-                  create: item.suppliers.map(s => ({
-                    supplier: s.supplier,
-                    amount: parseFloat(s.amount),
-                    paymentMethod: s.paymentMethod,
-                    paidAmount: parseFloat(s.paidAmount) || 0,
-                    pendingAmount: parseFloat(s.pendingAmount) || 0,
-                    transactionMethod: s.transactionMethod,
-                    firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                    secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                  })),
-                },
+        // Now, prepare the 'create' structure for the new cost breakdown.
+        // We add this back into the `simpleUpdates` object that will be used to update the booking.
+        simpleUpdates.costItems = {
+          create: prodCostBreakdown.map((item) => ({
+            category: item.category,
+            amount: parseFloat(item.amount),
+            suppliers: {
+              create: (item.suppliers || []).map((s) => ({
+                supplier: s.supplier,
+                amount: parseFloat(s.amount),
+                paymentMethod: s.paymentMethod,
+                paidAmount: parseFloat(s.paidAmount) || 0,
+                pendingAmount: parseFloat(s.pendingAmount) || 0,
+                transactionMethod: s.transactionMethod,
+                firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
+                secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
+                // Note: Complex logic like applying credit notes on update would need to be added here if required.
               })),
-            }
-          : undefined,
-
-        instalments: Array.isArray(instalments)
-          ? {
-              deleteMany: {},
-              create: instalments.map(inst => ({
-                dueDate: new Date(inst.dueDate),
-                amount: parseFloat(inst.amount),
-                status: inst.status,
-              })),
-            }
-          : undefined,
-
-        passengers: Array.isArray(passengers)
-          ? {
-              deleteMany: {},
-              create: passengers.map(pax => ({
-                title: pax.title,
-                firstName: pax.firstName,
-                middleName: pax.middleName || null,
-                lastName: pax.lastName,
-                gender: pax.gender,
-                email: pax.email || null,
-                contactNo: pax.contactNo || null,
-                nationality: pax.nationality || null,
-                birthday: pax.birthday ? new Date(pax.birthday) : null,
-                category: pax.category,
-              })),
-            }
-          : undefined,
-      };
-
-      const finalBooking = await tx.booking.update({
-        where: { id: parseInt(id) },
-        data: dataForUpdate,
-        include: {
+            },
+          })),
+        };
+      }
+      
+      // Step 3: Update the booking with all simple fields AND the new nested cost items structure.
+      const newBooking = await tx.booking.update({
+        where: { id: bookingId },
+        data: simpleUpdates,
+        include: { // Include everything to send back the full, updated object to the frontend.
           costItems: { include: { suppliers: true } },
           instalments: true,
           passengers: true,
-          initialPayments: true,
-        },
+          initialPayments: true
+        }
       });
-
-      // Pass the transaction 'tx' to the audit logger
+      
+      // Step 4: Log all the changes that were made.
       await compareAndLogChanges(tx, {
-        modelName: 'Booking',
-        recordId: finalBooking.id,
-        userId,
-        oldRecord,
-        newRecord: finalBooking,
-        updates, // Pass the original updates object to see what fields were intended to change
+          modelName: 'Booking',
+          recordId: bookingId,
+          userId,
+          oldRecord: oldBooking,
+          newRecord: newBooking,
+          updates: updates, // Log based on the original request payload
       });
 
-      return finalBooking;
+      return newBooking;
     });
 
-    return apiResponse.success(res, updatedBooking, 200);
-
+    return apiResponse.success(res, updatedBooking);
   } catch (error) {
-    console.error('Error updating booking:', error);
-    if (error.message === "Booking not found") {
+    console.error("Error updating booking:", error);
+    if (error.message === 'Booking not found') {
       return apiResponse.error(res, error.message, 404);
     }
     return apiResponse.error(res, `Failed to update booking: ${error.message}`, 500);
@@ -2361,18 +2190,7 @@ const createDateChangeBooking = async (req, res) => {
             create: (data.prodCostBreakdown || []).map(item => ({
               category: item.category,
               amount: parseFloat(item.amount),
-              suppliers: {
-                create: item.suppliers.map(s => ({
-                    supplier: s.supplier,
-                    amount: parseFloat(s.amount),
-                    paymentMethod: s.paymentMethod,
-                    paidAmount: parseFloat(s.paidAmount) || 0,
-                    pendingAmount: parseFloat(s.pendingAmount) || 0,
-                    transactionMethod: s.transactionMethod,
-                    firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
-                    secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                }))
-              }
+              
             }))
           }
         },
