@@ -552,7 +552,8 @@ const updateBooking = async (req, res) => {
   const updates = req.body;
 
   // Destructure the complex nested array from the rest of the simple updates
-  const { prodCostBreakdown, ...simpleUpdates } = updates;
+  // Keep the original breakdown with selectedCreditNotes info separate
+  const { prodCostBreakdown: originalProdCostBreakdown, ...simpleUpdates } = updates;
 
   try {
     const updatedBooking = await prisma.$transaction(async (tx) => {
@@ -562,19 +563,17 @@ const updateBooking = async (req, res) => {
         throw new Error('Booking not found');
       }
 
-      // Step 2: If a new cost breakdown was provided, process it.
-      if (prodCostBreakdown && Array.isArray(prodCostBreakdown)) {
+      // Step 2: If a new cost breakdown was provided, prepare it for update.
+      if (originalProdCostBreakdown && Array.isArray(originalProdCostBreakdown)) {
         
-        // First, delete all old cost items associated with this booking.
-        // Prisma will automatically handle cascade-deleting their related suppliers.
+        // Delete all old cost items associated with this booking.
         await tx.costItem.deleteMany({
           where: { bookingId: bookingId },
         });
 
-        // Now, prepare the 'create' structure for the new cost breakdown.
-        // We add this back into the `simpleUpdates` object that will be used to update the booking.
+        // Prepare the 'create' structure for the booking update.
         simpleUpdates.costItems = {
-          create: prodCostBreakdown.map((item) => ({
+          create: originalProdCostBreakdown.map((item) => ({
             category: item.category,
             amount: parseFloat(item.amount),
             suppliers: {
@@ -587,41 +586,110 @@ const updateBooking = async (req, res) => {
                 transactionMethod: s.transactionMethod,
                 firstMethodAmount: s.firstMethodAmount ? parseFloat(s.firstMethodAmount) : null,
                 secondMethodAmount: s.secondMethodAmount ? parseFloat(s.secondMethodAmount) : null,
-                // Note: Complex logic like applying credit notes on update would need to be added here if required.
+                // We DON'T store selectedCreditNotes here directly
               })),
             },
           })),
         };
       }
       
-      // Step 3: Update the booking with all simple fields AND the new nested cost items structure.
+      // Step 3: Update the booking with simple fields AND the new nested cost items structure.
       const newBooking = await tx.booking.update({
         where: { id: bookingId },
-        data: simpleUpdates,
-        include: { // Include everything to send back the full, updated object to the frontend.
+        data: simpleUpdates, // simpleUpdates now contains the costItems create structure if breakdown was provided
+        include: { // Include everything needed for the response and for the credit note logic below
           costItems: { include: { suppliers: true } },
           instalments: true,
           passengers: true,
           initialPayments: true
         }
       });
-      
+
+      // --- NEW: Step 3.5: Process Credit Note Usage ---
+      // This MUST happen AFTER newBooking is created so we have the new supplier IDs
+      if (originalProdCostBreakdown && Array.isArray(originalProdCostBreakdown)) {
+        // We need to iterate through the breakdown from the request *and* the result from the DB
+        // to link the used notes to the newly created supplier records.
+        // We assume the order is preserved. A more robust solution might match by category/supplier name if needed.
+        for (const [itemIndex, originalItem] of originalProdCostBreakdown.entries()) {
+          if (!originalItem.suppliers || !newBooking.costItems[itemIndex]) continue; // Safety check
+
+          for (const [supplierIndex, originalSupplier] of originalItem.suppliers.entries()) {
+             // Check if this supplier used credit notes
+            if (originalSupplier.paymentMethod.includes('CREDIT_NOTES') && originalSupplier.selectedCreditNotes?.length > 0) {
+              
+              // Find the corresponding newly created CostItemSupplier
+              const createdCostItemSupplier = newBooking.costItems[itemIndex]?.suppliers[supplierIndex];
+              if (!createdCostItemSupplier) {
+                 console.error(`Mismatch finding new supplier for item ${itemIndex}, supplier ${supplierIndex}`);
+                 continue; // Skip if something went wrong finding the match
+              }
+
+              // Loop through the notes the user selected for this supplier
+              for (const usedNote of originalSupplier.selectedCreditNotes) {
+                  const creditNoteToUpdate = await tx.supplierCreditNote.findUnique({ 
+                      where: { id: usedNote.id } 
+                  });
+
+                  // --- Backend Validation (Important!) ---
+                  if (!creditNoteToUpdate) {
+                      throw new Error(`Credit Note with ID ${usedNote.id} not found during update.`);
+                  }
+                  if (creditNoteToUpdate.supplier !== createdCostItemSupplier.supplier) {
+                      throw new Error(`Credit Note ID ${usedNote.id} supplier mismatch during update.`);
+                  }
+                  // Check if there's enough balance *now* (could have changed since frontend loaded)
+                  if (creditNoteToUpdate.remainingAmount < usedNote.amountToUse) {
+                      throw new Error(`Insufficient funds on Credit Note ID ${usedNote.id} during update. Available: £${creditNoteToUpdate.remainingAmount.toFixed(2)}`);
+                  }
+                  // --- End Validation ---
+
+                  const newRemainingAmount = creditNoteToUpdate.remainingAmount - usedNote.amountToUse;
+
+                  // Update the credit note itself
+                  await tx.supplierCreditNote.update({
+                      where: { id: usedNote.id },
+                      data: {
+                          remainingAmount: newRemainingAmount,
+                          status: newRemainingAmount < 0.01 ? 'USED' : 'PARTIALLY_USED',
+                      },
+                  });
+
+                  // Create the usage history record
+                  await tx.creditNoteUsage.create({
+                      data: {
+                          amountUsed: usedNote.amountToUse,
+                          creditNoteId: usedNote.id,
+                          usedOnCostItemSupplierId: createdCostItemSupplier.id, // Link to the NEW supplier ID
+                      }
+                  });
+              } // end loop through selected notes
+            } // end if supplier uses credit notes
+          } // end loop through original suppliers
+        } // end loop through original items
+      } // end if breakdown exists
+      // --- End NEW Credit Note Logic ---
+
       // Step 4: Log all the changes that were made.
       await compareAndLogChanges(tx, {
           modelName: 'Booking',
           recordId: bookingId,
           userId,
           oldRecord: oldBooking,
-          newRecord: newBooking,
+          newRecord: newBooking, // Use the final state after updates
           updates: updates, // Log based on the original request payload
       });
 
-      return newBooking;
+      return newBooking; // Return the final state of the booking
     });
 
     return apiResponse.success(res, updatedBooking);
   } catch (error) {
     console.error("Error updating booking:", error);
+    // Add specific error handling for credit note issues
+    if (error.message.includes('Credit Note') || error.message.includes('Insufficient funds')) {
+         return apiResponse.error(res, `Credit Note Error: ${error.message}`, 400);
+    }
     if (error.message === 'Booking not found') {
       return apiResponse.error(res, error.message, 404);
     }
