@@ -277,7 +277,20 @@ export default function BookingsPage() {
                     const isCancelled = booking.bookingStatus === 'CANCELLED';
                     const isVoided = booking.bookingStatus === 'VOID';
                     
+                    // --- NEW LOGIC FOR RED INDICATOR ---
+                    const hasMissingIssuedDate = !booking.issuedDate;
+                    const hasMissingSuppliers = !booking.costItems || booking.costItems.length === 0 || booking.costItems.every(item => !item.suppliers || item.suppliers.length === 0);
+                    const needsAttention = !isVoided && !isCancelled && (hasMissingIssuedDate || hasMissingSuppliers);
                     
+                    let attentionTitle = '';
+                    if(needsAttention) {
+                        const reasons = [];
+                        if (hasMissingIssuedDate) reasons.push('Missing Issued Date');
+                        if (hasMissingSuppliers) reasons.push('Missing Supplier in Costs');
+                        attentionTitle = `Action Required: ${reasons.join(' & ')}`;
+                    }
+                    // --- END OF NEW LOGIC ---
+
                     const rowClasses = isVoided
                       ? "bg-gray-100 text-gray-400 opacity-80 cursor-pointer hover:bg-gray-200"
                       : isCancelled 
@@ -292,7 +305,14 @@ export default function BookingsPage() {
                           className={`border-b border-slate-200 transition-colors duration-150 ${rowClasses}`}
                           onClick={() => setSelectedBooking(booking)}
                         >
-                          <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle">
+                          <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle relative">
+                            {/* NEW: Conditional rendering for the red indicator */}
+                            {needsAttention && (
+                                <div 
+                                    className="absolute left-1 top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"
+                                    title={attentionTitle}
+                                ></div>
+                            )}
                             {booking.children && booking.children.length > 0 && (
                               <button 
                                 onClick={() => toggleExpandRow(booking.id)} 
@@ -342,28 +362,29 @@ export default function BookingsPage() {
                                <td className="px-4 py-3 text-center text-slate-400">—</td>
                                <td className="px-4 py-3 text-center text-slate-400">—</td>
                                <td className={`px-4 py-3 whitespace-nowrap text-sm font-bold ${parseFloat(child.profitOrLoss) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                   £{child.profitOrLoss.toFixed(2)}
+                                  £{child.profitOrLoss.toFixed(2)}
                                </td>
-                           </tr>
+                            </tr>
                           ) : (
                             <tr key={child.id} className="bg-sky-50 text-xs border-b border-sky-200 hover:bg-sky-100 cursor-pointer" onClick={() => setSelectedBooking(child)}>
-                                <td></td>
-                                <td className="px-4 py-3 font-bold text-sky-800">↳ {child.folderNo}</td>
-                                <td className="px-4 py-3 font-mono text-slate-500">{child.refNo}</td>
-                                <td className="px-4 py-3 text-slate-800">{child.paxName}</td>
-                                <td className="px-4 py-3 text-slate-600">{child.agentName}</td>
-                                <td className="px-4 py-3 font-mono">{child.pnr}</td>
-                                <td className="px-4 py-3">{child.fromTo}</td>
-                                <td className="px-4 py-3"><span className={`px-2 py-1 font-semibold rounded-full text-xs ${getStatusBadgeStyle(child.bookingStatus)}`}>{child.bookingStatus}</span></td>
-                                <td className="px-4 py-3 font-semibold">{formatDateDisplay(child.travelDate)}</td>
-                                <td className="px-4 py-3 font-medium text-green-700">{child.revenue != null ? `£${parseFloat(child.revenue).toFixed(2)}` : '—'}</td>
-                                <td className="px-4 py-3 font-medium text-red-700">{child.balance != null ? `£${parseFloat(child.balance).toFixed(2)}` : '—'}</td>
-                                <td className="px-4 py-3 font-bold text-green-700">{child.profit != null ? `£${parseFloat(child.profit).toFixed(2)}` : '—'}</td>
+                               <td></td>
+                               <td className="px-4 py-3 font-bold text-sky-800">↳ {child.folderNo}</td>
+                               <td className="px-4 py-3 font-mono text-slate-500">{child.refNo}</td>
+                               <td className="px-4 py-3 text-slate-800">{child.paxName}</td>
+                               <td className="px-4 py-3 text-slate-600">{child.agentName}</td>
+                               <td className="px-4 py-3 font-mono">{child.pnr}</td>
+                               <td className="px-4 py-3">{child.fromTo}</td>
+                               <td className="px-4 py-3"><span className={`px-2 py-1 font-semibold rounded-full text-xs ${getStatusBadgeStyle(child.bookingStatus)}`}>{child.bookingStatus}</span></td>
+                               <td className="px-4 py-3 font-semibold">{formatDateDisplay(child.travelDate)}</td>
+                               <td className="px-4 py-3 font-medium text-green-700">{child.revenue != null ? `£${parseFloat(child.revenue).toFixed(2)}` : '—'}</td>
+                               <td className="px-4 py-3 font-medium text-red-700">{child.balance != null ? `£${parseFloat(child.balance).toFixed(2)}` : '—'}</td>
+                               <td className="px-4 py-3 font-bold text-green-700">{child.profit != null ? `£${parseFloat(child.profit).toFixed(2)}` : '—'}</td>
                             </tr>
                           )
                         ))}
                       </React.Fragment>
-                  )})
+                    )
+                  })
                 ) : (
                   <tr>
                     <td colSpan="12" className="px-6 py-24 text-center">

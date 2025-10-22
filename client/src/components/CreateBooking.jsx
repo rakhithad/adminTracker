@@ -48,7 +48,7 @@ export default function CreateBooking({ onBookingCreated }) {
     refNo: '', paxName: '', passengers: [], numPax: 1, agentName: '', teamName: '',
     pnr: '', airline: '', fromTo: '', travelDate: '', description: '',
     pcDate: new Date().toISOString().split('T')[0],
-    issuedDate: new Date().toISOString().split('T')[0],
+    issuedDate: '', // CHANGED: Default to empty string or null instead of today's date
     revenue: '', prodCost: '', prodCostBreakdown: [], surcharge: '',
     profit: '', balance: '',
     initialPayments: [],
@@ -85,10 +85,6 @@ export default function CreateBooking({ onBookingCreated }) {
     const originalBooking = location.state?.originalBookingForDateChange;
     if (originalBooking) {
       setOriginalBookingInfo({ id: originalBooking.id, folderNo: originalBooking.folderNo });
-      
-      // REMOVED: This line was forcing the "Full Payment" method
-      // setSelectedPaymentMethod('FULL'); 
-
       setFormData({
         ...getInitialFormData(),
         paxName: originalBooking.paxName,
@@ -106,7 +102,6 @@ export default function CreateBooking({ onBookingCreated }) {
     const totalReceived = formData.initialPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
     const prodCostNum = parseFloat(formData.prodCost) || 0;
     const surchargeNum = parseFloat(formData.surcharge) || 0;
-
     let newCalculations = { received: totalReceived.toFixed(2) };
 
     if (selectedPaymentMethod === 'FULL') {
@@ -116,11 +111,9 @@ export default function CreateBooking({ onBookingCreated }) {
     } else if (selectedPaymentMethod === 'INTERNAL') {
         const sellingPriceNum = parseFloat(formData.totalSellingPrice) || 0;
         const balanceAfterDeposit = sellingPriceNum - totalReceived;
-
         const lastDate = formData.customInstalments.length > 0
             ? new Date(formData.customInstalments.reduce((latest, inst) => new Date(inst.dueDate) > new Date(latest) ? inst.dueDate : latest, formData.customInstalments[0].dueDate))
             : new Date();
-
         newCalculations = {
             ...newCalculations,
             revenue: sellingPriceNum.toFixed(2),
@@ -139,7 +132,6 @@ export default function CreateBooking({ onBookingCreated }) {
 
   const handlePaymentMethodSelect = (method) => {
     setSelectedPaymentMethod(method);
-    // Keep original data if it's a date change
     if (!originalBookingInfo) {
       setFormData(getInitialFormData());
     }
@@ -178,30 +170,17 @@ export default function CreateBooking({ onBookingCreated }) {
 
   const handleDistributeBalance = () => {
     const { balance, customInstalments } = formData;
-    if (customInstalments.length === 0 || !balance) {
-      return;
-    }
+    if (customInstalments.length === 0 || !balance) return;
     const balanceNum = parseFloat(balance);
     const numInstalments = customInstalments.length;
     const distributedAmount = (balanceNum / numInstalments).toFixed(2);
-    const newInstalments = customInstalments.map(instalment => ({
-        ...instalment,
-        amount: distributedAmount,
-    }));
+    const newInstalments = customInstalments.map(instalment => ({ ...instalment, amount: distributedAmount }));
     setFormData(prev => ({ ...prev, customInstalments: newInstalments }));
   };
 
   const handleBreakdownSubmit = (simpleBreakdown) => {
-    // The breakdown is now simple: [{ category: 'Flight', amount: 800 }]
     const total = simpleBreakdown.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-    
-    // We update the total cost and save the simple breakdown structure
-    setFormData((prev) => ({ 
-      ...prev, 
-      prodCost: total.toFixed(2), 
-      prodCostBreakdown: simpleBreakdown 
-    }));
-    
+    setFormData((prev) => ({ ...prev, prodCost: total.toFixed(2), prodCostBreakdown: simpleBreakdown }));
     setShowCostBreakdown(false);
   };
 
@@ -212,18 +191,12 @@ export default function CreateBooking({ onBookingCreated }) {
 
   const handleAddPayment = ({ amount, transactionMethod, receivedDate }) => {
     const newPayment = { amount, transactionMethod, receivedDate };
-    setFormData(prev => ({
-      ...prev,
-      initialPayments: [...prev.initialPayments, newPayment],
-    }));
+    setFormData(prev => ({ ...prev, initialPayments: [...prev.initialPayments, newPayment] }));
     setShowReceivedAmount(false);
   };
 
   const handleRemovePayment = (indexToRemove) => {
-    setFormData(prev => ({
-      ...prev,
-      initialPayments: prev.initialPayments.filter((_, index) => index !== indexToRemove),
-    }));
+    setFormData(prev => ({ ...prev, initialPayments: prev.initialPayments.filter((_, index) => index !== indexToRemove) }));
   };
 
   const handleSubmit = async (e) => {
@@ -242,41 +215,35 @@ export default function CreateBooking({ onBookingCreated }) {
             prodCost: formData.prodCost ? parseFloat(formData.prodCost) : null,
             surcharge: formData.surcharge ? parseFloat(formData.surcharge) : null,
             profit: formData.profit ? parseFloat(formData.profit) : null,
-            issuedDate: formData.issuedDate,
+            // CHANGED: Handle optional issuedDate
+            issuedDate: formData.issuedDate ? formData.issuedDate : null, 
         };
 
         if (selectedPaymentMethod === 'FULL') {
-            const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'revenue'];
+            // CHANGED: Removed issuedDate from requiredFields
+            const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'revenue']; 
             const missingFields = requiredFields.filter(f => !formData[f]);
             if(missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
             if(formData.initialPayments.length === 0) throw new Error('At least one payment must be added.');
 
             bookingData = {
-                ...commonFields,
-                bookingType: 'FRESH',
-                paymentMethod: selectedPaymentMethod,
+                ...commonFields, bookingType: 'FRESH', paymentMethod: selectedPaymentMethod,
                 revenue: formData.revenue ? parseFloat(formData.revenue) : null,
-                balance: parseFloat(formData.balance),
-                initialPayments: formData.initialPayments,
-                instalments: [],
+                balance: parseFloat(formData.balance), initialPayments: formData.initialPayments, instalments: [],
             };
         } else if (selectedPaymentMethod === 'INTERNAL') {
+             // CHANGED: Removed issuedDate from requiredFields
             const requiredFields = ['refNo', 'paxName', 'agentName', 'pnr', 'travelDate', 'prodCost', 'totalSellingPrice'];
             const missingFields = requiredFields.filter(f => !formData[f]);
             if(missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
             if(formData.customInstalments.length === 0) throw new Error('At least one instalment is required for this payment method.');
 
             bookingData = {
-                ...commonFields,
-                bookingType: 'FRESH',
-                paymentMethod: selectedPaymentMethod,
+                ...commonFields, bookingType: 'FRESH', paymentMethod: selectedPaymentMethod,
                 revenue: formData.totalSellingPrice ? parseFloat(formData.totalSellingPrice) : null,
-                received: parseFloat(formData.received),
-                balance: parseFloat(formData.balance),
+                received: parseFloat(formData.received), balance: parseFloat(formData.balance),
                 transFee: formData.trans_fee ? parseFloat(formData.trans_fee) : 0,
-                instalments: formData.customInstalments,
-                lastPaymentDate: formData.lastPaymentDate,
-                initialPayments: formData.initialPayments,
+                instalments: formData.customInstalments, lastPaymentDate: formData.lastPaymentDate, initialPayments: formData.initialPayments,
             };
         } else {
             throw new Error("Invalid payment method selected.");
@@ -306,11 +273,7 @@ export default function CreateBooking({ onBookingCreated }) {
   const handleAgentChange = (e) => {
     const selectedAgentName = e.target.value;
     const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
-    setFormData(prev => ({
-      ...prev,
-      agentName: selectedAgentName,
-      teamName: selectedAgent ? selectedAgent.team : ''
-    }));
+    setFormData(prev => ({ ...prev, agentName: selectedAgentName, teamName: selectedAgent ? selectedAgent.team : '' }));
   };
 
   const CoreBookingInfo = () => (
@@ -326,31 +289,12 @@ export default function CreateBooking({ onBookingCreated }) {
           </div>
           {formData.passengers.length > 0 && <div className="mt-2 p-2 bg-gray-50 rounded-md border text-xs text-gray-600"><p className="font-semibold">{formData.paxName}</p><p>Total Passengers: {formData.numPax}</p></div>}
         </div>
-        <FormSelect
-          label="Agent Name"
-          name="agentName"
-          value={formData.agentName}
-          onChange={handleAgentChange}
-          required
-        >
+        <FormSelect label="Agent Name" name="agentName" value={formData.agentName} onChange={handleAgentChange} required>
           <option value="">Select an Agent</option>
-          {agents.map(agent => (
-            <option key={agent.id} value={agent.fullName}>
-              {agent.fullName}
-            </option>
-          ))}
+          {agents.map(agent => ( <option key={agent.id} value={agent.fullName}>{agent.fullName}</option> ))}
         </FormSelect>
-        <FormSelect
-          label="Team"
-          name="teamName"
-          value={formData.teamName}
-          onChange={handleChange}
-          required
-          disabled={formData.agentName !== ''}
-        >
-            <option value="">Select Team</option>
-            <option value="PH">PH</option>
-            <option value="TOURS">TOURS</option>
+        <FormSelect label="Team" name="teamName" value={formData.teamName} onChange={handleChange} required disabled={formData.agentName !== ''}>
+            <option value="">Select Team</option> <option value="PH">PH</option> <option value="TOURS">TOURS</option>
         </FormSelect>
         <FormInput label="PNR" name="pnr" value={formData.pnr} onChange={handleChange} required />
         <FormInput label="Airline" name="airline" value={formData.airline} onChange={handleChange} required  />
@@ -366,7 +310,6 @@ export default function CreateBooking({ onBookingCreated }) {
           <h3 className="text-2xl font-bold mb-1 text-gray-900">{originalBookingInfo ? `Create Date Change for: ${originalBookingInfo.folderNo}` : 'Create New Booking'}</h3>
           <p className="text-gray-500">{originalBookingInfo ? 'Select the payment method for the new charges.' : 'First, select the payment method for the new booking.'}</p>
         </div>
-        {/* CHANGED: Removed the conditional wrapper to always show the dropdown */}
         <div className="w-full max-w-xs">
             <FormSelect label="Select Payment Method" name="paymentMethod" value={selectedPaymentMethod} onChange={(e) => handlePaymentMethodSelect(e.target.value)}>
                 <option value="" disabled>-- Choose a method --</option>
@@ -384,10 +327,11 @@ export default function CreateBooking({ onBookingCreated }) {
           <CoreBookingInfo />
           <div className="border-t border-gray-200 pt-6">
             <h4 className="text-lg font-semibold text-gray-800 mb-4">Dates</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg-grid-cols-3 gap-x-6 gap-y-5">
+             {/* CHANGED: Removed issuedDate input */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
                 <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
                 <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
-                <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
+                {/* <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required /> */}
             </div>
           </div>
           <div className="border-t border-gray-200 pt-6">
@@ -401,12 +345,7 @@ export default function CreateBooking({ onBookingCreated }) {
                     <button type="button" onClick={() => setShowCostBreakdown(true)} className="ml-2 px-4 h-[42px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"><FaCalculator /></button>
                   </div>
                 </div>
-                <InitialPaymentsDisplay
-                    payments={formData.initialPayments}
-                    totalReceived={formData.received}
-                    onRemovePayment={handleRemovePayment}
-                    onAddPaymentClick={() => setShowReceivedAmount(true)}
-                />
+                <InitialPaymentsDisplay payments={formData.initialPayments} totalReceived={formData.received} onRemovePayment={handleRemovePayment} onAddPaymentClick={() => setShowReceivedAmount(true)} />
                 <FormInput label="Surcharge (£)" name="surcharge" type="number" step="0.01" value={formData.surcharge} onChange={handleNumberChange} />
                 <FormInput label="Profit (£)" name="profit" value={formData.profit} readOnly />
                 <div className="lg:col-span-3">
@@ -428,22 +367,17 @@ export default function CreateBooking({ onBookingCreated }) {
             <CoreBookingInfo />
             <div className="border-t border-gray-200 pt-6">
                 <h4 className="text-lg font-semibold text-gray-800 mb-4">Booking Dates</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg-grid-cols-3 gap-x-6 gap-y-5">
+                {/* CHANGED: Removed issuedDate input */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
                     <FormInput label="Travel Date" name="travelDate" type="date" value={formData.travelDate} onChange={handleChange} required />
                     <FormInput label="PC Date" name="pcDate" type="date" value={formData.pcDate} onChange={handleChange} required />
-                    <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required />
+                    {/* <FormInput label="Issued Date" name="issuedDate" type="date" value={formData.issuedDate} onChange={handleChange} required /> */}
                 </div>
             </div>
             <InternalPaymentForm
-              formData={formData}
-              onNumberChange={handleNumberChange}
-              onInstalmentChange={handleCustomInstalmentChange}
-              onAddInstalment={addCustomInstalment}
-              onRemoveInstalment={removeCustomInstalment}
-              onShowCostBreakdown={() => setShowCostBreakdown(true)}
-              initialPayments={formData.initialPayments}
-              onRemovePayment={handleRemovePayment}
-              onShowAddPaymentModal={() => setShowReceivedAmount(true)}
+              formData={formData} onNumberChange={handleNumberChange} onInstalmentChange={handleCustomInstalmentChange}
+              onAddInstalment={addCustomInstalment} onRemoveInstalment={removeCustomInstalment} onShowCostBreakdown={() => setShowCostBreakdown(true)}
+              initialPayments={formData.initialPayments} onRemovePayment={handleRemovePayment} onShowAddPaymentModal={() => setShowReceivedAmount(true)}
               onDistributeBalance={handleDistributeBalance}
             />
             <div className="flex justify-end pt-6 border-t border-gray-200">
@@ -454,17 +388,9 @@ export default function CreateBooking({ onBookingCreated }) {
         </form>
       )}
 
-      {showCostBreakdown && <SimpleCostPopup 
-        initialCosts={formData.prodCostBreakdown} 
-        onClose={() => setShowCostBreakdown(false)} 
-        onSubmit={handleBreakdownSubmit} 
-    />}
+      {showCostBreakdown && <SimpleCostPopup initialCosts={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} />}
       {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}
-      {showReceivedAmount && <ReceivedAmountPopup
-          initialData={{}}
-          onClose={() => setShowReceivedAmount(false)}
-          onSubmit={handleAddPayment}
-      />}
+      {showReceivedAmount && <ReceivedAmountPopup initialData={{}} onClose={() => setShowReceivedAmount(false)} onSubmit={handleAddPayment} />}
     </div>
   );
 }

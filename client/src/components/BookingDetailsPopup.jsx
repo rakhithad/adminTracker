@@ -205,40 +205,57 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     };
 
     const handleSave = async () => {
-        setError('');
-        try {
-            const changedFields = {};
-            Object.keys(editData).forEach(key => {
-                if (key === 'initialPayments') return; 
-                const originalValue = booking[key];
-                let editedValue = editData[key];
-                let comparableOriginal = originalValue;
-                if (dateFields.includes(key) && originalValue) {
-                    comparableOriginal = originalValue.split('T')[0];
-                }
-                if (numberFields.includes(key)) {
-                    const originalNum = originalValue ? parseFloat(originalValue) : 0;
-                    const editedNum = editedValue ? parseFloat(editedValue) : 0;
-                    if (originalNum !== editedNum) {
-                        changedFields[key] = editedValue === '' || editedValue === null ? null : editedNum;
-                    }
-                } else if (comparableOriginal !== editedValue) {
-                     changedFields[key] = editedValue === '' ? null : editedValue;
-                }
-            });
+    setError('');
+    try {
+        const changedFields = {};
+        Object.keys(editData).forEach(key => {
+            // Skip complex fields or unchanged fields
+            if (key === 'initialPayments' || key === 'costItems' || key === 'passengers' || key === 'instalments') return; 
 
-            if (Object.keys(changedFields).length === 0) {
-                setIsEditing(false);
-                return;
+            const originalValue = booking[key];
+            let editedValue = editData[key];
+            let comparableOriginal = originalValue;
+
+            // Prepare original value for comparison (especially for dates)
+            if (dateFields.includes(key) && originalValue) {
+                comparableOriginal = originalValue.split('T')[0];
             }
-            await updateBooking(booking.id, changedFields);
-            onSave();
+
+            // Check if the value has actually changed
+            if (String(comparableOriginal ?? '') !== String(editedValue ?? '')) {
+                 // --- THIS IS THE FIX FOR DATES ---
+                if (dateFields.includes(key)) {
+                    // Convert 'YYYY-MM-DD' string to a Date object if it's not empty, otherwise null
+                    changedFields[key] = editedValue ? new Date(editedValue) : null;
+                } 
+                // Handle numbers
+                else if (numberFields.includes(key)) {
+                    const editedNum = editedValue ? parseFloat(editedValue) : null;
+                     // Send null if empty, otherwise send the number
+                    changedFields[key] = editedValue === '' || editedValue === null ? null : editedNum;
+                } 
+                // Handle other simple string fields
+                else {
+                    changedFields[key] = editedValue === '' ? null : editedValue;
+                }
+            }
+        });
+
+        if (Object.keys(changedFields).length === 0) {
             setIsEditing(false);
-        } catch (err) {
-            console.error("Update failed:", err);
-            setError(err.response?.data?.error || "Failed to save changes. Please try again.");
+            return; // No changes to save
         }
-    };
+
+        // Make the API call with the correctly formatted data
+        await updateBooking(booking.id, changedFields);
+        onSave(); // Refresh data
+        setIsEditing(false); // Exit edit mode
+
+    } catch (err) {
+        console.error("Update failed:", err);
+        setError(err.response?.data?.error || "Failed to save changes. Please try again.");
+    }
+  };
 
     const handleDateChange = () => {
         navigate('/create-booking', { state: { originalBookingForDateChange: booking } });

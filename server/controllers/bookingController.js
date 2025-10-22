@@ -67,7 +67,7 @@ const createPendingBooking = async (req, res) => {
     const pendingBooking = await prisma.$transaction(async (tx) => {
       const initialPayments = req.body.initialPayments || [];
 
-      const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'travelDate', 'numPax' ];
+      const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'travelDate', 'numPax' ];
       const missingFields = requiredFields.filter((field) => !req.body[field] && req.body[field] !== 0);
       if (missingFields.length > 0) {
         throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
@@ -418,7 +418,7 @@ const createBooking = async (req, res) => {
     // --- Get initialPayments array from the start ---
     const initialPayments = req.body.initialPayments || [];
 
-    const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'issuedDate', 'travelDate' ];
+    const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'travelDate' ];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
       return apiResponse.error(res, `Missing required fields: ${missingFields.join(', ')}`, 400);
