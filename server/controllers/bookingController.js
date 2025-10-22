@@ -1193,6 +1193,7 @@ const getSuppliersInfo = async (req, res) => {
                 refNo: true,
                 bookingStatus: true,
                 folderNo: true,
+                paxName: true, // Include paxName
                 costItems: {
                     select: {
                         category: true,
@@ -1204,6 +1205,16 @@ const getSuppliersInfo = async (req, res) => {
                                 paidAmount: true,
                                 pendingAmount: true,
                                 createdAt: true,
+                                paymentMethod: true, // Needed for history popup
+                                firstMethodAmount: true, // Needed for history popup
+                                secondMethodAmount: true, // Needed for history popup
+                                // Include settlement and credit note usage history
+                                settlements: true,
+                                paidByCreditNoteUsage: {
+                                    include: {
+                                        creditNote: true // Include details about the note used
+                                    }
+                                }
                             },
                         },
                     },
@@ -1218,10 +1229,11 @@ const getSuppliersInfo = async (req, res) => {
                     supplierSummary[s.supplier].transactions.push({
                         type: "Booking",
                         data: {
-                            ...s,
+                            ...s, // Includes settlements and usage history now
                             folderNo: booking.folderNo,
                             refNo: booking.refNo,
-                            category: item.category,
+                            category: item.category, // Pass category
+                            paxName: booking.paxName, // Pass paxName
                             bookingStatus: booking.bookingStatus,
                             pendingAmount: booking.bookingStatus === "CANCELLED" ? 0 : s.pendingAmount,
                         },
@@ -1230,36 +1242,37 @@ const getSuppliersInfo = async (req, res) => {
             });
         });
 
+        // Fetch all Credit Notes (existing logic)
         const allCreditNotes = await prisma.supplierCreditNote.findMany({
-            include: {
-                generatedFromCancellation: {
-                    include: {
-                        originalBooking: {
-                            select: {
-                                refNo: true
-                            }
-                        }
-                    },
-                },
-                usageHistory: {
-                    include: {
-                        usedOnCostItemSupplier: {
-                            include: {
-                                costItem: {
-                                    include: {
-                                        booking: {
-                                            select: {
-                                                refNo: true
-                                            }
-                                        }
-                                    }
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        });
+          include: {
+              generatedFromCancellation: {
+                  include: {
+                      originalBooking: {
+                          select: {
+                              refNo: true
+                          }
+                      }
+                  },
+              },
+              usageHistory: {
+                  include: {
+                      usedOnCostItemSupplier: {
+                          include: {
+                              costItem: {
+                                  include: {
+                                      booking: {
+                                          select: {
+                                              refNo: true
+                                          }
+                                      }
+                                  }
+                              }
+                          },
+                      },
+                  },
+              },
+          },
+      });
 
         allCreditNotes.forEach((note) => {
             if (note.supplier) {
@@ -1280,6 +1293,7 @@ const getSuppliersInfo = async (req, res) => {
             }
         });
 
+        // Fetch all Pending Payables (existing logic)
         const allPayables = await prisma.supplierPayable.findMany({
             where: { status: "PENDING" },
             include: {
@@ -1290,6 +1304,7 @@ const getSuppliersInfo = async (req, res) => {
                         },
                     },
                 },
+                settlements: true, // Also include settlements for payables if needed later
             },
         });
 
@@ -1303,6 +1318,7 @@ const getSuppliersInfo = async (req, res) => {
             }
         });
 
+        // Calculate Totals (Updated pending calculation)
         for (const supplierName in supplierSummary) {
             const supplier = supplierSummary[supplierName];
             const bookingTotals = supplier.transactions
@@ -1311,27 +1327,20 @@ const getSuppliersInfo = async (req, res) => {
                     (acc, tx) => {
                         acc.totalAmount += tx.data.amount || 0;
                         acc.totalPaid += tx.data.paidAmount || 0;
-                        acc.totalPending += tx.data.pendingAmount || 0;
+                        // Use the status-adjusted pending amount
+                        acc.totalPending += (tx.data.bookingStatus === "CANCELLED" ? 0 : tx.data.pendingAmount || 0);
                         return acc;
-                    }, {
-                        totalAmount: 0,
-                        totalPaid: 0,
-                        totalPending: 0
-                    }
+                    }, { totalAmount: 0, totalPaid: 0, totalPending: 0 }
                 );
 
-            const payablesPending = supplier.payables.reduce(
-                (sum, p) => sum + p.pendingAmount,
-                0
-            );
+            const payablesPending = supplier.payables.reduce( (sum, p) => sum + p.pendingAmount, 0 );
 
             supplier.totalAmount = bookingTotals.totalAmount;
             supplier.totalPaid = bookingTotals.totalPaid;
             supplier.totalPending = bookingTotals.totalPending + payablesPending;
 
-            supplier.transactions.sort(
-                (a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt)
-            );
+            // Sort transactions
+            supplier.transactions.sort( (a, b) => new Date(b.data.createdAt) - new Date(a.data.createdAt) );
         }
 
         return apiResponse.success(res, supplierSummary);
