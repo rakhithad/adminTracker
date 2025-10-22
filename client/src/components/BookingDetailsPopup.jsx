@@ -1,109 +1,118 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner, FaUndo, FaFileInvoice } from 'react-icons/fa';
-import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking, generateInvoicePDF } from '../api/api';
+// Added getAgentsList to imports
+import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking, generateInvoicePDF, getAgentsList } from '../api/api'; 
 import CancellationPopup from './CancellationPopup';
 import ProductCostBreakdown from './ProductCostBreakdown';
 
+// --- Helper Components (TabButton, InlineInput, InfoItem, ActionButton, VoidReasonPopup, HistoryItem) remain unchanged ---
 const TabButton = ({ label, isActive, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`px-4 py-3 text-sm font-semibold rounded-t-lg transition-all duration-200 focus:outline-none ${
-      isActive
-        ? 'bg-white border-b-2 border-blue-600 text-blue-600'
-        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-    }`}
-  >
-    {label}
-  </button>
-);
+    <button
+      onClick={onClick}
+      className={`px-4 py-3 text-sm font-semibold rounded-t-lg transition-all duration-200 focus:outline-none ${
+        isActive
+          ? 'bg-white border-b-2 border-blue-600 text-blue-600'
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+      }`}
+    >
+      {label}
+    </button>
+  );
+  
+  const InlineInput = (props) => (
+      <input {...props} className="w-full py-1 px-2 border border-slate-300 rounded-md bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
+  );
 
-const InlineInput = (props) => (
-    <input {...props} className="w-full py-1 px-2 border border-slate-300 rounded-md bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow" />
-);
-
-const InfoItem = ({ label, children, className = '' }) => (
-  <div className={className}>
-    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
-    <div className="text-base text-slate-800 break-words mt-1">{children || '—'}</div>
-  </div>
-);
-
-const ActionButton = ({ icon, children, onClick, className = '', ...props }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg shadow-sm transition-transform hover:scale-105 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:transform-none ${className}`}
-    {...props}
-  >
-    {icon}
-    {children}
-  </button>
-);
-
-const VoidReasonPopup = ({ onSubmit, onCancel }) => {
-    const [reason, setReason] = useState('');
-    return (
-        <div className="fixed inset-0 bg-slate-900 bg-opacity-80 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md animate-slide-up">
-                <h3 className="text-lg font-bold text-slate-800">Reason for Voiding</h3>
-                <p className="text-sm text-slate-600 mt-2">
-                    Please provide a clear reason for voiding this booking. This will be recorded in the audit history.
-                </p>
-                <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    rows="4"
-                    className="w-full mt-4 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Created in error by agent, duplicate entry..."
-                />
-                <div className="flex justify-end space-x-3 mt-4">
-                    <button onClick={onCancel} className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-200 rounded-md hover:bg-slate-300">
-                        Cancel
-                    </button>
-                    <button
-                        onClick={() => onSubmit(reason)}
-                        disabled={!reason.trim()}
-                        className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed"
-                    >
-                        Confirm Void
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-
-const HistoryItem = ({ log }) => {
-    let message = 'performed an unknown action.';
-    const formattedDate = new Date(log.createdAt).toLocaleString('en-GB', {
-        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-
-    switch(log.action) {
-        case 'CREATE': message = 'created this booking.'; break;
-        case 'UPDATE': message = `updated '${log.fieldName}' from '${log.oldValue}' to '${log.newValue}'.`; break;
-        case 'DATE_CHANGE': message = `processed a date change, marking this booking as COMPLETED.`; break;
-        case 'CREATE_CANCELLATION': message = 'initiated the cancellation process for this booking.'; break;
-        case 'SETTLEMENT_PAYMENT': message = `processed a payment: ${log.newValue}.`; break;
-        case 'REFUND_PAYMENT': message = `processed a refund: ${log.newValue}.`; break;
-        case 'VOID_BOOKING': message = `voided this booking. Reason: "${log.newValue}"`; break;
-        case 'UNVOID_BOOKING': message = `restored this booking from a voided state.`; break;
-        default: message = `performed action: ${log.action}`;
-    }
-
-    return (
-        <li className="flex items-start space-x-4 py-3 border-b border-slate-100 last:border-b-0">
-            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">
-                {log.user.firstName.charAt(0)}
-            </div>
-            <div>
-                <p className="text-sm text-slate-800"><span className="font-semibold">{log.user.firstName}</span> {message}</p>
-                <p className="text-xs text-slate-500">{formattedDate}</p>
-            </div>
-        </li>
-    );
-};
+  const InlineSelect = ({ children, ...props }) => (
+    <select {...props} className="w-full py-1 px-2 border border-slate-300 rounded-md bg-white shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow">
+        {children}
+    </select>
+  );
+  
+  const InfoItem = ({ label, children, className = '' }) => (
+    <div className={className}>
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+      <div className="text-base text-slate-800 break-words mt-1">{children || '—'}</div>
+    </div>
+  );
+  
+  const ActionButton = ({ icon, children, onClick, className = '', ...props }) => (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg shadow-sm transition-transform hover:scale-105 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:transform-none ${className}`}
+      {...props}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+  
+  const VoidReasonPopup = ({ onSubmit, onCancel }) => {
+      const [reason, setReason] = useState('');
+      return (
+          <div className="fixed inset-0 bg-slate-900 bg-opacity-80 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md animate-slide-up">
+                  <h3 className="text-lg font-bold text-slate-800">Reason for Voiding</h3>
+                  <p className="text-sm text-slate-600 mt-2">
+                      Please provide a clear reason for voiding this booking. This will be recorded in the audit history.
+                  </p>
+                  <textarea
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      rows="4"
+                      className="w-full mt-4 p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g., Created in error by agent, duplicate entry..."
+                  />
+                  <div className="flex justify-end space-x-3 mt-4">
+                      <button onClick={onCancel} className="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-200 rounded-md hover:bg-slate-300">
+                          Cancel
+                      </button>
+                      <button
+                          onClick={() => onSubmit(reason)}
+                          disabled={!reason.trim()}
+                          className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-md hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed"
+                      >
+                          Confirm Void
+                      </button>
+                  </div>
+              </div>
+          </div>
+      );
+  };
+  
+  
+  const HistoryItem = ({ log }) => {
+      let message = 'performed an unknown action.';
+      const formattedDate = new Date(log.createdAt).toLocaleString('en-GB', {
+          day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+  
+      switch(log.action) {
+          case 'CREATE': message = 'created this booking.'; break;
+          case 'UPDATE': message = `updated '${log.fieldName}' from '${log.oldValue}' to '${log.newValue}'.`; break;
+          case 'DATE_CHANGE': message = `processed a date change, marking this booking as COMPLETED.`; break;
+          case 'CREATE_CANCELLATION': message = 'initiated the cancellation process for this booking.'; break;
+          case 'SETTLEMENT_PAYMENT': message = `processed a payment: ${log.newValue}.`; break;
+          case 'REFUND_PAYMENT': message = `processed a refund: ${log.newValue}.`; break;
+          case 'VOID_BOOKING': message = `voided this booking. Reason: "${log.newValue}"`; break;
+          case 'UNVOID_BOOKING': message = `restored this booking from a voided state.`; break;
+          default: message = `performed action: ${log.action}`;
+      }
+  
+      return (
+          <li className="flex items-start space-x-4 py-3 border-b border-slate-100 last:border-b-0">
+              <div className="flex-shrink-0 h-8 w-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">
+                  {log.user.firstName.charAt(0)}
+              </div>
+              <div>
+                  <p className="text-sm text-slate-800"><span className="font-semibold">{log.user.firstName}</span> {message}</p>
+                  <p className="text-xs text-slate-500">{formattedDate}</p>
+              </div>
+          </li>
+      );
+  };
+// --- End Helper Components ---
 
 export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const navigate = useNavigate();
@@ -117,6 +126,21 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
     const [showCostEditor, setShowCostEditor] = useState(false);
+    const [agents, setAgents] = useState([]); // NEW: State for agents list
+
+    // NEW: Fetch agents list on component mount
+    useEffect(() => {
+        const fetchAgents = async () => {
+          try {
+            const response = await getAgentsList();
+            setAgents(response.data);
+          } catch (error) {
+            console.error("Failed to fetch agents list for popup", error);
+            // Optionally set an error state here
+          }
+        };
+        fetchAgents();
+      }, []);
 
     useEffect(() => {
         if (booking) {
@@ -127,6 +151,8 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                     initialEditData[field] = booking[field].split('T')[0];
                 }
             });
+            // Ensure teamName is initialized even if null in booking data
+            initialEditData.teamName = booking.teamName || ''; 
             setEditData(initialEditData);
             setIsEditing(false);
             setActiveTab('details');
@@ -174,6 +200,17 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         setEditData(prev => ({ ...prev, [name]: value }));
     };
 
+    // NEW: Handler for agent dropdown change
+    const handleAgentChange = (e) => {
+        const selectedAgentName = e.target.value;
+        const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
+        setEditData(prev => ({
+          ...prev,
+          agentName: selectedAgentName,
+          teamName: selectedAgent ? selectedAgent.team : '' // Auto-set team
+        }));
+      };
+
     const handleGenerateInvoice = async () => {
         setIsGeneratingInvoice(true);
         setError('');
@@ -205,57 +242,54 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     };
 
     const handleSave = async () => {
-    setError('');
-    try {
-        const changedFields = {};
-        Object.keys(editData).forEach(key => {
-            // Skip complex fields or unchanged fields
-            if (key === 'initialPayments' || key === 'costItems' || key === 'passengers' || key === 'instalments') return; 
-
-            const originalValue = booking[key];
-            let editedValue = editData[key];
-            let comparableOriginal = originalValue;
-
-            // Prepare original value for comparison (especially for dates)
-            if (dateFields.includes(key) && originalValue) {
-                comparableOriginal = originalValue.split('T')[0];
-            }
-
-            // Check if the value has actually changed
-            if (String(comparableOriginal ?? '') !== String(editedValue ?? '')) {
-                 // --- THIS IS THE FIX FOR DATES ---
-                if (dateFields.includes(key)) {
-                    // Convert 'YYYY-MM-DD' string to a Date object if it's not empty, otherwise null
-                    changedFields[key] = editedValue ? new Date(editedValue) : null;
-                } 
-                // Handle numbers
-                else if (numberFields.includes(key)) {
-                    const editedNum = editedValue ? parseFloat(editedValue) : null;
-                     // Send null if empty, otherwise send the number
-                    changedFields[key] = editedValue === '' || editedValue === null ? null : editedNum;
-                } 
-                // Handle other simple string fields
-                else {
-                    changedFields[key] = editedValue === '' ? null : editedValue;
+        setError('');
+        try {
+            const changedFields = {};
+            // Make sure to compare against the initial booking data, not potentially stale editData
+            const initialBookingDataForComparison = { ...booking }; 
+             dateFields.forEach(field => {
+                if (initialBookingDataForComparison[field]) {
+                    initialBookingDataForComparison[field] = initialBookingDataForComparison[field].split('T')[0];
                 }
+            });
+
+            Object.keys(editData).forEach(key => {
+                // Skip complex fields or unchanged fields
+                if (['initialPayments', 'costItems', 'passengers', 'instalments', 'id', 'folderNo', 'cancellation', 'createdBy', 'voidedBy'].includes(key)) return; 
+
+                const originalValue = initialBookingDataForComparison[key];
+                let editedValue = editData[key];
+                
+                // Ensure consistent comparison (e.g., null vs empty string)
+                const comparableOriginal = originalValue ?? ''; 
+                const comparableEdited = editedValue ?? '';
+
+                if (String(comparableOriginal) !== String(comparableEdited)) {
+                    if (dateFields.includes(key)) {
+                        changedFields[key] = editedValue ? new Date(editedValue) : null;
+                    } else if (numberFields.includes(key)) {
+                        const editedNum = editedValue ? parseFloat(editedValue) : null;
+                        changedFields[key] = editedValue === '' || editedValue === null ? null : editedNum;
+                    } else {
+                        changedFields[key] = editedValue === '' ? null : editedValue;
+                    }
+                }
+            });
+
+            if (Object.keys(changedFields).length === 0) {
+                setIsEditing(false); // Exit edit mode even if nothing changed
+                return; 
             }
-        });
 
-        if (Object.keys(changedFields).length === 0) {
-            setIsEditing(false);
-            return; // No changes to save
+            await updateBooking(booking.id, changedFields);
+            onSave(); 
+            setIsEditing(false); 
+
+        } catch (err) {
+            console.error("Update failed:", err);
+            setError(err.response?.data?.error || "Failed to save changes. Please try again.");
         }
-
-        // Make the API call with the correctly formatted data
-        await updateBooking(booking.id, changedFields);
-        onSave(); // Refresh data
-        setIsEditing(false); // Exit edit mode
-
-    } catch (err) {
-        console.error("Update failed:", err);
-        setError(err.response?.data?.error || "Failed to save changes. Please try again.");
-    }
-  };
+    };
 
     const handleDateChange = () => {
         navigate('/create-booking', { state: { originalBookingForDateChange: booking } });
@@ -286,10 +320,32 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     
     const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : 'N/A';
 
+    // REMOVED: renderEditDetailsTab function is no longer needed.
+
+    // UPDATED: renderDetailsTab now includes conditional inputs
     const renderDetailsTab = () => (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
             <InfoItem label="Agent / Team">
-                {isEditing ? <InlineInput name="agentName" value={editData.agentName || ''} onChange={handleEditChange} /> : <p>{booking.agentName} ({booking.teamName})</p>}
+                {isEditing ? (
+                    <div className="flex flex-col space-y-2">
+                        <InlineSelect name="agentName" value={editData.agentName || ''} onChange={handleAgentChange}>
+                            <option value="">Select an Agent</option>
+                            {agents.map(agent => (
+                                <option key={agent.id} value={agent.fullName}>
+                                    {agent.fullName}
+                                </option>
+                            ))}
+                        </InlineSelect>
+                        <InlineSelect name="teamName" value={editData.teamName || ''} onChange={handleEditChange} disabled={!!editData.agentName} >
+                            <option value="">Select Team</option>
+                            <option value="PH">PH</option>
+                            <option value="TOURS">TOURS</option>
+                            {/* Add other teams if necessary */}
+                        </InlineSelect>
+                    </div>
+                ) : (
+                    <p>{booking.agentName} ({booking.teamName || 'N/A'})</p>
+                )}
             </InfoItem>
             <InfoItem label="PNR">
                 {isEditing ? <InlineInput name="pnr" value={editData.pnr || ''} onChange={handleEditChange} /> : <p className="font-mono">{booking.pnr}</p>}
@@ -320,6 +376,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
     );
 
+    // UPDATED: renderFinancialsTab now includes conditional inputs
     const renderFinancialsTab = () => (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-6">
             <InfoItem label="Revenue">
@@ -328,13 +385,16 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <InfoItem label="Product Cost">
                 <div className="flex items-center gap-4">
                     <p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p>
-                    <button 
-                        onClick={() => setShowCostEditor(true)}
-                        className="px-3 py-1 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
-                        disabled={isVoided}
-                    >
-                        Edit Costs
-                    </button>
+                    {/* Edit Cost Button remains here, only shown when NOT editing main fields */}
+                    {!isEditing && (
+                        <button 
+                            onClick={() => setShowCostEditor(true)}
+                            className="px-3 py-1 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
+                            disabled={isVoided}
+                        >
+                            Edit Costs
+                        </button>
+                    )}
                 </div>
             </InfoItem>
             <InfoItem label="Trans. Fee">
@@ -356,15 +416,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
     );
 
-    const supplierPaymentsData = booking.costItems?.flatMap(item => 
-        (item.suppliers || []).map(supplier => (
-            <tr key={supplier.id}>
-                <td className="px-4 py-3 whitespace-nowrap font-semibold">{supplier.supplier}</td><td className="px-4 py-3 whitespace-nowrap">{item.category}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700">£{supplier.amount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
-            </tr>
-        ))
-    );
-
+    // --- Data preparation for tables (customerPaymentsData, supplierPaymentsData) remain unchanged ---
     const customerPaymentsData = [
         ...(booking.initialPayments || []).map(p => ({ id: p.id, date: p.paymentDate, type: 'Initial Payment', amount: p.amount, method: p.transactionMethod })),
         ...(booking.instalments || []).flatMap(inst => (inst.payments || []).map(p => ({ id: p.id, date: p.paymentDate, type: 'Instalment', amount: p.amount, method: p.transactionMethod })))
@@ -377,6 +429,15 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-slate-700">£{p.amount?.toFixed(2)}</td>
         </tr>
     ));
+
+    const supplierPaymentsData = booking.costItems?.flatMap(item => 
+        (item.suppliers || []).map(supplier => (
+            <tr key={supplier.id}>
+                <td className="px-4 py-3 whitespace-nowrap font-semibold">{supplier.supplier}</td><td className="px-4 py-3 whitespace-nowrap">{item.category}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700">£{supplier.amount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
+            </tr>
+        ))
+    );
 
     const renderPaymentsTable = (headers, data) => (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -398,6 +459,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         if (auditHistory.length === 0) { return <div className="text-center p-10"><FaHistory className="h-12 w-12 text-slate-300 mx-auto mb-4" /><h3 className="text-lg font-medium text-slate-700">No History Found</h3><p className="text-sm text-slate-500 mt-1">There are no recorded changes for this booking.</p></div>; }
         return <ul className="divide-y divide-slate-100">{auditHistory.map(log => <HistoryItem key={log.id} log={log} />)}</ul>;
     };
+    // --- End Data preparation and Table/History Rendering ---
 
     return (
         <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center p-4 z-40 animate-fade-in" onClick={onClose}>
@@ -407,11 +469,12 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                         <h2 className="text-2xl font-bold text-slate-900">Booking Details</h2>
                         <p className="text-sm text-slate-500 mt-1">Ref: <span className="font-semibold text-blue-600">{booking.refNo}</span>  |  Passenger: <span className="font-semibold">{booking.paxName}</span></p>
                     </div>
+                    {/* Header Action Buttons remain the same */}
                     <div className="flex items-center space-x-2 flex-shrink-0">
                         {isEditing ? (
                             <>
                                 <ActionButton onClick={handleSave} icon={<FaSave />} className="bg-green-600 text-white hover:bg-green-700">Save Changes</ActionButton>
-                                <ActionButton onClick={() => setIsEditing(false)} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
+                                <ActionButton onClick={() => { setIsEditing(false); setEditData(booking); /* Reset edits on cancel */ }} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
                             </>
                         ) : (
                             <>
