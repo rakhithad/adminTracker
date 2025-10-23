@@ -1,5 +1,4 @@
 const { PrismaClient } = require('@prisma/client');
-
 const apiResponse = require('../utils/apiResponse');
 const { generateNextInvoiceNumber } = require('../utils/invoiceService');
 const { createInvoicePdf } = require('../utils/pdfService');
