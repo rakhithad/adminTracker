@@ -59,80 +59,112 @@ const compareAndLogChanges = async (tx, { modelName, recordId, userId, oldRecord
 
 const createPendingBooking = async (req, res) => {
   console.log('Received body for pending booking:', JSON.stringify(req.body, null, 2));
-
   const { id: userId } = req.user;
 
   try {
+    // We separate initialPayments from the req.body
+    const { initialPayments = [], prodCostBreakdown = [], ...bookingData } = req.body;
+
     const pendingBooking = await prisma.$transaction(async (tx) => {
-      const initialPayments = req.body.initialPayments || [];
-
+      // --- Validation ---
       const requiredFields = [ 'ref_no', 'pax_name', 'agent_name', 'team_name', 'pnr', 'airline', 'from_to', 'bookingType', 'paymentMethod', 'pcDate', 'travelDate', 'numPax' ];
-      const missingFields = requiredFields.filter((field) => !req.body[field] && req.body[field] !== 0);
-      if (missingFields.length > 0) {
-        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
-      }
-      if (initialPayments.length === 0) {
-        throw new Error('At least one initial payment must be provided.');
-      }
-
-      const prodCostBreakdown = req.body.prodCostBreakdown || [];
+      const missingFields = requiredFields.filter((field) => !bookingData[field] && bookingData[field] !== 0);
+      if (missingFields.length > 0) throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      if (initialPayments.length === 0) throw new Error('At least one initial payment must be provided.');
+      // --- End Validation ---
       
-
       const calculatedProdCost = prodCostBreakdown.reduce((sum, item) => sum + parseFloat(item.amount || 0), 0);
       const calculatedReceived = initialPayments.reduce((sum, payment) => sum + parseFloat(payment.amount || 0), 0);
-      const revenue = req.body.revenue ? parseFloat(req.body.revenue) : 0;
-      const transFee = req.body.transFee ? parseFloat(req.body.transFee) : 0;
-      const surcharge = req.body.surcharge ? parseFloat(req.body.surcharge) : 0;
+      const revenue = bookingData.revenue ? parseFloat(bookingData.revenue) : 0;
+      const transFee = bookingData.transFee ? parseFloat(bookingData.transFee) : 0;
+      const surcharge = bookingData.surcharge ? parseFloat(bookingData.surcharge) : 0;
       const profit = revenue - calculatedProdCost - transFee - surcharge;
       const balance = revenue - calculatedReceived;
 
+      // Step 1: Create the PendingBooking *without* initialPayments
       const newPendingBooking = await tx.pendingBooking.create({
         data: {
           createdById: userId,
-          refNo: req.body.ref_no,
-          paxName: req.body.pax_name,
-          agentName: req.body.agent_name,
-          teamName: req.body.team_name,
-          pnr: req.body.pnr,
-          airline: req.body.airline,
-          fromTo: req.body.from_to,
-          bookingType: req.body.bookingType,
+          refNo: bookingData.ref_no,
+          paxName: bookingData.pax_name,
+          agentName: bookingData.agent_name,
+          teamName: bookingData.team_name,
+          pnr: bookingData.pnr,
+          airline: bookingData.airline,
+          fromTo: bookingData.from_to,
+          bookingType: bookingData.bookingType,
           bookingStatus: 'PENDING',
-          pcDate: new Date(req.body.pcDate),
-          issuedDate: req.body.issuedDate ? new Date(req.body.issuedDate) : null,
-          paymentMethod: req.body.paymentMethod,
-          lastPaymentDate: req.body.lastPaymentDate ? new Date(req.body.lastPaymentDate) : null,
-          travelDate: req.body.travelDate ? new Date(req.body.travelDate) : null,
+          pcDate: new Date(bookingData.pcDate),
+          issuedDate: bookingData.issuedDate ? new Date(bookingData.issuedDate) : null,
+          paymentMethod: bookingData.paymentMethod,
+          lastPaymentDate: bookingData.lastPaymentDate ? new Date(bookingData.lastPaymentDate) : null,
+          travelDate: bookingData.travelDate ? new Date(bookingData.travelDate) : null,
           revenue: revenue || null,
           prodCost: calculatedProdCost || null,
           transFee: transFee || null,
           surcharge: surcharge || null,
-          // received: calculatedReceived, // <-- THIS LINE IS REMOVED
           balance: balance,
           profit: profit,
-          invoiced: req.body.invoiced || null,
-          description: req.body.description || null,
+          invoiced: bookingData.invoiced || null,
+          description: bookingData.description || null,
           status: 'PENDING',
-          numPax: parseInt(req.body.numPax),
-          initialPayments: {
-            create: initialPayments.map(p => ({
-              amount: parseFloat(p.amount),
-              transactionMethod: p.transactionMethod,
-              paymentDate: new Date(p.receivedDate),
-            })),
-          },
+          numPax: parseInt(bookingData.numPax),
           costItems: {
             create: prodCostBreakdown.map((item) => ({
               category: item.category,
               amount: parseFloat(item.amount),
-              // We no longer create suppliers here
             })),
           },
-          instalments: { create: (req.body.instalments || []).map(inst => ({ dueDate: new Date(inst.dueDate), amount: parseFloat(inst.amount), status: inst.status || 'PENDING' })) },
-          passengers: { create: (req.body.passengers || []).map(pax => ({ ...pax, birthday: pax.birthday ? new Date(pax.birthday) : null })) },
+          instalments: { create: (bookingData.instalments || []).map(inst => ({ dueDate: new Date(inst.dueDate), amount: parseFloat(inst.amount), status: inst.status || 'PENDING' })) },
+          passengers: { create: (bookingData.passengers || []).map(pax => ({ ...pax, birthday: pax.birthday ? new Date(pax.birthday) : null })) },
         },
-        include: { costItems: { include: { suppliers: true } } }
       });
+
+      // Step 2: Manually loop and create InitialPayments
+      for (const payment of initialPayments) {
+        const newInitialPayment = await tx.initialPayment.create({
+          data: {
+            amount: parseFloat(payment.amount),
+            transactionMethod: payment.transactionMethod,
+            paymentDate: new Date(payment.receivedDate),
+            pendingBookingId: newPendingBooking.id // Link to the pending booking
+          }
+        });
+
+        // Step 3: If it's a credit note, process it
+        if (payment.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && payment.creditNoteDetails) {
+          for (const usedNote of payment.creditNoteDetails) {
+            const creditNote = await tx.customerCreditNote.findUnique({
+              where: { id: usedNote.id }
+            });
+
+            // Validation
+            if (!creditNote) throw new Error(`Customer Credit Note ${usedNote.id} not found.`);
+            // --- REMOVED NAME CHECK ---
+            // if (creditNote.customerName !== newPendingBooking.paxName) throw new Error(`Credit Note ${usedNote.id} does not belong to ${newPendingBooking.paxName}.`);
+            if (creditNote.remainingAmount < usedNote.amountToUse) throw new Error(`Insufficient funds on Credit Note ${usedNote.id}.`);
+
+            // Update the credit note
+            const newRemaining = creditNote.remainingAmount - usedNote.amountToUse;
+            await tx.customerCreditNote.update({
+              where: { id: usedNote.id },
+              data: {
+                remainingAmount: newRemaining,
+                status: newRemaining < 0.01 ? 'USED' : 'PARTIALLY_USED'
+              }
+            });
+
+            // Create the usage record
+            await tx.customerCreditNoteUsage.create({
+              data: {
+                amountUsed: usedNote.amountToUse,
+                creditNoteId: usedNote.id,
+                usedOnInitialPaymentId: newInitialPayment.id // Link to the InitialPayment
+              }
+            });
+          }
+        }
+      }
 
       await createAuditLog(tx, {
         userId: userId,
@@ -141,21 +173,26 @@ const createPendingBooking = async (req, res) => {
         action: ActionType.CREATE_PENDING,
       });
 
+      // Step 4: Return the full booking with all relations
       return tx.pendingBooking.findUnique({
-          where: { id: newPendingBooking.id },
-          include: { 
-            costItems: { include: { suppliers: true } }, 
-            instalments: true, 
-            passengers: true,
-            initialPayments: true
+        where: { id: newPendingBooking.id },
+        include: { 
+          costItems: { include: { suppliers: true } }, 
+          instalments: true, 
+          passengers: true,
+          initialPayments: { // Include the linked credit note usage
+            include: {
+              appliedCustomerCreditNoteUsage: true
+            }
           }
+        }
       });
     });
 
     return apiResponse.success(res, pendingBooking, 201);
   } catch (error) {
     console.error('Pending booking creation error:', error);
-    if (error instanceof Error && (error.message.includes('Missing required fields') || error.message.includes('Invalid') || error.message.includes('must') || error.message.includes('Credit Note'))) {
+    if (error instanceof Error && (error.message.includes('Missing required fields') || error.message.includes('Invalid') || error.message.includes('must') || error.message.includes('Credit Note') || error.message.includes('Insufficient funds'))) {
       return apiResponse.error(res, error.message, 400);
     }
     if (error.code === 'P2002') return apiResponse.error(res, 'A booking with a similar unique identifier already exists.', 409);
@@ -890,11 +927,8 @@ const getCustomerDeposits = async (req, res) => {
   try {
     const bookings = await prisma.booking.findMany({
       where: {
-        // This 'in' clause still filters only 'INTERNAL' and 'INTERNAL_HUMM'.
-        // To show FULL/HUMM bookings in the table, you would need to adjust this.
-        // For now, I'm working within the existing filter.
         paymentMethod: {
-          in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'], // <-- MODIFIED THIS LINE
+          in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'],
         },
       },
       select: {
@@ -904,16 +938,24 @@ const getCustomerDeposits = async (req, res) => {
         paxName: true,
         agentName: true,
         pcDate: true,
-        travelDate: true,
+        travelDate: true, // Keep travelDate for now if other logic uses it
         revenue: true,
         bookingStatus: true,
-        paymentMethod: true, // <-- ADDED THIS TO DETERMINE LOGIC
-        initialDeposit: true, // <-- KEPT THIS AS IS, IT'S FROM THE DB MODEL
+        paymentMethod: true,
+        // Removed initialDeposit as it seems redundant if initialPayments are fetched
         initialPayments: {
           select: {
+            id: true, // Include ID
             amount: true,
             transactionMethod: true,
             paymentDate: true,
+            appliedCustomerCreditNoteUsage: { // Include usage link
+                select: {
+                    id: true,
+                    amountUsed: true,
+                    creditNoteId: true,
+                }
+            }
           }
         },
         instalments: {
@@ -953,107 +995,160 @@ const getCustomerDeposits = async (req, res) => {
               include: {
                 settlements: true
               }
+            },
+            // **** ADD THIS INCLUDE BLOCK ****
+            generatedCustomerCreditNote: { // Fetch the related customer credit note
+                select: {
+                    id: true,
+                    initialAmount: true,
+                    remainingAmount: true,
+                    status: true,
+                    createdAt: true
+                }
             }
+            // **** END ADDED BLOCK ****
           }
         }
       },
+      // Optional: Add orderBy if needed
+      orderBy: {
+        pcDate: 'desc' 
+      }
     });
 
+    // --- Processing Logic (Map Function) ---
     const formattedBookings = bookings.map((booking) => {
       const revenue = parseFloat(booking.revenue || 0);
 
-      // --- Base Calculations: Sums of actual money received from customer ---
+      // --- Calculate Received Amount ---
       const sumOfInitialPayments = (booking.initialPayments || [])
-        .reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0); // Ensure amount is treated as number
 
       const sumOfPaidInstalments = (booking.instalments || [])
         .reduce((sum, inst) => {
-          const paymentTotal = (inst.payments || []).reduce((pSum, p) => pSum + parseFloat(p.amount), 0);
+          const paymentTotal = (inst.payments || []).reduce((pSum, p) => pSum + parseFloat(p.amount || 0), 0); // Ensure amount is number
           return sum + paymentTotal;
         }, 0);
       
-      let totalReceived = sumOfInitialPayments + sumOfPaidInstalments; // Total cash-in from customer
-      let currentBalance = revenue - totalReceived; // Initial balance calculation (money owed to us)
+      let totalReceived = sumOfInitialPayments + sumOfPaidInstalments;
+      let currentBalance = revenue - totalReceived; // Initial balance
 
-      // --- Payment History for Pop-up (remains mostly the same) ---
+      // --- Build Payment History (Include credit note usage details) ---
       const paymentHistory = [];
-      (booking.initialPayments || []).forEach(payment => {
-        paymentHistory.push({
-          type: 'Initial Payment',
-          date: payment.paymentDate,
-          amount: parseFloat(payment.amount),
-          method: payment.transactionMethod,
-        });
-      });
-      (booking.instalments || []).forEach(instalment => {
-        (instalment.payments || []).forEach(payment => {
-          paymentHistory.push({
-            type: `Instalment Payment`,
-            date: payment.paymentDate,
-            amount: parseFloat(payment.amount),
-            method: payment.transactionMethod,
-          });
-        });
-      });
-      
-      // --- CANCELLATION SPECIFIC LOGIC ---
+       (booking.initialPayments || []).forEach(payment => {
+           let methodDisplay = payment.transactionMethod;
+           let details = '';
+           // If this payment used a customer credit note, show it
+           if (payment.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && payment.appliedCustomerCreditNoteUsage) {
+               methodDisplay = 'Customer Credit';
+               details = `Used Note ID: ${payment.appliedCustomerCreditNoteUsage.creditNoteId}`;
+           }
+           paymentHistory.push({
+               id: `initial-${payment.id}`, // Unique key for React list
+               type: 'Initial Payment',
+               date: payment.paymentDate,
+               amount: parseFloat(payment.amount || 0),
+               method: methodDisplay,
+               details: details
+           });
+       });
+       (booking.instalments || []).forEach(instalment => {
+           (instalment.payments || []).forEach(payment => {
+               paymentHistory.push({
+                   id: `instalment-${payment.id}`, // Unique key
+                   type: `Instalment Payment`,
+                   date: payment.paymentDate,
+                   amount: parseFloat(payment.amount || 0),
+                   method: payment.transactionMethod,
+                   details: `Instalment due: ${new Date(instalment.dueDate).toLocaleDateString('en-GB')}`
+               });
+           });
+       });
+
+      // --- Cancellation Logic ---
       if (booking.bookingStatus === 'CANCELLED' && booking.cancellation) {
         const cancellation = booking.cancellation;
         const refundToPassenger = parseFloat(cancellation.refundToPassenger || 0);
         const customerPayable = cancellation.createdCustomerPayable;
+        const customerCreditNote = cancellation.generatedCustomerCreditNote; // Get the fetched credit note
 
-        // If a refund has been paid, deduct it from totalReceived for a 'net received' view
+        // If a refund was paid, subtract it and add history entry
         if (cancellation.refundPayment) {
-          totalReceived -= parseFloat(cancellation.refundPayment.amount);
+          totalReceived -= parseFloat(cancellation.refundPayment.amount || 0);
           paymentHistory.push({
+            id: 'refund-paid',
             type: 'Passenger Refund Paid',
             date: cancellation.refundPayment.refundDate,
-            amount: -parseFloat(cancellation.refundPayment.amount), // Negative to indicate money out
+            amount: -parseFloat(cancellation.refundPayment.amount || 0), // Negative amount
             method: cancellation.refundPayment.transactionMethod,
+            details: 'Cash/Bank refund processed'
           });
         }
+
+        // If a customer credit note was issued, add an entry to history
+        if (customerCreditNote) {
+            // Note: We don't adjust totalReceived here, as credit issued isn't cash out yet.
+            // Balance calculation below handles this.
+             paymentHistory.push({
+                id: `ccn-issued-${customerCreditNote.id}`,
+                type: 'Credit Note Issued',
+                date: customerCreditNote.createdAt, // Use credit note creation date
+                amount: parseFloat(customerCreditNote.initialAmount || 0), // Show the initial amount issued
+                method: 'CUSTOMER_CREDIT_NOTE',
+                details: `Note ID: ${customerCreditNote.id} issued`
+            });
+        }
+
 
         // Adjust balance based on cancellation financial outcome
         if (customerPayable && customerPayable.pendingAmount > 0) {
-            // Customer still owes us money from cancellation
             currentBalance = parseFloat(customerPayable.pendingAmount);
-        } else if (customerPayable && customerPayable.pendingAmount <= 0.01) {
-            // Customer debt fully settled. If a refund was due, it's now net zero or paid.
-            currentBalance = 0;
-        } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PENDING') {
-            // We owe the customer a refund
-            currentBalance = -refundToPassenger; // Negative balance indicates money owed TO customer
-        } else if (refundToPassenger > 0 && cancellation.refundStatus === 'PAID') {
-            // Refund was due and has been paid. Net balance should be 0 from customer's perspective.
-            currentBalance = 0;
-        } else {
-            // No refund due, no payable pending. Assume settled.
+             // Add payable settlements to history
+            (customerPayable.settlements || []).forEach(settlement => {
+                paymentHistory.push({
+                    id: `cp-settle-${settlement.id}`,
+                    type: 'Cancellation Debt Paid',
+                    date: settlement.paymentDate,
+                    amount: parseFloat(settlement.amount || 0),
+                    method: settlement.transactionMethod,
+                    details: `Settled payable ID: ${customerPayable.id}`
+                });
+            });
+        } else if (cancellation.refundStatus === 'PENDING') {
+            currentBalance = -refundToPassenger; // We owe cash
+        } else if (cancellation.refundStatus === 'CREDIT_ISSUED') {
+             // We "owe" credit, but balance reflects cash. Display handled by ActionCell.
+             // Balance is effectively 0 cash-wise unless customer owed money initially.
+             // Let's reflect the state AFTER cancellation fees but BEFORE refund/credit issue.
+             currentBalance = totalReceived - (parseFloat(cancellation.supplierCancellationFee || 0) + parseFloat(cancellation.adminFee || 0));
+             // If this is negative, it represents the potential credit/refund amount.
+             // If positive, customer still owes despite cancellation (payable already handled).
+        }
+         else { // PAID, N/A, CANCELLED_SETTLED
             currentBalance = 0;
         }
 
-        // Add customer payable settlements to history if applicable
-        if (customerPayable) {
-          const settlements = customerPayable.settlements || [];
-          settlements.forEach(settlement => {
-            paymentHistory.push({
-              type: 'Cancellation Debt Paid',
-              date: settlement.paymentDate,
-              amount: parseFloat(settlement.amount),
-              method: settlement.transactionMethod
-            });
-          });
-        }
       }
       
+      // Sort final history
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
+      // Calculate initial deposit more accurately if needed
+       const calculatedInitialDeposit = (booking.initialPayments || [])
+          .sort((a,b) => new Date(a.paymentDate) - new Date(b.paymentDate)) // Sort by date
+          .slice(0, 1) // Take the first payment
+          .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0); // Sum (should just be one)
+
+
       return {
         ...booking,
-        revenue: revenue.toFixed(2),
+        revenue: parseFloat(booking.revenue || 0).toFixed(2), // Ensure numeric formatting
         received: totalReceived.toFixed(2), 
         balance: currentBalance.toFixed(2), 
-        initialDeposit: sumOfInitialPayments.toFixed(2), 
+        initialDeposit: calculatedInitialDeposit.toFixed(2), // Use calculated first payment
         paymentHistory: paymentHistory,
+        // Ensure cancellation and credit note are passed through
+        cancellation: booking.cancellation 
       };
     });
 
@@ -1955,23 +2050,40 @@ const createCancellation = async (req, res) => {
   const { id: triggerBookingId } = req.params;
   const { supplierCancellationFee, adminFee } = req.body;
 
-  if (supplierCancellationFee === undefined || adminFee === undefined ) {
-    return apiResponse.error(res, 'Supplier Fee, Admin Fee, and Refund Method are required.', 400);
+  if (supplierCancellationFee === undefined || adminFee === undefined) {
+    return apiResponse.error(res, 'Supplier Fee and Admin Fee are required.', 400);
   }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const triggerBooking = await tx.booking.findUnique({ where: { id: parseInt(triggerBookingId) } });
+      const triggerBooking = await tx.booking.findUnique({
+          where: { id: parseInt(triggerBookingId) },
+          select: { id: true, folderNo: true, paxName: true, bookingStatus: true }
+        });
       if (!triggerBooking) throw new Error('Booking not found.');
+      if (triggerBooking.bookingStatus === 'CANCELLED') throw new Error('Booking already cancelled.');
 
       const baseFolderNo = triggerBooking.folderNo.toString().split('.')[0];
-
       const chainBookings = await tx.booking.findMany({
         where: { OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }] },
-        include: {
+        // CORRECTED BLOCK STARTS HERE
+        select: {
+          // Select the scalar fields you need
+          id: true,
+          folderNo: true,
+          bookingStatus: true,
+          revenue: true,
+          prodCost: true,
+          // Include the relations you need
           initialPayments: true,
-          instalments: { include: { payments: true } }
+          instalments: {
+            include: { payments: true }
+          },
+          costItems: {
+            include: { suppliers: true }
+          }
         },
+        // CORRECTED BLOCK ENDS HERE
       });
 
       if (chainBookings.some(b => b.bookingStatus === 'CANCELLED')) {
@@ -1980,41 +2092,36 @@ const createCancellation = async (req, res) => {
       const rootBookingInChain = chainBookings.find(b => b.folderNo === baseFolderNo);
       if (!rootBookingInChain) throw new Error('Could not find root booking.');
 
-      // --- NEW CORRECTED CALCULATION ---
-      // This correctly sums the product cost of all non-cancelled bookings in the chain.
-      // This represents the total amount the supplier was entitled to before cancellation.
+      // --- Calculations ---
       const totalOwedToSupplierBeforeCancellation = chainBookings.reduce((sum, booking) => {
         if (booking.bookingStatus !== 'CANCELLED') {
-          return sum + (booking.prodCost || 0);
+            return sum + (booking.prodCost || 0);
         }
         return sum;
-      }, 0);
+       }, 0);
 
       const totalChainReceivedFromCustomer = chainBookings.reduce((sum, booking) => {
         const initialSum = (booking.initialPayments || []).reduce((acc, p) => acc + p.amount, 0);
-        const instalmentSum = (booking.instalments || []).reduce((acc, inst) => {
-          const paymentsSum = (inst.payments || []).reduce((pAcc, p) => pAcc + p.amount, 0);
-          return acc + paymentsSum;
-        }, 0);
+        const instalmentSum = (booking.instalments || []).reduce((acc, inst) => acc + (inst.payments || []).reduce((pAcc, p) => pAcc + p.amount, 0), 0);
         return sum + initialSum + instalmentSum;
       }, 0);
 
       const supCancellationFee = parseFloat(supplierCancellationFee);
       const customerTotalCancellationFee = supCancellationFee + parseFloat(adminFee);
-      
-      // The supplier difference is what they were owed minus their cancellation fee.
       const supplierDifference = totalOwedToSupplierBeforeCancellation - supCancellationFee;
-      
       const customerDifference = totalChainReceivedFromCustomer - customerTotalCancellationFee;
-      
       const refundToPassenger = customerDifference > 0 ? customerDifference : 0;
       const payableByCustomer = customerDifference < 0 ? Math.abs(customerDifference) : 0;
-      
-      // The credit note is the positive difference from the supplier's side.
-      const creditNoteAmount = supplierDifference > 0 ? supplierDifference : 0;
-
-      // The profit or loss calculation is now based on these correct figures.
+      const supplierCreditNoteAmount = supplierDifference > 0 ? supplierDifference : 0;
       const profitOrLoss = (totalChainReceivedFromCustomer - totalOwedToSupplierBeforeCancellation) - refundToPassenger + payableByCustomer;
+      // --- End Calculations ---
+
+      // --- Determine Refund Status ---
+      let finalRefundStatus = 'N/A';
+      if (refundToPassenger > 0) {
+        finalRefundStatus = 'CREDIT_ISSUED';
+      }
+      // ---
 
       const newCancellationRecord = await tx.cancellation.create({
         data: {
@@ -2025,88 +2132,120 @@ const createCancellation = async (req, res) => {
           supplierCancellationFee: supCancellationFee,
           refundToPassenger: refundToPassenger,
           adminFee: parseFloat(adminFee),
-          creditNoteAmount: creditNoteAmount,
-          refundStatus: refundToPassenger > 0 ? 'PENDING' : 'N/A',
+          creditNoteAmount: supplierCreditNoteAmount,
+          refundStatus: finalRefundStatus,
           profitOrLoss: profitOrLoss,
           description: `Cancellation for chain ${baseFolderNo}.`,
+          accountingMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
         },
       });
-      
+
+      // --- Create Supplier Credit Note OR Payable ---
       if (supplierDifference > 0) {
-        const supplierForCreditNote = await tx.costItemSupplier.findFirst({
-            where: { costItem: { bookingId: rootBookingInChain.id } },
-            select: { supplier: true }
-        });
-
-        if (supplierForCreditNote) {
-            await tx.supplierCreditNote.create({
-                data: {
-                    supplier: supplierForCreditNote.supplier,
-                    initialAmount: creditNoteAmount,
-                    remainingAmount: creditNoteAmount,
-                    status: 'AVAILABLE',
-                    generatedFromCancellationId: newCancellationRecord.id,
-                }
-            });
-        }
+         const firstSupplier = chainBookings
+            .flatMap(b => b.costItems || [])
+            .flatMap(ci => ci.suppliers || [])
+            .find(s => s?.supplier);
+         if (firstSupplier) {
+           await tx.supplierCreditNote.create({
+             data: {
+               supplier: firstSupplier.supplier,
+               initialAmount: supplierCreditNoteAmount,
+               remainingAmount: supplierCreditNoteAmount,
+               status: 'AVAILABLE',
+               generatedFromCancellationId: newCancellationRecord.id,
+             }
+           });
+         } else {
+              console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to associate supplier credit note £${supplierCreditNoteAmount.toFixed(2)}. Credit note NOT created.`);
+         }
       } else if (supplierDifference < 0) {
-        const supplierInfo = await tx.costItemSupplier.findFirst({
-            where: { costItem: { bookingId: rootBookingInChain.id } },
-            select: { supplier: true }
-        });
-
-        if (supplierInfo) {
-            const amountOwedToSupplier = Math.abs(supplierDifference);
-
-            await tx.supplierPayable.create({
-                data: {
-                    supplier: supplierInfo.supplier,
-                    totalAmount: amountOwedToSupplier,
-                    pendingAmount: amountOwedToSupplier, // The full amount is pending initially
-                    reason: `Cancellation fee shortfall for booking chain ${baseFolderNo}`,
-                    status: 'PENDING',
-                    // Link this payable directly to the cancellation that created it
-                    createdFromCancellationId: newCancellationRecord.id,
-                }
-            });
-        }
+         const firstSupplier = chainBookings
+            .flatMap(b => b.costItems || [])
+            .flatMap(ci => ci.suppliers || [])
+            .find(s => s?.supplier);
+         if (firstSupplier) {
+           const amountOwedToSupplier = Math.abs(supplierDifference);
+           await tx.supplierPayable.create({
+             data: {
+               supplier: firstSupplier.supplier,
+               totalAmount: amountOwedToSupplier,
+               pendingAmount: amountOwedToSupplier,
+               reason: `Cancellation fee shortfall for booking chain ${baseFolderNo}`,
+               status: 'PENDING',
+               createdFromCancellationId: newCancellationRecord.id,
+             }
+           });
+         } else {
+             console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to create supplier payable £${Math.abs(supplierDifference).toFixed(2)}. Payable NOT created.`);
+         }
       }
-      
+      // --- End Supplier Outcome ---
+
+      // --- Create Customer Payable ---
       if (payableByCustomer > 0) {
         await tx.customerPayable.create({
           data: {
             totalAmount: payableByCustomer,
-            pendingAmount: payableByCustomer, 
+            pendingAmount: payableByCustomer,
             reason: `Cancellation shortfall for booking chain ${baseFolderNo}`,
             status: 'PENDING',
-            createdFromCancellationId: newCancellationRecord.id, 
+            createdFromCancellationId: newCancellationRecord.id,
             bookingId: rootBookingInChain.id,
           },
         });
       }
+      // --- End Customer Payable ---
 
-      await tx.booking.updateMany({ where: { id: { in: chainBookings.map(b => b.id) } }, data: { bookingStatus: 'CANCELLED' } });
+      // --- Create Customer Credit Note ---
+      if (refundToPassenger > 0) {
+          await tx.customerCreditNote.create({
+              data: {
+                  customerName: triggerBooking.paxName,
+                  initialAmount: refundToPassenger,
+                  remainingAmount: refundToPassenger,
+                  status: 'AVAILABLE',
+                  generatedFromCancellationId: newCancellationRecord.id,
+              }
+          });
+      }
+      // --- End Customer Credit Note ---
 
+      // Update booking statuses
+      await tx.booking.updateMany({
+          where: { id: { in: chainBookings.map(b => b.id) } },
+          data: { bookingStatus: 'CANCELLED' }
+      });
+
+      // Audit log
       await createAuditLog(tx, {
         userId,
         modelName: 'Cancellation',
         recordId: newCancellationRecord.id,
         action: "CREATE_CANCELLATION",
+        changes: [{ fieldName: 'status', oldValue: rootBookingInChain.bookingStatus, newValue: 'CANCELLED' }]
       });
 
-      return newCancellationRecord;
+       return tx.cancellation.findUnique({
+           where: { id: newCancellationRecord.id },
+           include: {
+               generatedCreditNote: true,
+               createdPayable: true,
+               createdCustomerPayable: true,
+               generatedCustomerCreditNote: true
+           }
+       });
     });
 
     return apiResponse.success(res, result, 201);
   } catch (error) {
     console.error("Error creating cancellation:", error);
-    if (error.message.includes('already been cancelled') || error.message.includes('Booking not found')) {
-      return apiResponse.error(res, error.message, 404);
+    if (error.message.includes('already been cancelled') || error.message.includes('Booking not found') || error.message.includes('root booking')) {
+      return apiResponse.error(res, error.message, 409);
     }
     return apiResponse.error(res, `Failed to create cancellation: ${error.message}`, 500);
   }
 };
-
 
 const getAvailableCreditNotes = async (req, res) => {
   try {
@@ -2147,34 +2286,22 @@ const getAvailableCreditNotes = async (req, res) => {
   }
 };
 
-// In controllers/bookingController.js
-
-// In server/controllers/bookingController.js
 
 const createDateChangeBooking = async (req, res) => {
   const { id: userId } = req.user;
   const originalBookingId = parseInt(req.params.id);
-  const data = req.body;
+  const { initialPayments = [], prodCostBreakdown = [], ...data } = req.body;
 
   try {
     const newBooking = await prisma.$transaction(async (tx) => {
-      if (!data.travelDate || !data.revenue) {
-        throw new Error('Travel Date and Revenue are required for a date change.');
-      }
+      // --- Validation & Setup ---
+      if (!data.travelDate || !data.revenue) throw new Error('Travel Date and Revenue are required for a date change.');
       const originalBooking = await tx.booking.findUnique({ where: { id: originalBookingId } });
       if (!originalBooking) throw new Error('Original booking not found.');
-
+      
       const baseFolderNo = originalBooking.folderNo.toString().split('.')[0];
-      const isChainCancelled = await tx.booking.findFirst({
-        where: {
-          OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }],
-          bookingStatus: 'CANCELLED',
-        },
-      });
-
-      if (isChainCancelled) {
-        throw new Error('This booking chain has been cancelled and cannot be modified further.');
-      }
+      const isChainCancelled = await tx.booking.findFirst({ where: { OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }], bookingStatus: 'CANCELLED' } });
+      if (isChainCancelled) throw new Error('This booking chain has been cancelled and cannot be modified further.');
 
       const relatedBookings = await tx.booking.findMany({ where: { folderNo: { startsWith: `${baseFolderNo}.` } } });
       const newIndex = relatedBookings.length;
@@ -2182,31 +2309,16 @@ const createDateChangeBooking = async (req, res) => {
       
       let bookingToUpdateId = originalBooking.id;
       let oldBookingStatus = originalBooking.bookingStatus;
-
       if (relatedBookings.length > 0) {
-        const lastRelatedBooking = relatedBookings.sort((a, b) => {
-            const subA = a.folderNo.includes('.') ? parseInt(a.folderNo.split('.')[1]) : 0;
-            const subB = b.folderNo.includes('.') ? parseInt(b.folderNo.split('.')[1]) : 0;
-            return subA - subB;
-        }).pop();
-        bookingToUpdateId = lastRelatedBooking.id;
-        oldBookingStatus = lastRelatedBooking.bookingStatus;
+          const lastRelatedBooking = relatedBookings.sort((a, b) => (a.folderNo.includes('.') ? parseInt(a.folderNo.split('.')[1]) : 0) - (b.folderNo.includes('.') ? parseInt(b.folderNo.split('.')[1]) : 0)).pop();
+          bookingToUpdateId = lastRelatedBooking.id;
+          oldBookingStatus = lastRelatedBooking.bookingStatus;
       }
-      
       await tx.booking.update({ where: { id: bookingToUpdateId }, data: { bookingStatus: 'COMPLETED' } });
-      
-      await createAuditLog(tx, {
-          userId,
-          modelName: 'Booking',
-          recordId: bookingToUpdateId,
-          action: ActionType.DATE_CHANGE,
-          changes: [{
-            fieldName: 'bookingStatus',
-            oldValue: oldBookingStatus,
-            newValue: 'COMPLETED'
-          }]
-      });
+      await createAuditLog(tx, { userId, modelName: 'Booking', recordId: bookingToUpdateId, action: ActionType.DATE_CHANGE, changes: [{ fieldName: 'bookingStatus', oldValue: oldBookingStatus, newValue: 'COMPLETED' }] });
+      // --- End Validation & Setup ---
 
+      // Step 1: Create the new Booking *without* initialPayments
       const newBookingRecord = await tx.booking.create({
         data: {
           originalBooking: { connect: { id: originalBooking.id } },
@@ -2234,43 +2346,53 @@ const createDateChangeBooking = async (req, res) => {
           invoiced: data.invoiced,
           description: data.description,
           numPax: data.numPax,
-          initialPayments: {
-            create: (data.initialPayments || []).map(p => ({
-              amount: parseFloat(p.amount),
-              transactionMethod: p.transactionMethod,
-              paymentDate: new Date(p.receivedDate),
-            })),
-          },
-          passengers: {
-            create: (data.passengers || []).map(pax => ({
-                title: pax.title,
-                firstName: pax.firstName,
-                middleName: pax.middleName,
-                lastName: pax.lastName,
-                gender: pax.gender,
-                email: pax.email,
-                contactNo: pax.contactNo,
-                nationality: pax.nationality,
-                birthday: pax.birthday ? new Date(pax.birthday) : null,
-                category: pax.category,
-            }))
-          },
-          instalments: {
-            create: (data.instalments || []).map(inst => ({
-              dueDate: new Date(inst.dueDate),
-              amount: parseFloat(inst.amount),
-              status: inst.status || 'PENDING'
-            }))
-          },
-          costItems: {
-            create: (data.prodCostBreakdown || []).map(item => ({
-              category: item.category,
-              amount: parseFloat(item.amount),
-              
-            }))
-          }
+          passengers: { create: (data.passengers || []).map(pax => ({ ...pax, birthday: pax.birthday ? new Date(pax.birthday) : null })) },
+          instalments: { create: (data.instalments || []).map(inst => ({ dueDate: new Date(inst.dueDate), amount: parseFloat(inst.amount), status: inst.status || 'PENDING' })) },
+          costItems: { create: (prodCostBreakdown || []).map(item => ({ category: item.category, amount: parseFloat(item.amount) })) }
         },
       });
+
+      // Step 2: Manually loop and create InitialPayments
+      for (const payment of initialPayments) {
+        const newInitialPayment = await tx.initialPayment.create({
+          data: {
+            amount: parseFloat(payment.amount),
+            transactionMethod: payment.transactionMethod,
+            paymentDate: new Date(payment.receivedDate),
+            bookingId: newBookingRecord.id // Link to the new main booking
+          }
+        });
+
+        // Step 3: If it's a credit note, process it
+        if (payment.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && payment.creditNoteDetails) {
+          for (const usedNote of payment.creditNoteDetails) {
+            const creditNote = await tx.customerCreditNote.findUnique({ where: { id: usedNote.id } });
+
+            // Validation
+            if (!creditNote) throw new Error(`Customer Credit Note ${usedNote.id} not found.`);
+            // --- REMOVED NAME CHECK ---
+            // if (creditNote.customerName !== newBookingRecord.paxName) throw new Error(`Credit Note ${usedNote.id} does not belong to ${newBookingRecord.paxName}.`);
+            if (creditNote.remainingAmount < usedNote.amountToUse) throw new Error(`Insufficient funds on Credit Note ${usedNote.id}.`);
+
+            const newRemaining = creditNote.remainingAmount - usedNote.amountToUse;
+            await tx.customerCreditNote.update({
+              where: { id: usedNote.id },
+              data: {
+                remainingAmount: newRemaining,
+                status: newRemaining < 0.01 ? 'USED' : 'PARTIALLY_USED'
+              }
+            });
+
+            await tx.customerCreditNoteUsage.create({
+              data: {
+                amountUsed: usedNote.amountToUse,
+                creditNoteId: usedNote.id,
+                usedOnInitialPaymentId: newInitialPayment.id
+              }
+            });
+          }
+        }
+      }
 
       await createAuditLog(tx, {
         userId,
@@ -2279,18 +2401,27 @@ const createDateChangeBooking = async (req, res) => {
         action: ActionType.CREATE,
       });
 
+      // Step 4: Return the full booking
       return tx.booking.findUnique({
         where: { id: newBookingRecord.id },
-        include: { costItems: { include: { suppliers: true } }, instalments: true, passengers: true, initialPayments: true }
+        include: { 
+            costItems: { include: { suppliers: true } }, 
+            instalments: true, 
+            passengers: true, 
+            initialPayments: { // Include the linked credit note usage
+                include: {
+                    appliedCustomerCreditNoteUsage: true
+                }
+            }
+        }
       });
     });
 
     return apiResponse.success(res, newBooking, 201);
   } catch (error) {
     console.error('Error creating date change booking:', error);
-    if (error.message.includes('booking chain has been cancelled')) {
-        return apiResponse.error(res, error.message, 409);
-    }
+    if (error.message.includes('booking chain has been cancelled')) return apiResponse.error(res, error.message, 409);
+    if (error.message.includes('Credit Note') || error.message.includes('Insufficient funds')) return apiResponse.error(res, error.message, 400);
     return apiResponse.error(res, `Failed to create date change booking: ${error.message}`, 500);
   }
 };
@@ -2502,7 +2633,6 @@ const settleCustomerPayable = async (req, res) => {
 };
 
 const recordPassengerRefund = async (req, res) => {
-    // --- AUDIT LOG ---
     const { id: userId } = req.user;
     const { id: cancellationId } = req.params;
     const { amount, transactionMethod, refundDate } = req.body;
@@ -2511,34 +2641,48 @@ const recordPassengerRefund = async (req, res) => {
         if (!cancellationId || !amount || !transactionMethod || !refundDate) {
             return apiResponse.error(res, 'Missing required fields.', 400);
         }
+        const refundAmount = parseFloat(amount);
+        if (isNaN(refundAmount) || refundAmount < 0) { // Allow 0 refund amount if needed
+             return apiResponse.error(res, 'Refund amount must be a non-negative number.', 400);
+        }
 
-        // This function already uses a transaction, which is perfect.
+
         const result = await prisma.$transaction(async (tx) => {
-            // Fetch the cancellation and its parent booking for logging
+            // Fetch cancellation, booking, AND the potentially generated customer credit note
             const cancellation = await tx.cancellation.findUnique({
                 where: { id: parseInt(cancellationId) },
                 include: {
-                    originalBooking: true // Include the booking to get its ID
+                    originalBooking: true,
+                    generatedCustomerCreditNote: true // Include the linked credit note
                 }
             });
 
             if (!cancellation) throw new Error('Cancellation record not found.');
-            if (cancellation.refundStatus === 'PAID') throw new Error('This refund has already been paid.');
+            // Allow recording a £0 payment even if already 'PAID' or 'CREDIT_ISSUED',
+            // But prevent recording a > £0 payment if already 'PAID'
+            if (cancellation.refundStatus === 'PAID' && refundAmount > 0) {
+                 throw new Error('This refund has already been marked as paid.');
+            }
+            // Optional: Check if refundAmount matches cancellation.refundToPassenger
+            // if (Math.abs(refundAmount - cancellation.refundToPassenger) > 0.01) {
+            //    console.warn(`Recorded refund amount (£${refundAmount}) differs from calculated due (£${cancellation.refundToPassenger})`);
+            // }
 
-            // --- AUDIT LOG ---
-            // Log this outgoing refund payment on the original Booking's history.
+
+            // --- AUDIT LOGS (Log changes first) ---
+            // Log outgoing refund payment on the original Booking's history.
             await createAuditLog(tx, {
                 userId,
                 modelName: 'Booking',
-                recordId: cancellation.originalBookingId, // The ID of the booking being refunded
+                recordId: cancellation.originalBookingId,
                 action: ActionType.REFUND_PAYMENT,
                 changes: [{
                     fieldName: 'passengerRefund',
-                    oldValue: `Owed to passenger: ${cancellation.refundToPassenger.toFixed(2)}`,
-                    newValue: `Paid refund of ${parseFloat(amount).toFixed(2)}`
+                    oldValue: `Status: ${cancellation.refundStatus}, Due: ${cancellation.refundToPassenger.toFixed(2)}`,
+                    newValue: `Paid refund of ${refundAmount.toFixed(2)} via ${transactionMethod}`
                 }]
             });
-            
+
             // Log the status change on the Cancellation record itself
             await createAuditLog(tx, {
                 userId,
@@ -2548,22 +2692,52 @@ const recordPassengerRefund = async (req, res) => {
                 changes: [{
                     fieldName: 'refundStatus',
                     oldValue: cancellation.refundStatus,
-                    newValue: 'PAID'
+                    newValue: 'PAID' // Marking as PAID because cash was given
                 }]
             });
+            // --- END AUDIT LOGS ---
 
 
-            // 1. Create the payment record
-            const refundPayment = await tx.passengerRefundPayment.create({
-                data: {
+            // --- NEW: Update Customer Credit Note if it exists ---
+            if (cancellation.generatedCustomerCreditNote) {
+                await tx.customerCreditNote.update({
+                    where: { id: cancellation.generatedCustomerCreditNote.id },
+                    data: {
+                        remainingAmount: 0, // Zero out remaining amount
+                        status: 'USED' // Mark as used (or maybe 'VOIDED_BY_REFUND')
+                    }
+                });
+
+                // Optional: Log the credit note update
+                 await createAuditLog(tx, {
+                    userId, modelName: 'CustomerCreditNote', recordId: cancellation.generatedCustomerCreditNote.id,
+                    action: ActionType.UPDATE, changes: [
+                        { fieldName: 'status', oldValue: cancellation.generatedCustomerCreditNote.status, newValue: 'USED' },
+                        { fieldName: 'remainingAmount', oldValue: cancellation.generatedCustomerCreditNote.remainingAmount, newValue: 0 },
+                        { fieldName: 'reason', newValue: 'Voided due to cash refund processing.'}
+                    ]
+                 });
+            }
+            // --- END Credit Note Update ---
+
+
+            // 1. Create the payment record (handle potential existing record for £0 updates)
+            const refundPayment = await tx.passengerRefundPayment.upsert({
+                where: { cancellationId: parseInt(cancellationId) }, // Unique constraint
+                update: { // If it exists (e.g., updating a £0 entry)
+                    amount: refundAmount,
+                    transactionMethod,
+                    refundDate: new Date(refundDate),
+                },
+                create: { // If it doesn't exist
                     cancellationId: parseInt(cancellationId),
-                    amount: parseFloat(amount),
+                    amount: refundAmount,
                     transactionMethod,
                     refundDate: new Date(refundDate),
                 },
             });
 
-            // 2. Update the cancellation status
+            // 2. Update the cancellation status to PAID
             await tx.cancellation.update({
                 where: { id: parseInt(cancellationId) },
                 data: { refundStatus: 'PAID' },
@@ -2814,6 +2988,62 @@ const updateCommissionAmount = async (req, res) => {
     }
 };
 
+const getCustomerCreditNotes = async (req, res) => {
+    // Expect 'originalBookingId' as a query parameter
+    const { originalBookingId } = req.query;
+
+    if (!originalBookingId || isNaN(parseInt(originalBookingId))) { // Validate it's a number
+        return apiResponse.error(res, 'Original Booking ID (originalBookingId) query parameter is required and must be a number.', 400);
+    }
+
+    const bookingIdInt = parseInt(originalBookingId);
+
+    try {
+        // Find cancellations linked directly to the original booking ID
+        const cancellations = await prisma.cancellation.findMany({
+            where: {
+                originalBookingId: bookingIdInt // Filter directly by the ID
+            },
+            select: {
+                id: true // Select only the cancellation ID
+            }
+        });
+
+        if (cancellations.length === 0) {
+            // If no cancellations match, there can be no credit notes
+            return apiResponse.success(res, []);
+        }
+
+        const cancellationIds = cancellations.map(c => c.id);
+
+        // Now find available credit notes generated from these cancellations
+        const availableNotes = await prisma.customerCreditNote.findMany({
+            where: {
+                generatedFromCancellationId: { in: cancellationIds }, // Filter by the found cancellation IDs
+                status: { in: ['AVAILABLE', 'PARTIALLY_USED'] },
+                remainingAmount: { gt: 0 }
+            },
+            include: {
+                generatedFromCancellation: {
+                    select: {
+                        folderNo: true,
+                        // Include original RefNo if needed for display in the selection popup
+                        originalBooking: { select: { refNo: true } }
+                    }
+                }
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        return apiResponse.success(res, availableNotes);
+
+    } catch (error) {
+        console.error('Error fetching available customer credit notes by Booking ID:', error);
+        return apiResponse.error(res, `Failed to fetch customer credit notes: ${error.message}`, 500);
+    }
+};
 
 
 module.exports = {
@@ -2843,5 +3073,6 @@ module.exports = {
   unvoidBooking,
   generateInvoice,
   updateAccountingMonth,
-  updateCommissionAmount
+  updateCommissionAmount,
+  getCustomerCreditNotes
 };

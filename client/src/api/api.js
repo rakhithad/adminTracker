@@ -307,3 +307,9 @@ export const generateCustomerDepositReportPDF = async (filters) => {
         return { success: false, message: "Could not generate PDF report." };
     }
 };
+
+export const getCustomerCreditNotes = async (originalBookingId) => {
+  return await api.get(`/bookings/credit-notes/customer`, { 
+    params: { originalBookingId } // Changed parameter name
+  });
+};

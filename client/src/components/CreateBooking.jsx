@@ -269,9 +269,14 @@ export default function CreateBooking({ onBookingCreated }) {
     setShowPaxDetails(false);
   };
 
-  const handleAddPayment = ({ amount, transactionMethod, receivedDate }) => {
-    const newPayment = { amount, transactionMethod, receivedDate };
-    setFormData(prev => ({ ...prev, initialPayments: [...prev.initialPayments, newPayment] }));
+  const handleAddPayment = (paymentData) => { // Accept the full paymentData object
+    // paymentData might be { amount, transactionMethod, receivedDate }
+    // OR { amount, transactionMethod, receivedDate, creditNoteDetails: [...] }
+    setFormData(prev => ({
+      ...prev,
+      // Store the entire object including potential creditNoteDetails
+      initialPayments: [...prev.initialPayments, paymentData], 
+    }));
     setShowReceivedAmount(false);
   };
 
@@ -572,7 +577,12 @@ export default function CreateBooking({ onBookingCreated }) {
 
       {showCostBreakdown && <SimpleCostPopup initialCosts={formData.prodCostBreakdown} onClose={() => setShowCostBreakdown(false)} onSubmit={handleBreakdownSubmit} />}
       {showPaxDetails && <PaxDetailsPopup initialData={{ passenger: formData.passengers[0], numPax: formData.numPax }} onClose={() => setShowPaxDetails(false)} onSubmit={handlePaxDetailsSubmit} />}
-      {showReceivedAmount && <ReceivedAmountPopup initialData={{}} onClose={() => setShowReceivedAmount(false)} onSubmit={handleAddPayment} />}
+      {showReceivedAmount && <ReceivedAmountPopup
+        initialData={{}} // Pass any initial data if needed for editing later
+        paxName={formData.paxName} // Pass the current lead passenger name
+        onClose={() => setShowReceivedAmount(false)}
+        onSubmit={handleAddPayment} 
+    />}
     </div>
   );
 }

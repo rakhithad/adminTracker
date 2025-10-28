@@ -29,7 +29,8 @@ const {
   unvoidBooking,
   generateInvoice,
   updateAccountingMonth,
-  updateCommissionAmount
+  updateCommissionAmount,
+  getCustomerCreditNotes
 } = require('../controllers/bookingController');
 
 
@@ -61,6 +62,8 @@ router.post('/:id/unvoid', authenticateToken, unvoidBooking);
 router.post('/:id/invoice', authenticateToken, generateInvoice);
 router.put('/:id/accounting-month', authenticateToken, updateAccountingMonth);
 router.put('/:id/commission-amount', authenticateToken, updateCommissionAmount);
+
+router.get('/credit-notes/customer', authenticateToken, getCustomerCreditNotes);
 
 
 
