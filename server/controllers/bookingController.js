@@ -938,23 +938,30 @@ const getCustomerDeposits = async (req, res) => {
         paxName: true,
         agentName: true,
         pcDate: true,
-        travelDate: true, // Keep travelDate for now if other logic uses it
+        travelDate: true,
         revenue: true,
         bookingStatus: true,
         paymentMethod: true,
-        // Removed initialDeposit as it seems redundant if initialPayments are fetched
         initialPayments: {
           select: {
-            id: true, // Include ID
+            id: true,
             amount: true,
             transactionMethod: true,
             paymentDate: true,
-            appliedCustomerCreditNoteUsage: { // Include usage link
-                select: {
-                    id: true,
-                    amountUsed: true,
-                    creditNoteId: true,
+            appliedCustomerCreditNoteUsage: {
+              include: {
+                creditNote: {
+                  include: {
+                    generatedFromCancellation: {
+                      select: {
+                        originalBooking: {
+                          select: { refNo: true }
+                        }
+                      }
+                    }
+                  }
                 }
+              }
             }
           }
         },
@@ -996,23 +1003,28 @@ const getCustomerDeposits = async (req, res) => {
                 settlements: true
               }
             },
-            // **** ADD THIS INCLUDE BLOCK ****
-            generatedCustomerCreditNote: { // Fetch the related customer credit note
+            generatedCustomerCreditNote: {
                 select: {
                     id: true,
                     initialAmount: true,
                     remainingAmount: true,
                     status: true,
-                    createdAt: true
+                    createdAt: true,
+                    // Also include the original refNo here
+                    generatedFromCancellation: {
+                        select: {
+                            originalBooking: {
+                                select: { refNo: true }
+                            }
+                        }
+                    }
                 }
             }
-            // **** END ADDED BLOCK ****
           }
         }
       },
-      // Optional: Add orderBy if needed
       orderBy: {
-        pcDate: 'desc' 
+        pcDate: 'desc'
       }
     });
 
@@ -1020,31 +1032,35 @@ const getCustomerDeposits = async (req, res) => {
     const formattedBookings = bookings.map((booking) => {
       const revenue = parseFloat(booking.revenue || 0);
 
-      // --- Calculate Received Amount ---
       const sumOfInitialPayments = (booking.initialPayments || [])
-        .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0); // Ensure amount is treated as number
+        .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
 
       const sumOfPaidInstalments = (booking.instalments || [])
         .reduce((sum, inst) => {
-          const paymentTotal = (inst.payments || []).reduce((pSum, p) => pSum + parseFloat(p.amount || 0), 0); // Ensure amount is number
+          const paymentTotal = (inst.payments || []).reduce((pSum, p) => pSum + parseFloat(p.amount || 0), 0);
           return sum + paymentTotal;
         }, 0);
       
       let totalReceived = sumOfInitialPayments + sumOfPaidInstalments;
-      let currentBalance = revenue - totalReceived; // Initial balance
+      let currentBalance = revenue - totalReceived;
 
-      // --- Build Payment History (Include credit note usage details) ---
+      // --- Build Payment History ---
       const paymentHistory = [];
        (booking.initialPayments || []).forEach(payment => {
            let methodDisplay = payment.transactionMethod;
-           let details = '';
-           // If this payment used a customer credit note, show it
+           let details = 'Initial payment';
+
+           // --- FIX #1: Add RefNo to credit note usage details ---
            if (payment.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && payment.appliedCustomerCreditNoteUsage) {
                methodDisplay = 'Customer Credit';
-               details = `Used Note ID: ${payment.appliedCustomerCreditNoteUsage.creditNoteId}`;
+               const creditNote = payment.appliedCustomerCreditNoteUsage.creditNote;
+               const originalRefNo = creditNote?.generatedFromCancellation?.originalBooking?.refNo?.trim();
+               details = `Used Note ID: ${creditNote.id} (from ${originalRefNo || 'N/A'})`;
            }
+           // --- End Fix #1 ---
+
            paymentHistory.push({
-               id: `initial-${payment.id}`, // Unique key for React list
+               id: `initial-${payment.id}`,
                type: 'Initial Payment',
                date: payment.paymentDate,
                amount: parseFloat(payment.amount || 0),
@@ -1055,7 +1071,7 @@ const getCustomerDeposits = async (req, res) => {
        (booking.instalments || []).forEach(instalment => {
            (instalment.payments || []).forEach(payment => {
                paymentHistory.push({
-                   id: `instalment-${payment.id}`, // Unique key
+                   id: `instalment-${payment.id}`,
                    type: `Instalment Payment`,
                    date: payment.paymentDate,
                    amount: parseFloat(payment.amount || 0),
@@ -1070,40 +1086,36 @@ const getCustomerDeposits = async (req, res) => {
         const cancellation = booking.cancellation;
         const refundToPassenger = parseFloat(cancellation.refundToPassenger || 0);
         const customerPayable = cancellation.createdCustomerPayable;
-        const customerCreditNote = cancellation.generatedCustomerCreditNote; // Get the fetched credit note
+        const customerCreditNote = cancellation.generatedCustomerCreditNote; 
 
-        // If a refund was paid, subtract it and add history entry
         if (cancellation.refundPayment) {
           totalReceived -= parseFloat(cancellation.refundPayment.amount || 0);
           paymentHistory.push({
             id: 'refund-paid',
             type: 'Passenger Refund Paid',
             date: cancellation.refundPayment.refundDate,
-            amount: -parseFloat(cancellation.refundPayment.amount || 0), // Negative amount
+            amount: -parseFloat(cancellation.refundPayment.amount || 0),
             method: cancellation.refundPayment.transactionMethod,
             details: 'Cash/Bank refund processed'
           });
         }
 
-        // If a customer credit note was issued, add an entry to history
         if (customerCreditNote) {
-            // Note: We don't adjust totalReceived here, as credit issued isn't cash out yet.
-            // Balance calculation below handles this.
+             // --- FIX #2: Add RefNo to credit note issued details ---
+             const originalRefNo = customerCreditNote.generatedFromCancellation?.originalBooking?.refNo?.trim();
              paymentHistory.push({
                 id: `ccn-issued-${customerCreditNote.id}`,
                 type: 'Credit Note Issued',
-                date: customerCreditNote.createdAt, // Use credit note creation date
-                amount: parseFloat(customerCreditNote.initialAmount || 0), // Show the initial amount issued
+                date: customerCreditNote.createdAt,
+                amount: parseFloat(customerCreditNote.initialAmount || 0),
                 method: 'CUSTOMER_CREDIT_NOTE',
-                details: `Note ID: ${customerCreditNote.id} issued`
+                details: `Note ID: ${customerCreditNote.id} (from ${originalRefNo || 'N/A'})`
             });
+            // --- End Fix #2 ---
         }
 
-
-        // Adjust balance based on cancellation financial outcome
         if (customerPayable && customerPayable.pendingAmount > 0) {
             currentBalance = parseFloat(customerPayable.pendingAmount);
-             // Add payable settlements to history
             (customerPayable.settlements || []).forEach(settlement => {
                 paymentHistory.push({
                     id: `cp-settle-${settlement.id}`,
@@ -1115,40 +1127,30 @@ const getCustomerDeposits = async (req, res) => {
                 });
             });
         } else if (cancellation.refundStatus === 'PENDING') {
-            currentBalance = -refundToPassenger; // We owe cash
+            currentBalance = -refundToPassenger;
         } else if (cancellation.refundStatus === 'CREDIT_ISSUED') {
-             // We "owe" credit, but balance reflects cash. Display handled by ActionCell.
-             // Balance is effectively 0 cash-wise unless customer owed money initially.
-             // Let's reflect the state AFTER cancellation fees but BEFORE refund/credit issue.
              currentBalance = totalReceived - (parseFloat(cancellation.supplierCancellationFee || 0) + parseFloat(cancellation.adminFee || 0));
-             // If this is negative, it represents the potential credit/refund amount.
-             // If positive, customer still owes despite cancellation (payable already handled).
         }
-         else { // PAID, N/A, CANCELLED_SETTLED
+         else {
             currentBalance = 0;
         }
-
       }
       
-      // Sort final history
       paymentHistory.sort((a, b) => new Date(a.date) - new Date(b.date));
       
-      // Calculate initial deposit more accurately if needed
-       const calculatedInitialDeposit = (booking.initialPayments || [])
-          .sort((a,b) => new Date(a.paymentDate) - new Date(b.paymentDate)) // Sort by date
-          .slice(0, 1) // Take the first payment
-          .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0); // Sum (should just be one)
+      const calculatedInitialDeposit = (booking.initialPayments || [])
+          .sort((a,b) => new Date(a.paymentDate) - new Date(b.paymentDate)) 
+          .slice(0, 1) 
+          .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0); 
 
 
       return {
         ...booking,
-        revenue: parseFloat(booking.revenue || 0).toFixed(2), // Ensure numeric formatting
+        revenue: revenue.toFixed(2),
         received: totalReceived.toFixed(2), 
         balance: currentBalance.toFixed(2), 
-        initialDeposit: calculatedInitialDeposit.toFixed(2), // Use calculated first payment
+        initialDeposit: sumOfInitialPayments.toFixed(2),
         paymentHistory: paymentHistory,
-        // Ensure cancellation and credit note are passed through
-        cancellation: booking.cancellation 
       };
     });
 
@@ -1161,7 +1163,6 @@ const getCustomerDeposits = async (req, res) => {
 
 
 const createSupplierPaymentSettlement = async (req, res) => {
-
   const { id: userId } = req.user;
   const { costItemSupplierId, amount, transactionMethod, settlementDate } = req.body;
 

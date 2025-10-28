@@ -7,6 +7,7 @@ import { FaSearch, FaExclamationCircle, FaCheckCircle, FaBan, FaMoneyBillWave, F
 import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
 import RecordRefundPopup from '../components/RecordRefundPopup';
 
+// --- Reusable Styled Components ---
 const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
     const colorClasses = {
         blue: 'bg-blue-600 hover:bg-blue-700 text-white',
@@ -24,14 +25,13 @@ const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
         </button>
     );
 };
-
 const StatusBadge = ({ children, color = 'gray' }) => {
     const colorClasses = {
         gray: 'bg-gray-100 text-gray-700',
         green: 'bg-green-100 text-green-800',
         red: 'bg-red-100 text-red-800',
         blue: 'bg-blue-100 text-blue-800',
-        purple: 'bg-purple-100 text-purple-800' // Added for Credit Used
+        purple: 'bg-purple-100 text-purple-800'
     };
     return (
         <div className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${colorClasses[color]}`}>
@@ -39,7 +39,9 @@ const StatusBadge = ({ children, color = 'gray' }) => {
         </div>
     );
 };
+// --- End Reusable Components ---
 
+// --- Action Status Logic ---
 const getActionStatus = (booking) => {
     if (booking.bookingStatus === 'CANCELLED') {
         const cancellation = booking.cancellation;
@@ -67,6 +69,8 @@ const getActionStatus = (booking) => {
     return 'COMPLETED';
 };
 
+
+// --- ActionCell Component ---
 const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
     const status = getActionStatus(booking); 
 
@@ -148,6 +152,7 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
     }
 };
 
+// --- Main Component ---
 export default function CustomerDeposits() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -355,21 +360,43 @@ export default function CustomerDeposits() {
                 const isCancelled = booking.bookingStatus === 'CANCELLED';
                 const balance = parseFloat(booking.balance);
 
+                // --- NEW: Logic for Payment Method Column ---
+                // Find the first initial payment that used a credit note
+                const creditPayment = (booking.initialPayments || []).find(
+                  p => p.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && p.appliedCustomerCreditNoteUsage
+                );
+                const creditRefNo = creditPayment?.appliedCustomerCreditNoteUsage?.creditNote?.generatedFromCancellation?.originalBooking?.refNo;
+                // --- End new logic ---
+
                 return (
-                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150`} >
-                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'} cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>{booking.folderNo}</td>
+                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)} >
+                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>{booking.folderNo}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>{booking.paymentMethod}</td>
+                    
+                    {/* --- UPDATED: Payment Method Cell --- */}
+                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>
+                      {creditRefNo ? (
+                        <div className="flex flex-col">
+                          <span>{booking.paymentMethod}</span>
+                          <span className="text-xs text-blue-600" title={`Paid via credit from ${creditRefNo.trim()}`}>
+                            (Credit: {creditRefNo.trim()})
+                          </span>
+                        </div>
+                      ) : (
+                        booking.paymentMethod
+                      )}
+                    </td>
+                    {/* --- End Updated Cell --- */}
+
                     <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
                     <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit || 0).toFixed(2)}</td> 
                     <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received || 0).toFixed(2)}</td> 
                     <td className={`py-3 px-3 text-sm font-bold ${isCancelled ? 'text-gray-500' : (balance > 0 ? 'text-red-600' : (balance < 0 ? 'text-blue-600' : 'text-green-600'))}`}>
                         {balance.toFixed(2)}
                         {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid)</span>)}
-                        {/* Balance display for cancelled bookings is now mainly handled by ActionCell */}
                     </td>
                     <td className="py-3 px-3 text-sm w-[150px]" onClick={e => e.stopPropagation()}>
                         <ActionCell booking={booking} onAction={handleAction} expanded={expandedRows[booking.id]} onToggleExpand={() => toggleExpand(booking.id)} />
