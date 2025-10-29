@@ -5,7 +5,7 @@ const { getMyProfile, updateMyProfile, getAgents, getAllUsers, updateUserById, c
 const { authenticateToken, authorizeRole } = require('../middleware/auth.middleware.js');
 
 
-router.post('/create', authenticateToken, authorizeRole(['ADMIN', 'MANAGEMENT', 'SUPER_MANAGER', 'SUPER_ADMIN' ]), createUser); 
+router.post('/create', authenticateToken, createUser); 
 router.get('/me', authenticateToken, getMyProfile);
 router.put('/me', authenticateToken, updateMyProfile);
 router.get('/agents', authenticateToken, getAgents);

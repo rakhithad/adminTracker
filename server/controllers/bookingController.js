@@ -2291,6 +2291,7 @@ const getAvailableCreditNotes = async (req, res) => {
 const createDateChangeBooking = async (req, res) => {
   const { id: userId } = req.user;
   const originalBookingId = parseInt(req.params.id);
+  // Separate payments from the rest of the data
   const { initialPayments = [], prodCostBreakdown = [], ...data } = req.body;
 
   try {
@@ -2347,7 +2348,26 @@ const createDateChangeBooking = async (req, res) => {
           invoiced: data.invoiced,
           description: data.description,
           numPax: data.numPax,
-          passengers: { create: (data.passengers || []).map(pax => ({ ...pax, birthday: pax.birthday ? new Date(pax.birthday) : null })) },
+          
+          // --- THIS BLOCK IS NOW CORRECTED ---
+          passengers: {
+            create: (data.passengers || []).map(pax => ({
+              // We explicitly list only the fields needed for creation
+              title: pax.title,
+              firstName: pax.firstName,
+              middleName: pax.middleName,
+              lastName: pax.lastName,
+              gender: pax.gender,
+              email: pax.email,
+              contactNo: pax.contactNo,
+              nationality: pax.nationality,
+              birthday: pax.birthday ? new Date(pax.birthday) : null,
+              category: pax.category
+              // We DO NOT pass id, bookingId, createdAt, or updatedAt
+            }))
+          },
+          // --- END OF CORRECTION ---
+
           instalments: { create: (data.instalments || []).map(inst => ({ dueDate: new Date(inst.dueDate), amount: parseFloat(inst.amount), status: inst.status || 'PENDING' })) },
           costItems: { create: (prodCostBreakdown || []).map(item => ({ category: item.category, amount: parseFloat(item.amount) })) }
         },
@@ -2369,10 +2389,7 @@ const createDateChangeBooking = async (req, res) => {
           for (const usedNote of payment.creditNoteDetails) {
             const creditNote = await tx.customerCreditNote.findUnique({ where: { id: usedNote.id } });
 
-            // Validation
             if (!creditNote) throw new Error(`Customer Credit Note ${usedNote.id} not found.`);
-            // --- REMOVED NAME CHECK ---
-            // if (creditNote.customerName !== newBookingRecord.paxName) throw new Error(`Credit Note ${usedNote.id} does not belong to ${newBookingRecord.paxName}.`);
             if (creditNote.remainingAmount < usedNote.amountToUse) throw new Error(`Insufficient funds on Credit Note ${usedNote.id}.`);
 
             const newRemaining = creditNote.remainingAmount - usedNote.amountToUse;
@@ -2409,7 +2426,7 @@ const createDateChangeBooking = async (req, res) => {
             costItems: { include: { suppliers: true } }, 
             instalments: true, 
             passengers: true, 
-            initialPayments: { // Include the linked credit note usage
+            initialPayments: { 
                 include: {
                     appliedCustomerCreditNoteUsage: true
                 }
