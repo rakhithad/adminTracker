@@ -67,6 +67,7 @@ const getActionStatus = (booking) => {
 };
 
 
+// --- *** CORRECTED ActionCell COMPONENT *** ---
 const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
     const status = getActionStatus(booking);
 
@@ -113,14 +114,14 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                     </ActionButton>
 
                     {isCreditIssued ? (
-                         <p className="text-xs text-blue-700 font-medium" title={`Note ID: ${creditNote.id}, Initial: £${creditNote.initialAmount.toFixed(2)}`}>
+                        <p className="text-xs text-blue-700 font-medium" title={`Note ID: ${creditNote.id}, Initial: £${creditNote.initialAmount.toFixed(2)}`}>
                             Credit Avail: £{creditNote.remainingAmount.toFixed(2)}
-                         </p>
+                        </p>
                     ) : (
-                         <p className="text-xs text-orange-600 font-medium">Cash Refund Due: £{amountToRefund.toFixed(2)}</p>
+                        <p className="text-xs text-orange-600 font-medium">Cash Refund Due: £{amountToRefund.toFixed(2)}</p>
                     )}
 
-                     {isCreditIssued && <p className="text-xs text-gray-500">(Issuing cash will void remaining credit)</p>}
+                    {isCreditIssued && <p className="text-xs text-gray-500">(Issuing cash will void remaining credit)</p>}
                 </div>
             );
         }
@@ -137,32 +138,86 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                     <p className="text-xs text-yellow-700 font-medium">Balance: £{parseFloat(booking.balance).toFixed(2)}</p>
                 </div>
             );
+
+        // --- THIS IS THE FIXED CASE ---
         case 'INSTALMENT_DUE': {
-            const nextInstalment = (booking.instalments || []).find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
+            const instalments = booking.instalments || [];
+            const nextInstalment = instalments.find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
+            
             if (!nextInstalment) return <StatusBadge color="gray">Processing...</StatusBadge>;
-            return (
-                <div className="text-center space-y-1">
-                    <ActionButton icon={<FaMoneyBillWave />} onClick={() => onAction('payInstalment', { instalment: nextInstalment, booking })}>
-                        Pay Instalment
-                    </ActionButton>
-                    <div className="text-xs text-gray-600">
-                        <p>Next: £{nextInstalment.amount.toFixed(2)}</p>
-                        <p className={nextInstalment.status === 'OVERDUE' ? 'text-red-600 font-semibold' : ''}>
-                           Due: {new Date(nextInstalment.dueDate).toLocaleDateString('en-GB')}
-                        </p>
+
+            // If NOT expanded, show the original compact view
+            if (!expanded) {
+                return (
+                    <div className="text-center space-y-1">
+                        <ActionButton icon={<FaMoneyBillWave />} onClick={() => onAction('payInstalment', { instalment: nextInstalment, booking })}>
+                            Pay Instalment
+                        </ActionButton>
+                        <div className="text-xs text-gray-600">
+                            <p>Next: £{nextInstalment.amount.toFixed(2)}</p>
+                            <p className={nextInstalment.status === 'OVERDUE' ? 'text-red-600 font-semibold' : ''}>
+                                Due: {new Date(nextInstalment.dueDate).toLocaleDateString('en-GB')}
+                            </p>
+                        </div>
+                        {instalments.length > 1 && (
+                            <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-1">
+                                Show All ({instalments.length})
+                            </button>
+                        )}
                     </div>
-                     {(booking.instalments || []).length > 1 && (
-                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-1">
-                            {expanded ? 'Collapse' : 'Show All'}
+                );
+            }
+
+            // If EXPANDED, show the full list
+            return (
+                <div className="text-left space-y-2 p-2 bg-gray-50 rounded-lg w-full">
+                    {instalments.map(inst => {
+                        const isNext = inst.id === nextInstalment.id;
+                        const isOverdue = inst.status === 'OVERDUE';
+                        const isPaid = inst.status === 'PAID';
+                        
+                        return (
+                            <div key={inst.id} className={`flex justify-between items-center text-xs p-1.5 rounded ${isNext ? 'bg-blue-100 ring-1 ring-blue-400' : ''} ${isPaid ? 'bg-green-50 opacity-70' : ''}`}>
+                                <div className="flex flex-col">
+                                    <span className={`font-semibold ${isOverdue ? 'text-red-600' : (isPaid ? 'text-green-700' : 'text-gray-700')}`}>
+                                        £{inst.amount.toFixed(2)}
+                                    </span>
+                                    <span className={isPaid ? 'text-gray-400' : 'text-gray-500'}>
+                                        Due: {new Date(inst.dueDate).toLocaleDateString('en-GB')}
+                                    </span>
+                                </div>
+                                {isPaid ? (
+                                    <StatusBadge color="green"><FaCheckCircle /> Paid</StatusBadge>
+                                ) : isNext ? (
+                                    <ActionButton 
+                                        icon={<FaMoneyBillWave />} 
+                                        onClick={() => onAction('payInstalment', { instalment: inst, booking })}
+                                    >
+                                        Pay
+                                    </ActionButton>
+                                ) : (
+                                    <StatusBadge color={isOverdue ? 'red' : 'gray'}>
+                                        {isOverdue ? 'Overdue' : 'Pending'}
+                                    </StatusBadge>
+                                )}
+                            </div>
+                        );
+                    })}
+                    {instalments.length > 1 && (
+                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-2 w-full text-center">
+                            Collapse
                         </button>
                     )}
                 </div>
             );
         }
+
         case 'OVERPAID': return <StatusBadge color="blue"><FaCheckCircle /> Overpaid</StatusBadge>;
         case 'COMPLETED': default: return <StatusBadge color="green"><FaCheckCircle /> Completed</StatusBadge>;
     }
 };
+// --- *** END OF CORRECTIONS *** ---
+
 
 export default function CustomerDeposits() {
     const [bookings, setBookings] = useState([]);
@@ -237,44 +292,44 @@ export default function CustomerDeposits() {
     };
 
     const filteredBookings = useMemo(() => {
-         return bookings.filter((booking) => {
-             const actionStatus = getActionStatus(booking);
-             let statusMatch = true;
+        return bookings.filter((booking) => {
+            const actionStatus = getActionStatus(booking);
+            let statusMatch = true;
 
-             switch (filter) {
-                 case 'customer_owes': statusMatch = actionStatus === 'CUSTOMER_OWES'; break;
-                 case 'refund_pending': statusMatch = ['REFUND_PENDING', 'CREDIT_AVAILABLE', 'CREDIT_PARTIAL'].includes(actionStatus); break;
-                 case 'final_settlement': statusMatch = actionStatus === 'FINAL_SETTLEMENT_DUE'; break;
-                 case 'instalment_due': statusMatch = actionStatus === 'INSTALMENT_DUE'; break;
-                 case 'completed_settled':
-                     statusMatch = ['COMPLETED', 'OVERPAID', 'REFUND_PAID', 'CREDIT_USED', 'CANCELLED_SETTLED'].includes(actionStatus);
-                     break;
-                 case 'all':
-                 default: statusMatch = true; break;
-             }
+            switch (filter) {
+                case 'customer_owes': statusMatch = actionStatus === 'CUSTOMER_OWES'; break;
+                case 'refund_pending': statusMatch = ['REFUND_PENDING', 'CREDIT_AVAILABLE', 'CREDIT_PARTIAL'].includes(actionStatus); break;
+                case 'final_settlement': statusMatch = actionStatus === 'FINAL_SETTLEMENT_DUE'; break;
+                case 'instalment_due': statusMatch = actionStatus === 'INSTALMENT_DUE'; break;
+                case 'completed_settled':
+                    statusMatch = ['COMPLETED', 'OVERPAID', 'REFUND_PAID', 'CREDIT_USED', 'CANCELLED_SETTLED'].includes(actionStatus);
+                    break;
+                case 'all':
+                default: statusMatch = true; break;
+            }
 
-             if (!statusMatch) return false;
+            if (!statusMatch) return false;
 
-             if (searchTerm.trim() === '') return true;
-             const searchLower = searchTerm.toLowerCase();
-             return (
-                 (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
-                 (booking.refNo || '').toLowerCase().includes(searchLower) ||
-                 (booking.paxName || '').toLowerCase().includes(searchLower) ||
-                 (booking.agentName || '').toLowerCase().includes(searchLower) ||
-                 (booking.paymentMethod || '').toLowerCase().includes(searchLower)
-             );
-         });
+            if (searchTerm.trim() === '') return true;
+            const searchLower = searchTerm.toLowerCase();
+            return (
+                (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
+                (booking.refNo || '').toLowerCase().includes(searchLower) ||
+                (booking.paxName || '').toLowerCase().includes(searchLower) ||
+                (booking.agentName || '').toLowerCase().includes(searchLower) ||
+                (booking.paymentMethod || '').toLowerCase().includes(searchLower)
+            );
+        });
     }, [bookings, filter, searchTerm]);
 
     const handleAction = (actionType, payload) => {
-         switch (actionType) {
-             case 'settlePayable': setCustomerPayablePopup(payload); break;
-             case 'recordRefund': setRecordRefundPopup(payload); break;
-             case 'finalSettlement': setSettlementPopup(payload); break;
-             case 'payInstalment': setPaymentPopup(payload); break;
-             default: console.warn('Unknown action type:', actionType);
-         }
+        switch (actionType) {
+            case 'settlePayable': setCustomerPayablePopup(payload); break;
+            case 'recordRefund': setRecordRefundPopup(payload); break;
+            case 'finalSettlement': setSettlementPopup(payload); break;
+            case 'payInstalment': setPaymentPopup(payload); break;
+            default: console.warn('Unknown action type:', actionType);
+        }
     };
 
     const handleGenerateReport = async () => {
