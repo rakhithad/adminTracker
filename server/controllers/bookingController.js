@@ -653,23 +653,56 @@ const createBooking = async (req, res) => {
 };
 
 const getBookings = async (req, res) => {
-  try {
-    const bookings = await prisma.booking.findMany({
-      // The `where` clause is no longer needed since we aren't nesting bookings
-      include: {
-        costItems: { include: { suppliers: true } },
-        passengers: true,
-        instalments: { include: { payments: true } },
-        cancellation: true,
-        initialPayments: true,
-      },
-      orderBy: { pcDate: 'desc' },
-    });
-    return apiResponse.success(res, bookings);
-  } catch (error) {
-    console.error("Error fetching bookings:", error);
-    return apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
-  }
+  try {
+    const bookings = await prisma.booking.findMany({
+      include: {
+        costItems: { include: { suppliers: true } },
+        passengers: true,
+        instalments: { include: { payments: true } },
+        cancellation: {
+          include: {
+            // Include all cancellation details needed for history
+            createdCustomerPayable: { include: { settlements: true } },
+            refundPayment: true,
+            generatedCustomerCreditNote: {
+              include: {
+                generatedFromCancellation: {
+                  select: { originalBooking: { select: { refNo: true } } }
+                },
+                usageHistory: {
+                  include: {
+                    usedOnInitialPayment: {
+                      select: { booking: { select: { refNo: true } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        initialPayments: {
+          include: {
+            appliedCustomerCreditNoteUsage: {
+              include: {
+                creditNote: {
+                  include: {
+                    generatedFromCancellation: {
+                      select: { originalBooking: { select: { refNo: true } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+      },
+      orderBy: { pcDate: 'desc' },
+    });
+    return apiResponse.success(res, bookings);
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    return apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
+  }
 };
 
 const updateBooking = async (req, res) => {

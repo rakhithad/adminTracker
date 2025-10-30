@@ -1,12 +1,140 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaTimes, FaPencilAlt, FaSave, FaBan, FaCalendarAlt, FaExclamationTriangle, FaHistory, FaSpinner, FaUndo, FaFileInvoice } from 'react-icons/fa';
-// Added getAgentsList to imports
+import { 
+    FaTimes, 
+    FaPencilAlt, 
+    FaSave, 
+    FaBan, 
+    FaCalendarAlt, 
+    FaExclamationTriangle, 
+    FaHistory, 
+    FaSpinner, 
+    FaUndo, 
+    FaFileInvoice,
+    FaCreditCard, 
+    FaHandHoldingUsd, 
+    FaMoneyBillWave, 
+    FaReceipt, 
+    FaExclamationCircle 
+} from 'react-icons/fa';
 import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoidBooking, generateInvoicePDF, getAgentsList } from '../api/api'; 
 import CancellationPopup from './CancellationPopup';
 import ProductCostBreakdown from './ProductCostBreakdown';
 
-// --- Helper Components (TabButton, InlineInput, InfoItem, ActionButton, VoidReasonPopup, HistoryItem) remain unchanged ---
+// --- START: Copied from PaymentHistoryPopup ---
+const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    // Use consistent formatting
+    return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const buildPaymentHistory = (booking) => {
+    if (!booking) return [];
+    
+    const history = [];
+
+    // 1. Initial Payments
+    (booking.initialPayments || []).forEach(payment => {
+        let methodDisplay = payment.transactionMethod;
+        let details = 'Initial payment';
+        let icon = <FaHandHoldingUsd className="text-green-500" />;
+
+        if (payment.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && payment.appliedCustomerCreditNoteUsage) {
+            methodDisplay = 'Customer Credit';
+            const creditNote = payment.appliedCustomerCreditNoteUsage.creditNote;
+            const originalRefNo = creditNote?.generatedFromCancellation?.originalBooking?.refNo?.trim();
+            details = `Used Note ID: ${creditNote?.id || 'N/A'} (from ${originalRefNo || 'N/A'})`;
+            icon = <FaCreditCard className="text-blue-500" />;
+        }
+
+        history.push({
+            id: `initial-${payment.id}`,
+            date: payment.paymentDate,
+            type: 'Initial Payment',
+            method: methodDisplay.replace(/_/g, ' '),
+            amount: parseFloat(payment.amount || 0),
+            details: details,
+            icon: icon,
+        });
+    });
+
+    // 2. Instalment Payments
+    (booking.instalments || []).forEach(instalment => {
+        (instalment.payments || []).forEach(payment => {
+            history.push({
+                id: `instalment-${payment.id}`,
+                date: payment.paymentDate,
+                type: 'Instalment Payment',
+                method: payment.transactionMethod.replace(/_/g, ' '),
+                amount: parseFloat(payment.amount || 0),
+                details: `For instalment due ${formatDate(instalment.dueDate)}`,
+                icon: <FaMoneyBillWave className="text-gray-500" />,
+            });
+        });
+    });
+
+    // 3. Cancellation-related transactions
+    if (booking.cancellation) {
+        const cancellation = booking.cancellation;
+
+        // 3a. If a customer payable (debt) was created and settled
+        if (cancellation.createdCustomerPayable) {
+            (cancellation.createdCustomerPayable.settlements || []).forEach(settlement => {
+                history.push({
+                    id: `cp-settle-${settlement.id}`,
+                    date: settlement.paymentDate,
+                    type: 'Cancellation Debt Paid',
+                    method: settlement.transactionMethod.replace(/_/g, ' '),
+                    amount: parseFloat(settlement.amount || 0),
+                    details: `Settled payable for ${cancellation.folderNo || booking.folderNo}`,
+                    icon: <FaExclamationCircle className="text-orange-500" />,
+                });
+            });
+        }
+        
+        // 3b. If a cash refund was paid
+        if (cancellation.refundPayment) {
+             history.push({
+                id: 'refund-paid',
+                date: cancellation.refundPayment.refundDate,
+                type: 'Passenger Refund (Cash)',
+                method: cancellation.refundPayment.transactionMethod.replace(/_/g, ' '),
+                amount: -parseFloat(cancellation.refundPayment.amount || 0), // Negative
+                details: `Refund processed for ${cancellation.folderNo || booking.folderNo}`,
+                icon: <FaUndo className="text-red-500" />,
+            });
+        }
+
+        // 3c. If a customer credit note was issued
+        if (cancellation.generatedCustomerCreditNote) {
+            const creditNote = cancellation.generatedCustomerCreditNote;
+            const originalRefNo = creditNote.generatedFromCancellation?.originalBooking?.refNo?.trim();
+            
+            let usageDetails = (creditNote.usageHistory || []).map(usage => {
+                const refNo = usage.usedOnInitialPayment?.booking?.refNo?.trim() || 'N/A';
+                const amountUsed = usage.amountUsed || 0;
+                return `Used £${amountUsed.toFixed(2)} on ${refNo}`;
+            }).join(', ');
+
+            history.push({
+                id: `ccn-issued-${creditNote.id}`,
+                date: creditNote.createdAt,
+                type: 'Credit Note Issued',
+                method: 'CUSTOMER_CREDIT_NOTE',
+                amount: parseFloat(creditNote.initialAmount || 0),
+                details: `Note ID: ${creditNote.id} (from ${originalRefNo || 'N/A'}) ${usageDetails ? `| ${usageDetails}` : ''}`,
+                icon: <FaReceipt className="text-purple-500" />,
+            });
+        }
+    }
+    
+    history.sort((a, b) => new Date(a.date) - new Date(b.date));
+    return history;
+};
+// --- END: Copied from PaymentHistoryPopup ---
+
+
+// --- Helper Components (TabButton, InlineInput, etc.) ---
 const TabButton = ({ label, isActive, onClick }) => (
     <button
       onClick={onClick}
@@ -126,9 +254,19 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const [loadingHistory, setLoadingHistory] = useState(false);
     const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
     const [showCostEditor, setShowCostEditor] = useState(false);
-    const [agents, setAgents] = useState([]); // NEW: State for agents list
+    const [agents, setAgents] = useState([]); 
 
-    // NEW: Fetch agents list on component mount
+    // --- ALL HOOKS MOVED TO TOP ---
+    const paymentHistory = useMemo(() => buildPaymentHistory(booking), [booking]);
+    const totalReceived = useMemo(() => {
+        return paymentHistory.reduce((sum, item) => {
+            if (item.amount > 0 && (item.type === 'Initial Payment' || item.type === 'Instalment Payment' || item.type === 'Cancellation Debt Paid')) {
+                return sum + item.amount;
+            }
+            return sum;
+        }, 0);
+    }, [paymentHistory]);
+
     useEffect(() => {
         const fetchAgents = async () => {
           try {
@@ -136,7 +274,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             setAgents(response.data);
           } catch (error) {
             console.error("Failed to fetch agents list for popup", error);
-            // Optionally set an error state here
           }
         };
         fetchAgents();
@@ -151,7 +288,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                     initialEditData[field] = booking[field].split('T')[0];
                 }
             });
-            // Ensure teamName is initialized even if null in booking data
             initialEditData.teamName = booking.teamName || ''; 
             setEditData(initialEditData);
             setIsEditing(false);
@@ -179,6 +315,9 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         fetchAuditHistory();
     }, [activeTab, booking?.id]);
 
+    // --- END OF HOOKS ---
+
+    // --- EARLY RETURN *AFTER* HOOKS ---
     if (!booking) {
         return null;
     }
@@ -186,8 +325,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'balance', 'profit'];
     const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
     const isVoided = booking.bookingStatus === 'VOID';
-    const totalReceived = (booking.initialPayments || []).reduce((sum, p) => sum + p.amount, 0) +
-                          (booking.instalments || []).reduce((sum, inst) => sum + (inst.payments || []).reduce((pSum, p) => pSum + p.amount, 0), 0);
     
     const handleConfirmCancellation = async (data) => {
         await createCancellation(booking.id, data);
@@ -200,14 +337,13 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         setEditData(prev => ({ ...prev, [name]: value }));
     };
 
-    // NEW: Handler for agent dropdown change
     const handleAgentChange = (e) => {
         const selectedAgentName = e.target.value;
         const selectedAgent = agents.find(agent => agent.fullName === selectedAgentName);
         setEditData(prev => ({
           ...prev,
           agentName: selectedAgentName,
-          teamName: selectedAgent ? selectedAgent.team : '' // Auto-set team
+          teamName: selectedAgent ? selectedAgent.team : '' 
         }));
       };
 
@@ -245,7 +381,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         setError('');
         try {
             const changedFields = {};
-            // Make sure to compare against the initial booking data, not potentially stale editData
             const initialBookingDataForComparison = { ...booking }; 
              dateFields.forEach(field => {
                 if (initialBookingDataForComparison[field]) {
@@ -254,13 +389,11 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             });
 
             Object.keys(editData).forEach(key => {
-                // Skip complex fields or unchanged fields
                 if (['initialPayments', 'costItems', 'passengers', 'instalments', 'id', 'folderNo', 'cancellation', 'createdBy', 'voidedBy'].includes(key)) return; 
 
                 const originalValue = initialBookingDataForComparison[key];
                 let editedValue = editData[key];
                 
-                // Ensure consistent comparison (e.g., null vs empty string)
                 const comparableOriginal = originalValue ?? ''; 
                 const comparableEdited = editedValue ?? '';
 
@@ -277,7 +410,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             });
 
             if (Object.keys(changedFields).length === 0) {
-                setIsEditing(false); // Exit edit mode even if nothing changed
+                setIsEditing(false); 
                 return; 
             }
 
@@ -318,11 +451,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         }
     };
     
-    const formatDate = (dateStr) => dateStr ? new Date(dateStr).toLocaleDateString('en-GB', {day: '2-digit', month: 'short', year: 'numeric'}) : 'N/A';
-
-    // REMOVED: renderEditDetailsTab function is no longer needed.
-
-    // UPDATED: renderDetailsTab now includes conditional inputs
+    // --- renderDetailsTab and renderFinancialsTab are unchanged ---
     const renderDetailsTab = () => (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
             <InfoItem label="Agent / Team">
@@ -340,7 +469,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                             <option value="">Select Team</option>
                             <option value="PH">PH</option>
                             <option value="TOURS">TOURS</option>
-                            {/* Add other teams if necessary */}
                         </InlineSelect>
                     </div>
                 ) : (
@@ -376,7 +504,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
     );
 
-    // UPDATED: renderFinancialsTab now includes conditional inputs
     const renderFinancialsTab = () => (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-6">
             <InfoItem label="Revenue">
@@ -385,7 +512,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <InfoItem label="Product Cost">
                 <div className="flex items-center gap-4">
                     <p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p>
-                    {/* Edit Cost Button remains here, only shown when NOT editing main fields */}
                     {!isEditing && (
                         <button 
                             onClick={() => setShowCostEditor(true)}
@@ -416,34 +542,45 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
     );
 
-    // --- Data preparation for tables (customerPaymentsData, supplierPaymentsData) remain unchanged ---
-    const customerPaymentsData = [
-        ...(booking.initialPayments || []).map(p => ({ id: p.id, date: p.paymentDate, type: 'Initial Payment', amount: p.amount, method: p.transactionMethod })),
-        ...(booking.instalments || []).flatMap(inst => (inst.payments || []).map(p => ({ id: p.id, date: p.paymentDate, type: 'Instalment', amount: p.amount, method: p.transactionMethod })))
-    ].sort((a,b) => new Date(a.date) - new Date(b.date))
-    .map(p => (
-        <tr key={p.id}>
-            <td className="px-4 py-3 whitespace-nowrap">{formatDate(p.date)}</td>
-            <td className="px-4 py-3 whitespace-nowrap">{p.type}</td>
-            <td className="px-4 py-3 whitespace-nowrap">{p.method}</td>
-            <td className="px-4 py-3 whitespace-nowrap text-right font-semibold text-slate-700">£{p.amount?.toFixed(2)}</td>
+    // --- START: Updated Customer Payments Data ---
+    // Use the paymentHistory variable from useMemo
+    const customerPaymentsData = paymentHistory.map(payment => (
+        <tr key={payment.id}>
+            <td className="px-4 py-3 whitespace-nowrap">{formatDate(payment.date)}</td>
+            <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                <div className="flex items-center gap-2">
+                    {payment.icon} <span>{payment.type}</span>
+                </div>
+            </td>
+            <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-500">{payment.method}</td>
+            <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-500">{payment.details}</td>
+            <td className={`px-4 py-3 whitespace-nowrap text-right font-semibold ${payment.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>
+                £{payment.amount?.toFixed(2)}
+            </td>
         </tr>
     ));
+    // --- END: Updated Customer Payments Data ---
 
+
+    // --- Supplier Payments Data (Summary) - Unchanged ---
     const supplierPaymentsData = booking.costItems?.flatMap(item => 
         (item.suppliers || []).map(supplier => (
             <tr key={supplier.id}>
-                <td className="px-4 py-3 whitespace-nowrap font-semibold">{supplier.supplier}</td><td className="px-4 py-3 whitespace-nowrap">{item.category}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700">£{supplier.amount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td><td className="px-4 py-3 whitespace-nowrap text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
+                <td className="px-4 py-3 whitespace-nowrap font-semibold">{supplier.supplier}</td>
+                <td className="px-4 py-3 whitespace-nowrap">{item.category}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-right text-slate-700">£{supplier.amount?.toFixed(2)}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-right text-green-600">£{supplier.paidAmount?.toFixed(2)}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-right text-red-600">£{supplier.pendingAmount?.toFixed(2)}</td>
             </tr>
         ))
     );
 
+    // --- Updated renderPaymentsTable function (added Details header) ---
     const renderPaymentsTable = (headers, data) => (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="min-w-full">
                 <thead className="bg-slate-50"><tr>
-                    {headers.map(h => <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>)}
+                    {headers.map(h => <th key={h} className={`px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider ${h === 'Amount' ? 'text-right' : ''}`}>{h}</th>)}
                 </tr></thead>
                 <tbody className="bg-white divide-y divide-slate-200">
                     {data && data.length > 0 ? data : (
@@ -453,13 +590,13 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             </table>
         </div>
     );
+    // --- End Updated renderPaymentsTable ---
 
     const renderHistoryTab = () => {
         if (loadingHistory) { return <div className="flex justify-center items-center p-10"><FaSpinner className="animate-spin h-8 w-8 text-blue-500" /><span className="ml-4 text-slate-600">Loading History...</span></div>; }
         if (auditHistory.length === 0) { return <div className="text-center p-10"><FaHistory className="h-12 w-12 text-slate-300 mx-auto mb-4" /><h3 className="text-lg font-medium text-slate-700">No History Found</h3><p className="text-sm text-slate-500 mt-1">There are no recorded changes for this booking.</p></div>; }
         return <ul className="divide-y divide-slate-100">{auditHistory.map(log => <HistoryItem key={log.id} log={log} />)}</ul>;
     };
-    // --- End Data preparation and Table/History Rendering ---
 
     return (
         <div className="fixed inset-0 bg-slate-900 bg-opacity-75 flex items-center justify-center p-4 z-40 animate-fade-in" onClick={onClose}>
@@ -474,7 +611,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                         {isEditing ? (
                             <>
                                 <ActionButton onClick={handleSave} icon={<FaSave />} className="bg-green-600 text-white hover:bg-green-700">Save Changes</ActionButton>
-                                <ActionButton onClick={() => { setIsEditing(false); setEditData(booking); /* Reset edits on cancel */ }} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
+                                <ActionButton onClick={() => { setIsEditing(false); setEditData(booking); }} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
                             </>
                         ) : (
                             <>
@@ -532,8 +669,19 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                     
                     {activeTab === 'details' && renderDetailsTab()}
                     {activeTab === 'financials' && renderFinancialsTab()}
-                    {activeTab === 'customer' && renderPaymentsTable(['Date', 'Type', 'Method', 'Amount'], customerPaymentsData)}
-                    {activeTab === 'supplier' && renderPaymentsTable(['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], supplierPaymentsData)}
+                    
+                    {/* --- UPDATED: Customer Payments Tab --- */}
+                    {activeTab === 'customer' && renderPaymentsTable(
+                        ['Date', 'Description', 'Method', 'Details', 'Amount'], 
+                        customerPaymentsData
+                    )}
+                    
+                    {/* --- Supplier Payments Tab (Unchanged) --- */}
+                    {activeTab === 'supplier' && renderPaymentsTable(
+                        ['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], 
+                        supplierPaymentsData
+                    )}
+                    
                     {activeTab === 'history' && renderHistoryTab()}
                 </div>
 
