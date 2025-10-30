@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
     FaTimes, 
@@ -21,10 +21,8 @@ import { updateBooking, createCancellation, getAuditHistory, voidBooking, unvoid
 import CancellationPopup from './CancellationPopup';
 import ProductCostBreakdown from './ProductCostBreakdown';
 
-// --- START: Copied from PaymentHistoryPopup ---
 const formatDate = (dateStr) => {
     if (!dateStr) return 'N/A';
-    // Use consistent formatting
     return new Date(dateStr).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
@@ -33,7 +31,6 @@ const buildPaymentHistory = (booking) => {
     
     const history = [];
 
-    // 1. Initial Payments
     (booking.initialPayments || []).forEach(payment => {
         let methodDisplay = payment.transactionMethod;
         let details = 'Initial payment';
@@ -58,7 +55,6 @@ const buildPaymentHistory = (booking) => {
         });
     });
 
-    // 2. Instalment Payments
     (booking.instalments || []).forEach(instalment => {
         (instalment.payments || []).forEach(payment => {
             history.push({
@@ -73,11 +69,9 @@ const buildPaymentHistory = (booking) => {
         });
     });
 
-    // 3. Cancellation-related transactions
     if (booking.cancellation) {
         const cancellation = booking.cancellation;
 
-        // 3a. If a customer payable (debt) was created and settled
         if (cancellation.createdCustomerPayable) {
             (cancellation.createdCustomerPayable.settlements || []).forEach(settlement => {
                 history.push({
@@ -92,7 +86,6 @@ const buildPaymentHistory = (booking) => {
             });
         }
         
-        // 3b. If a cash refund was paid
         if (cancellation.refundPayment) {
              history.push({
                 id: 'refund-paid',
@@ -105,7 +98,6 @@ const buildPaymentHistory = (booking) => {
             });
         }
 
-        // 3c. If a customer credit note was issued
         if (cancellation.generatedCustomerCreditNote) {
             const creditNote = cancellation.generatedCustomerCreditNote;
             const originalRefNo = creditNote.generatedFromCancellation?.originalBooking?.refNo?.trim();
@@ -131,10 +123,7 @@ const buildPaymentHistory = (booking) => {
     history.sort((a, b) => new Date(a.date) - new Date(b.date));
     return history;
 };
-// --- END: Copied from PaymentHistoryPopup ---
 
-
-// --- Helper Components (TabButton, InlineInput, etc.) ---
 const TabButton = ({ label, isActive, onClick }) => (
     <button
       onClick={onClick}
@@ -240,7 +229,6 @@ const TabButton = ({ label, isActive, onClick }) => (
           </li>
       );
   };
-// --- End Helper Components ---
 
 export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const navigate = useNavigate();
@@ -256,7 +244,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const [showCostEditor, setShowCostEditor] = useState(false);
     const [agents, setAgents] = useState([]); 
 
-    // --- ALL HOOKS MOVED TO TOP ---
     const paymentHistory = useMemo(() => buildPaymentHistory(booking), [booking]);
     const totalReceived = useMemo(() => {
         return paymentHistory.reduce((sum, item) => {
@@ -315,9 +302,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         fetchAuditHistory();
     }, [activeTab, booking?.id]);
 
-    // --- END OF HOOKS ---
-
-    // --- EARLY RETURN *AFTER* HOOKS ---
     if (!booking) {
         return null;
     }
@@ -325,6 +309,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const numberFields = ['revenue', 'prodCost', 'transFee', 'surcharge', 'balance', 'profit'];
     const dateFields = ['pcDate', 'issuedDate', 'lastPaymentDate', 'travelDate'];
     const isVoided = booking.bookingStatus === 'VOID';
+    const hasMissingSuppliers = !booking.costItems || booking.costItems.length === 0 || booking.costItems.every(item => !item.suppliers || item.suppliers.length === 0);
     
     const handleConfirmCancellation = async (data) => {
         await createCancellation(booking.id, data);
@@ -451,7 +436,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         }
     };
     
-    // --- renderDetailsTab and renderFinancialsTab are unchanged ---
     const renderDetailsTab = () => (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
             <InfoItem label="Agent / Team">
@@ -512,7 +496,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <InfoItem label="Product Cost">
                 <div className="flex items-center gap-4">
                     <p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p>
-                    {!isEditing && (
+                    {(isEditing || hasMissingSuppliers) && (
                         <button 
                             onClick={() => setShowCostEditor(true)}
                             className="px-3 py-1 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
@@ -542,8 +526,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         </div>
     );
 
-    // --- START: Updated Customer Payments Data ---
-    // Use the paymentHistory variable from useMemo
     const customerPaymentsData = paymentHistory.map(payment => (
         <tr key={payment.id}>
             <td className="px-4 py-3 whitespace-nowrap">{formatDate(payment.date)}</td>
@@ -559,10 +541,7 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             </td>
         </tr>
     ));
-    // --- END: Updated Customer Payments Data ---
 
-
-    // --- Supplier Payments Data (Summary) - Unchanged ---
     const supplierPaymentsData = booking.costItems?.flatMap(item => 
         (item.suppliers || []).map(supplier => (
             <tr key={supplier.id}>
@@ -575,7 +554,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
         ))
     );
 
-    // --- Updated renderPaymentsTable function (added Details header) ---
     const renderPaymentsTable = (headers, data) => (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
             <table className="min-w-full">
@@ -590,7 +568,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             </table>
         </div>
     );
-    // --- End Updated renderPaymentsTable ---
 
     const renderHistoryTab = () => {
         if (loadingHistory) { return <div className="flex justify-center items-center p-10"><FaSpinner className="animate-spin h-8 w-8 text-blue-500" /><span className="ml-4 text-slate-600">Loading History...</span></div>; }
@@ -606,7 +583,6 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                         <h2 className="text-2xl font-bold text-slate-900">Booking Details</h2>
                         <p className="text-sm text-slate-500 mt-1">Ref: <span className="font-semibold text-blue-600">{booking.refNo}</span>  |  Passenger: <span className="font-semibold">{booking.paxName}</span></p>
                     </div>
-                    {/* Header Action Buttons remain the same */}
                     <div className="flex items-center space-x-2 flex-shrink-0">
                         {isEditing ? (
                             <>
@@ -670,13 +646,11 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                     {activeTab === 'details' && renderDetailsTab()}
                     {activeTab === 'financials' && renderFinancialsTab()}
                     
-                    {/* --- UPDATED: Customer Payments Tab --- */}
                     {activeTab === 'customer' && renderPaymentsTable(
                         ['Date', 'Description', 'Method', 'Details', 'Amount'], 
                         customerPaymentsData
                     )}
                     
-                    {/* --- Supplier Payments Tab (Unchanged) --- */}
                     {activeTab === 'supplier' && renderPaymentsTable(
                         ['Supplier', 'Category', 'Total Due', 'Paid', 'Pending'], 
                         supplierPaymentsData
