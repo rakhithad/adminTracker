@@ -31,7 +31,6 @@ export default function NavigationBar() {
   };
 
   const navLinks = [
-    { name: 'Home', path: '/' },
     { name: 'Dashboard', path: '/Dashboard' },
     { name: 'Create Booking', path: '/create-booking' },
     { name: 'Bookings', path: '/bookings' },

@@ -179,12 +179,15 @@ export default function PaymentHistoryPopup({ booking, onClose }) {
                                     <p className="text-2xl font-extrabold text-orange-600">£{parseFloat(cancellation.refundToPassenger).toFixed(2)}</p>
                                 </div>
                             )}
-                             {cancellation.refundStatus === 'PAID' && (
+                             {/* --- THIS BLOCK IS NOW FIXED --- */}
+                             {cancellation.refundStatus === 'PAID' && cancellation.refundPayment && (
                                 <div className="text-center p-3 bg-green-50 rounded-lg">
                                     <p className="text-sm text-green-800 uppercase font-bold">Cash Refund Paid</p>
-                                    <p className="text-2xl font-extrabold text-green-600">£{parseFloat(cancellation.refundToPassenger).toFixed(2)}</p>
+                                    {/* It now correctly uses refundPayment.amount */}
+                                    <p className="text-2xl font-extrabold text-green-600">£{parseFloat(cancellation.refundPayment.amount).toFixed(2)}</p>
                                 </div>
                             )}
+                            {/* --- END OF FIX --- */}
                             {(cancellation.createdCustomerPayable?.pendingAmount || 0) > 0 && (
                                 <div className="text-center p-3 bg-red-50 rounded-lg">
                                     <p className="text-sm text-red-800 uppercase font-bold">Amount Owed by Passenger</p>

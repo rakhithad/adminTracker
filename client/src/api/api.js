@@ -60,6 +60,15 @@ export const getDashboardStats = async () => {
   return await api.get('/bookings/dashboard/stats');
 };
 
+export const getAttentionBookings = async () => {
+  return await api.get('/bookings/dashboard/attention-bookings');
+};
+
+export const getOverdueBookings = async () => {
+  return await api.get('/bookings/dashboard/overdue-bookings');
+};
+
+
 export const getRecentBookings = async () => {
   return await api.get('/bookings/dashboard/recent');
 };

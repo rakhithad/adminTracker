@@ -130,10 +130,10 @@ export default function SettlePaymentPopup({ booking, supplier, onClose, onSubmi
   // 1. Add Initial Bank/Cash Payments (No changes here)
   const paymentParts = (booking.paymentMethod || '').split('_AND_');
   if (paymentParts[0] === 'BANK_TRANSFER' && booking.firstMethodAmount > 0) {
-      paymentHistory.push({ type: 'Initial Payment', icon: <FaPiggyBank className="text-blue-500" />, amount: parseFloat(booking.firstMethodAmount), method: 'Bank Transfer', date: booking.createdAt, details: 'Paid at booking creation' });
+      paymentHistory.push({ type: 'Initial Payment', icon: <FaPiggyBank className="text-blue-500" />, amount: parseFloat(booking.firstMethodAmount), method: 'LOYDS', date: booking.createdAt, details: 'Paid at booking creation' });
   }
   if (paymentParts.length > 1 && paymentParts[1] === 'BANK_TRANSFER' && booking.secondMethodAmount > 0) {
-      paymentHistory.push({ type: 'Initial Payment', icon: <FaPiggyBank className="text-blue-500" />, amount: parseFloat(booking.secondMethodAmount), method: 'Bank Transfer', date: booking.createdAt, details: 'Paid at booking creation' });
+      paymentHistory.push({ type: 'Initial Payment', icon: <FaPiggyBank className="text-blue-500" />, amount: parseFloat(booking.secondMethodAmount), method: 'LOYDS', date: booking.createdAt, details: 'Paid at booking creation' });
   }
 
   // 2. Add Credit Notes used at Booking Creation (No changes here)

@@ -330,10 +330,10 @@ export default function BookingsPage() {
                     return (
                       <React.Fragment key={booking.id}>
                         <tr 
-                          className={rowClasses}
-                          style={rowStyle}
-                          onClick={() => !isVoided && setSelectedBooking(booking)}
-                        >
+                            className={rowClasses}
+                            style={rowStyle}
+                            onClick={() => setSelectedBooking(booking)}
+                          >
                           <td onClick={(e) => e.stopPropagation()} className="px-3 py-4 text-center align-middle relative">
                             {needsAttention && (
                                 <div 
@@ -366,8 +366,12 @@ export default function BookingsPage() {
                           <td className={`px-4 py-4 whitespace-nowrap text-sm ${isCancelled || isVoided ? 'text-gray-400' : 'text-gray-600'}`}>{formatDateDisplay(booking.travelDate)}</td>
                           <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-gray-400' : ''}`} style={{ color: !(isCancelled || isVoided) ? COLORS.successGreen : undefined }}>{booking.revenue != null ? `£${parseFloat(booking.revenue).toFixed(2)}` : '—'}</td>
                           <td className={`px-4 py-4 whitespace-nowrap text-sm font-medium ${isCancelled || isVoided ? 'text-gray-400' : ''}`} style={{ color: !(isCancelled || isVoided) ? (parseFloat(booking.balance) > 0 ? COLORS.errorRed : COLORS.successGreen) : undefined }}>{booking.balance != null ? `£${parseFloat(booking.balance).toFixed(2)}` : '—'}</td>
-                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled && booking.cancellation ? '' : isVoided ? 'text-gray-400' : ''}`} style={{ color: isCancelled && booking.cancellation ? COLORS.errorRed : (isVoided ? undefined : (parseFloat(booking.profit) >= 0 ? COLORS.successGreen : COLORS.errorRed)) }}>
-                            {isCancelled && booking.cancellation ? `£${parseFloat(booking.cancellation.profitOrLoss).toFixed(2)}` : (booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—')}
+                          
+                          {/* --- MODIFIED PROFIT CELL (MAIN ROW) --- */}
+                          <td className={`px-4 py-4 whitespace-nowrap text-sm font-bold ${isCancelled || isVoided ? 'text-gray-400' : ''}`} 
+                              style={{ color: !(isCancelled || isVoided) ? (parseFloat(booking.profit) >= 0 ? COLORS.successGreen : COLORS.errorRed) : undefined }}
+                          >
+                              {booking.profit != null ? `£${parseFloat(booking.profit).toFixed(2)}` : '—'}
                           </td>
                         </tr>
 
@@ -395,9 +399,9 @@ export default function BookingsPage() {
                                 <td className="px-4 py-3 text-center text-gray-400">—</td>
                                 <td className="px-4 py-3 text-center text-gray-400">—</td>
                                 <td className="px-4 py-3 text-center text-gray-400">—</td>
-                                <td className="px-4 py-3 whitespace-nowrap text-sm font-bold" style={{ color: parseFloat(child.profitOrLoss) >= 0 ? COLORS.successGreen : COLORS.errorRed }}>
-                                  £{child.profitOrLoss.toFixed(2)}
-                                </td>
+                                
+                                {/* --- MODIFIED PROFIT CELL (CANCELLATION ROW) --- */}
+                                <td className="px-4 py-3 text-center text-gray-400">—</td>
                             </tr>
                           ) : (
                             <tr key={child.id} className="text-xs border-b cursor-pointer" onClick={() => setSelectedBooking(child)} style={{ backgroundColor: `${COLORS.secondaryBlue}1A`, borderColor: `${COLORS.secondaryBlue}3A`, '&:hover': { backgroundColor: `${COLORS.secondaryBlue}2A` } }}>
@@ -429,7 +433,7 @@ export default function BookingsPage() {
                     <td colSpan="12" className="px-6 py-24 text-center">
                       <FaFolderOpen className="h-16 w-16 mx-auto mb-4" style={{ color: COLORS.mediumGray }} />
                       <h3 className="text-xl font-medium" style={{ color: COLORS.primaryBlue }}>{searchTerm ? 'No Matching Bookings Found' : 'No Bookings Available'}</h3>
-      
+          
                       <p className="text-gray-500 mt-2">{searchTerm ? 'Try a different search term.' : 'Bookings will appear here.'}</p>
                     </td>
                   </tr>

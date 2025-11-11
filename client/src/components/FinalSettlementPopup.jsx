@@ -3,13 +3,14 @@ import { useState } from 'react';
 export default function FinalSettlementPopup({ booking, onClose, onSubmit }) {
   const [formData, setFormData] = useState({
     amount: '',
-    transactionMethod: 'BANK_TRANSFER',
+    transactionMethod: 'LOYDS', // <-- Default to LOYDS
     paymentDate: new Date().toISOString().split('T')[0],
   });
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const transactionMethods = ['BANK_TRANSFER', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
+  // --- UPDATED TRANSACTION METHODS ---
+  const transactionMethods = ['LOYDS', 'STRIPE', 'WISE', 'HUMM', 'CREDIT_NOTES', 'CREDIT'];
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -21,7 +22,8 @@ export default function FinalSettlementPopup({ booking, onClose, onSubmit }) {
     setError('');
     setIsSubmitting(true);
     try {
-      await onSubmit(booking.id, formData);
+      // This now calls the new 'handleSaveSettlement' function
+      await onSubmit(booking.id, formData); 
       onClose();
     } catch (err) {
       console.error('Settlement error:', err);

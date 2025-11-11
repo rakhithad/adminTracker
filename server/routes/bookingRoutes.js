@@ -30,7 +30,9 @@ const {
   generateInvoice,
   updateAccountingMonth,
   updateCommissionAmount,
-  getCustomerCreditNotes
+  getCustomerCreditNotes,
+  getAttentionBookings,
+  getOverdueBookings
 } = require('../controllers/bookingController');
 
 
@@ -41,7 +43,11 @@ router.post('/pending/:id/approve', authenticateToken, approveBooking);
 router.post('/pending/:id/reject', authenticateToken, rejectBooking);
 router.post('/', authenticateToken, createBooking);
 router.get('/', authenticateToken, getBookings);
+
 router.get('/dashboard/stats', authenticateToken, getDashboardStats);
+router.get('/dashboard/attention-bookings', getAttentionBookings);
+router.get('/dashboard/overdue-bookings', getOverdueBookings);
+
 router.get('/dashboard/recent', authenticateToken, getRecentBookings);
 router.get('/customer-deposits', authenticateToken, getCustomerDeposits);
 router.patch('/instalments/:id', authenticateToken, updateInstalment);

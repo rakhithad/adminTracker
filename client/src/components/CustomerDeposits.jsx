@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { getCustomerDeposits, generateCustomerDepositReportPDF } from '../api/api';
+import { useState, useEffect, useMemo } from 'react';
+import { getCustomerDeposits, generateCustomerDepositReportPDF, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
@@ -44,6 +44,12 @@ const getActionStatus = (booking) => {
         const cancellation = booking.cancellation;
         if (cancellation?.createdCustomerPayable?.pendingAmount > 0) return 'CUSTOMER_OWES';
 
+        // --- THIS IS THE FIX ---
+        // We check for a paid cash refund FIRST.
+        // This ensures "Refund Paid" shows even if a credit note was voided in the process.
+        if (cancellation?.refundStatus === 'PAID') return 'REFUND_PAID';
+        // --- END OF FIX ---
+
         if (cancellation?.generatedCustomerCreditNote) {
             const creditNote = cancellation.generatedCustomerCreditNote;
             if (creditNote.status === 'USED') return 'CREDIT_USED';
@@ -52,11 +58,12 @@ const getActionStatus = (booking) => {
         }
 
         if (cancellation?.refundStatus === 'PENDING') return 'REFUND_PENDING';
-        if (cancellation?.refundStatus === 'PAID') return 'REFUND_PAID';
-
+        // 'REFUND_PAID' was moved up
+        
         return 'CANCELLED_SETTLED';
     }
 
+    // This part for non-cancelled bookings remains the same
     const balance = parseFloat(booking.balance);
     if (balance > 0) {
         const hasPendingInstalments = (booking.instalments || []).some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
@@ -256,6 +263,20 @@ export default function CustomerDeposits() {
             setLoading(false);
         }
     };
+
+    const handleSaveSettlement = async (bookingId, formData) => {
+  try {
+    // This calls your API
+    await recordSettlementPayment(bookingId, formData); 
+    
+    // Now call the original completion function to refresh and close
+    handleActionCompletion(); 
+  } catch (error) {
+    // This will pass the error back to the popup's error state
+    console.error("Failed to save settlement:", error);
+    throw error; 
+  }
+};
 
     const handleSavePayment = (payload) => {
         const { updatedInstalment, bookingUpdate } = payload;
@@ -475,8 +496,7 @@ export default function CustomerDeposits() {
             )}
 
             {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
-            {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleActionCompletion} />)}
-            {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
+            {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}            {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
             {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={handleActionCompletion} /> )}
             {recordRefundPopup && ( <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={handleActionCompletion} /> )}
         </div>

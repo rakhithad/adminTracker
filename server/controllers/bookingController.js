@@ -856,31 +856,149 @@ const updateBooking = async (req, res) => {
   }
 };
 
+const getDateFilter = (startDate, endDate) => {
+  const dateFilter = {};
+  if (startDate) {
+    dateFilter.gte = new Date(startDate);
+  }
+  if (endDate) {
+    // Add 1 day to the end date to include the entire day
+    const end = new Date(endDate);
+    end.setDate(end.getDate() + 1);
+    dateFilter.lt = end;
+  }
+  return dateFilter;
+};
+
 const getDashboardStats = async (req, res) => {
   try {
-    const [totalBookings, pendingBookings, confirmedBookings, completedBookings, totalRevenue] = await Promise.all([
-      prisma.booking.count(),
-      prisma.pendingBooking.count(),
-      prisma.booking.count({ where: { bookingStatus: 'CONFIRMED' } }),
-      prisma.booking.count({ where: { bookingStatus: 'COMPLETED' } }),
+    const { startDate, endDate } = req.query;
+
+    const bookingWhere = {};
+    const pendingWhere = {};
+
+    if (startDate || endDate) {
+      const dateFilter = getDateFilter(startDate, endDate);
+      bookingWhere.createdAt = dateFilter;
+      pendingWhere.createdAt = dateFilter;
+    }
+
+    const [
+      totalBookings,
+      pendingBookings,
+      confirmedBookings,
+      completedBookings,
+      financials,
+    ] = await Promise.all([
+      prisma.booking.count({ where: bookingWhere }),
+      prisma.pendingBooking.count({ where: pendingWhere }),
+      prisma.booking.count({ 
+        where: { ...bookingWhere, bookingStatus: 'CONFIRMED' } 
+      }),
+      prisma.booking.count({ 
+        where: { ...bookingWhere, bookingStatus: 'COMPLETED' } 
+      }),
+      // Aggregate all financials in one call
       prisma.booking.aggregate({
-        _sum: { revenue: true },
-        where: { revenue: { not: null } },
+        _sum: {
+          revenue: true,
+          profit: true,
+          balance: true,
+        },
+        where: { ...bookingWhere, bookingStatus: { notIn: ['VOID'] } },
       }),
     ]);
+    
+    // Get total outstanding balance (not just for the period, this is a snapshot)
+    const totalBalanceDue = await prisma.booking.aggregate({
+      _sum: { balance: true },
+      where: { 
+        balance: { gt: 0 },
+        bookingStatus: { notIn: ['VOID', 'CANCELLED'] }
+      },
+    });
 
     return apiResponse.success(res, {
       totalBookings,
       pendingBookings,
       confirmedBookings,
       completedBookings,
-      totalRevenue: totalRevenue._sum.revenue || 0,
+      totalRevenue: financials._sum.revenue || 0,
+      totalProfit: financials._sum.profit || 0,
+      totalBalanceDue: totalBalanceDue._sum.balance || 0,
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
     return apiResponse.error(res, 'Failed to fetch dashboard stats: ' + error.message, 500);
   }
 };
+
+const getAttentionBookings = async (req, res) => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: {
+        bookingStatus: { notIn: ['CANCELLED', 'VOID'] },
+        OR: [
+          { issuedDate: null },
+          { costItems: { none: {} } } // <-- THIS IS THE FIX
+        ],
+      },
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        refNo: true,
+        paxName: true,
+        issuedDate: true,
+        _count: {
+          select: { costItems: true },
+        },
+      },
+    });
+
+    // Format data for the frontend
+    const attentionList = bookings.map(b => ({
+      id: b.id,
+      refNo: b.refNo,
+      paxName: b.paxName,
+      // Updated logic to correctly show the reason
+      reason: b.issuedDate === null 
+        ? 'Missing Issued Date' 
+        : 'Missing Supplier Costs',
+    }));
+
+    return apiResponse.success(res, attentionList);
+  } catch (error) {
+    console.error('Error fetching attention bookings:', error);
+    return apiResponse.error(res, 'Failed to fetch attention bookings: ' + error.message, 500);
+  }
+};
+
+const getOverdueBookings = async (req, res) => {
+  try {
+    const bookings = await prisma.booking.findMany({
+      where: {
+        bookingStatus: { notIn: ['CANCELLED', 'VOID'] },
+        balance: { gt: 0 },
+        travelDate: { lt: new Date() }, // Travel date is in the past
+      },
+      take: 10,
+      orderBy: { travelDate: 'asc' }, // Show oldest first
+      select: {
+        id: true,
+        refNo: true,
+        paxName: true,
+        travelDate: true,
+        balance: true,
+      },
+    });
+    return apiResponse.success(res, bookings);
+  } catch (error) {
+    console.error('Error fetching overdue bookings:', error);
+    return apiResponse.error(res, 'Failed to fetch overdue bookings: ' + error.message, 500);
+  }
+};
+
 
 const getRecentBookings = async (req, res) => {
   try {
@@ -2194,24 +2312,20 @@ const createCancellation = async (req, res) => {
       const baseFolderNo = triggerBooking.folderNo.toString().split('.')[0];
       const chainBookings = await tx.booking.findMany({
         where: { OR: [{ folderNo: baseFolderNo }, { folderNo: { startsWith: `${baseFolderNo}.` } }] },
-        // CORRECTED BLOCK STARTS HERE
         select: {
-          // Select the scalar fields you need
           id: true,
           folderNo: true,
           bookingStatus: true,
           revenue: true,
           prodCost: true,
-          // Include the relations you need
           initialPayments: true,
           instalments: {
             include: { payments: true }
           },
           costItems: {
-            include: { suppliers: true }
+            include: { suppliers: true } // This is essential for the fix
           }
         },
-        // CORRECTED BLOCK ENDS HERE
       });
 
       if (chainBookings.some(b => b.bookingStatus === 'CANCELLED')) {
@@ -2221,6 +2335,8 @@ const createCancellation = async (req, res) => {
       if (!rootBookingInChain) throw new Error('Could not find root booking.');
 
       // --- Calculations ---
+      
+      // We still need this for the Profit/Loss calculation
       const totalOwedToSupplierBeforeCancellation = chainBookings.reduce((sum, booking) => {
         if (booking.bookingStatus !== 'CANCELLED') {
             return sum + (booking.prodCost || 0);
@@ -2236,11 +2352,47 @@ const createCancellation = async (req, res) => {
 
       const supCancellationFee = parseFloat(supplierCancellationFee);
       const customerTotalCancellationFee = supCancellationFee + parseFloat(adminFee);
-      const supplierDifference = totalOwedToSupplierBeforeCancellation - supCancellationFee;
+      
+      // --- *** THIS IS THE FIX *** ---
+      
+      // 1. Calculate what was actually paid to all suppliers in the chain
+      const totalPaidToSupplier = chainBookings.reduce((sum, booking) => {
+          const costItems = booking.costItems || [];
+          const bookingPaidSum = costItems.reduce((ciSum, item) => {
+              const suppliers = item.suppliers || [];
+              const supplierPaidSum = suppliers.reduce((sSum, sup) => sSum + (sup.paidAmount || 0), 0);
+              return ciSum + supplierPaidSum;
+          }, 0);
+          return sum + bookingPaidSum;
+      }, 0);
+
+      // 2. Calculate the new supplier balance.
+      // This is (What we owe for the fee) - (What we've already paid)
+      const supplierPayableOrCredit = supCancellationFee - totalPaidToSupplier;
+      
+      // 3. Determine the outcome
+      let supplierCreditNoteAmount = 0;
+      let supplierPayableAmount = 0;
+      
+      if (supplierPayableOrCredit > 0) {
+          // We owe them more money
+          // e.g. Fee is 200, Paid is 100. Payable = 100.
+          supplierPayableAmount = supplierPayableOrCredit;
+      } else if (supplierPayableOrCredit < 0) {
+          // They owe us a credit
+          // e.g. Fee is 200, Paid is 500. Credit = 300.
+          supplierCreditNoteAmount = Math.abs(supplierPayableOrCredit);
+      }
+      // If 0, nothing happens.
+      
+      // --- *** END OF FIX *** ---
+
+      // Customer calculations remain the same
       const customerDifference = totalChainReceivedFromCustomer - customerTotalCancellationFee;
       const refundToPassenger = customerDifference > 0 ? customerDifference : 0;
       const payableByCustomer = customerDifference < 0 ? Math.abs(customerDifference) : 0;
-      const supplierCreditNoteAmount = supplierDifference > 0 ? supplierDifference : 0;
+
+      // This P/L formula appears to calculate the final profit/loss of the *entire* chain, which is correct.
       const profitOrLoss = (totalChainReceivedFromCustomer - totalOwedToSupplierBeforeCancellation) - refundToPassenger + payableByCustomer;
       // --- End Calculations ---
 
@@ -2256,11 +2408,11 @@ const createCancellation = async (req, res) => {
           originalBookingId: rootBookingInChain.id,
           folderNo: `${baseFolderNo}.C`,
           originalRevenue: rootBookingInChain.revenue || 0,
-          originalProdCost: rootBookingInChain.prodCost || 0,
+          originalProdCost: rootBookingInChain.prodCost || 0, // Keep original cost for records
           supplierCancellationFee: supCancellationFee,
           refundToPassenger: refundToPassenger,
           adminFee: parseFloat(adminFee),
-          creditNoteAmount: supplierCreditNoteAmount,
+          creditNoteAmount: supplierCreditNoteAmount, // Use the new fixed variable
           refundStatus: finalRefundStatus,
           profitOrLoss: profitOrLoss,
           description: `Cancellation for chain ${baseFolderNo}.`,
@@ -2268,47 +2420,45 @@ const createCancellation = async (req, res) => {
         },
       });
 
-      // --- Create Supplier Credit Note OR Payable ---
-      if (supplierDifference > 0) {
-         const firstSupplier = chainBookings
+      // --- *** MODIFIED BLOCK: Create Supplier Credit Note OR Payable *** ---
+      const firstSupplier = chainBookings
             .flatMap(b => b.costItems || [])
             .flatMap(ci => ci.suppliers || [])
             .find(s => s?.supplier);
-         if (firstSupplier) {
-           await tx.supplierCreditNote.create({
-             data: {
-               supplier: firstSupplier.supplier,
-               initialAmount: supplierCreditNoteAmount,
-               remainingAmount: supplierCreditNoteAmount,
-               status: 'AVAILABLE',
-               generatedFromCancellationId: newCancellationRecord.id,
-             }
-           });
-         } else {
-              console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to associate supplier credit note £${supplierCreditNoteAmount.toFixed(2)}. Credit note NOT created.`);
-         }
-      } else if (supplierDifference < 0) {
-         const firstSupplier = chainBookings
-            .flatMap(b => b.costItems || [])
-            .flatMap(ci => ci.suppliers || [])
-            .find(s => s?.supplier);
-         if (firstSupplier) {
-           const amountOwedToSupplier = Math.abs(supplierDifference);
-           await tx.supplierPayable.create({
-             data: {
-               supplier: firstSupplier.supplier,
-               totalAmount: amountOwedToSupplier,
-               pendingAmount: amountOwedToSupplier,
-               reason: `Cancellation fee shortfall for booking chain ${baseFolderNo}`,
-               status: 'PENDING',
-               createdFromCancellationId: newCancellationRecord.id,
-             }
-           });
-         } else {
-             console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to create supplier payable £${Math.abs(supplierDifference).toFixed(2)}. Payable NOT created.`);
-         }
+
+      if (supplierCreditNoteAmount > 0) {
+        // We are owed a credit
+        if (firstSupplier) {
+          await tx.supplierCreditNote.create({
+            data: {
+              supplier: firstSupplier.supplier,
+              initialAmount: supplierCreditNoteAmount, // Use new variable
+              remainingAmount: supplierCreditNoteAmount, // Use new variable
+              status: 'AVAILABLE',
+              generatedFromCancellationId: newCancellationRecord.id,
+            }
+          });
+        } else {
+            console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to associate supplier credit note £${supplierCreditNoteAmount.toFixed(2)}. Credit note NOT created.`);
+        }
+      } else if (supplierPayableAmount > 0) {
+        // We owe a new payable
+        if (firstSupplier) {
+          await tx.supplierPayable.create({
+            data: {
+              supplier: firstSupplier.supplier,
+              totalAmount: supplierPayableAmount, // Use new variable
+              pendingAmount: supplierPayableAmount, // Use new variable
+              reason: `Cancellation fee shortfall for booking chain ${baseFolderNo}`,
+              status: 'PENDING',
+              createdFromCancellationId: newCancellationRecord.id,
+            }
+          });
+        } else {
+            console.warn(`Cancellation ${newCancellationRecord.id}: Could not find a supplier in chain ${baseFolderNo} to create supplier payable £${supplierPayableAmount.toFixed(2)}. Payable NOT created.`);
+        }
       }
-      // --- End Supplier Outcome ---
+      // --- *** END MODIFIED BLOCK *** ---
 
       // --- Create Customer Payable ---
       if (payableByCustomer > 0) {
@@ -2355,13 +2505,13 @@ const createCancellation = async (req, res) => {
       });
 
        return tx.cancellation.findUnique({
-           where: { id: newCancellationRecord.id },
-           include: {
-               generatedCreditNote: true,
-               createdPayable: true,
-               createdCustomerPayable: true,
-               generatedCustomerCreditNote: true
-           }
+          where: { id: newCancellationRecord.id },
+          include: {
+              generatedCreditNote: true,
+              createdPayable: true,
+              createdCustomerPayable: true,
+              generatedCustomerCreditNote: true
+          }
        });
     });
 
@@ -3200,6 +3350,8 @@ module.exports = {
   getBookings,
   updateBooking,
   getDashboardStats,
+  getAttentionBookings,
+  getOverdueBookings,
   getRecentBookings,
   getCustomerDeposits,
   updateInstalment,

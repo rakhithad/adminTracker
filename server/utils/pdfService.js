@@ -43,8 +43,7 @@ function createInvoicePdf(booking, totalReceived, callback, endCallback) {
     doc.image('public/Logo.png', leftMargin, pageTop, { width: 100 });
     doc.fontSize(16).font('Helvetica-Bold').text('11TH SREET TRAVEL', 200, pageTop + 15, { align: 'center' });
     doc.fontSize(9).font('Helvetica').text('29 Charlestown Way, HULL HU9 1PJ, United Kingdom', 200, pageTop + 35, { align: 'center' });
-    doc.fontSize(9).text('Phone: [Your Phone] | Email: [Your Email] | Web: [Your Website]', 200, pageTop + 50, { align: 'center' });
-    horizontalLine(doc, contentStartY - 10);
+    doc.fontSize(9).text('Phone: 00442081254420 | Email: contact@eleventhstreettravel.co.uk | Web: eleventhstreettravel.co.uk', 200, pageTop + 50, { align: 'center' });
 
     // --- 2. Invoice Info & Billing Info ---
     let currentY = contentStartY;
