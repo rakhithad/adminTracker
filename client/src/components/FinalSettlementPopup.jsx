@@ -34,7 +34,8 @@ export default function FinalSettlementPopup({ booking, onClose, onSubmit }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center p-4 z-50">
+    // CHANGED: Using bg-black/50 and added backdrop-blur-sm
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
         <h3 className="text-lg font-semibold mb-2 text-gray-800">Record Final Settlement</h3>
         <p className="text-sm text-gray-600 mb-4">

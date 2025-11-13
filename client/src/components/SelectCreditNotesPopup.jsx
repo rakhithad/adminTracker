@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'; // NEW: Added useMemo
+import { useState, useEffect, useMemo } from 'react'; // NEW: Added useMemo
 import { FaTimes, FaCheckCircle } from 'react-icons/fa';
 
 export default function SelectCreditNotesPopup({
@@ -81,7 +81,8 @@ export default function SelectCreditNotesPopup({
   const isFullyCovered = Math.abs(totalApplied - amountToCover) < 0.01;
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
+    // CHANGED: Using bg-black/50
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-xl font-semibold text-gray-800">Select Credit Notes to Apply</h3>
@@ -137,13 +138,13 @@ export default function SelectCreditNotesPopup({
                   <div className="flex items-center">
                      <span className="mr-1 text-gray-600">£</span>
                      <input
-                       type="number"
-                       step="0.01"
-                       className="w-28 p-2 border rounded-lg"
-                       value={selectedNotes[note.id] || '0'}
-                       onChange={e => handleSelectionChange(note.id, e.target.value)}
-                       disabled={!selectedNotes[note.id]}
-                     />
+                      type="number"
+                      step="0.01"
+                      className="w-28 p-2 border rounded-lg"
+                      value={selectedNotes[note.id] || '0'}
+                      onChange={e => handleSelectionChange(note.id, e.target.value)}
+                      disabled={!selectedNotes[note.id]}
+                    />
                   </div>
                 </div>
               ))

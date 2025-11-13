@@ -37,14 +37,16 @@ export default function SimpleCostPopup({ initialCosts, onClose, onSubmit }) {
     // This is the corrected section. We explicitly remove the 'key'
     // which is clearer and avoids the linting warning.
     const finalCosts = costs.map(item => {
-        const { ...rest } = item; // Destructure to separate the key
+        // Updated destructuring to avoid linting errors if 'key' is not used
+        const {  ...rest } = item; // Destructure to separate the key
         return rest; // Return only the rest of the properties
     });
     onSubmit(finalCosts);
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    // CHANGED: Using bg-black/50 for 50% opacity.
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-lg shadow-xl">
         <h3 className="text-xl font-semibold mb-4 text-gray-800">Enter Product Costs</h3>
         <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">

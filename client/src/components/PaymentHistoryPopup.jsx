@@ -115,7 +115,8 @@ export default function PaymentHistoryPopup({ booking, onClose }) {
     const cancellation = booking.cancellation;
 
     return (
-        <div className="fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50 transition-opacity">
+        // CHANGED: Using bg-black/50 and added backdrop-blur-sm
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity">
             <div className="bg-white rounded-lg p-6 w-full max-w-3xl shadow-xl transform transition-all max-h-[90vh] flex flex-col">
                 <div className="flex justify-between items-start mb-4">
                     <div>

@@ -70,8 +70,11 @@ export default function PaxDetailsPopup({ initialData, onClose, onSubmit }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl overflow-y-auto max-h-[80vh]">
+    // CHANGED: Using bg-black/50 for 50% opacity. This is more reliable.
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      
+      {/* This inner div is the white popup card */}
+      <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl">
         <h3 className="text-lg font-semibold mb-4 text-center text-gray-800">Lead Passenger Details</h3>
 
         <div className="mb-4">

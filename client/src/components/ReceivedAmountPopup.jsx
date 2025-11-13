@@ -28,11 +28,11 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
         } else if (!valid) {
             errorMsg = 'Please ensure amount is positive and date is selected.';
         } else {
-             const totalSelected = selectedCustomerCreditNotes.reduce((sum, n) => sum + n.amountToUse, 0);
-             if (Math.abs(totalSelected - parsedAmount) > 0.01) {
-                 valid = false;
-                 errorMsg = `Selected credit (£${totalSelected.toFixed(2)}) doesn't match amount (£${parsedAmount.toFixed(2)}). Re-select credit.`;
-             }
+            const totalSelected = selectedCustomerCreditNotes.reduce((sum, n) => sum + n.amountToUse, 0);
+            if (Math.abs(totalSelected - parsedAmount) > 0.01) {
+                valid = false;
+                errorMsg = `Selected credit (£${totalSelected.toFixed(2)}) doesn't match amount (£${parsedAmount.toFixed(2)}). Re-select credit.`;
+            }
         }
     } else if (['LOYDS', 'STRIPE', 'WISE', 'HUMM'].includes(transactionMethod)) {
         // Handle standard payment methods
@@ -111,7 +111,8 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
 
   return (
     <>
-      <div className="fixed inset-0 bg-gray-900 bg-opacity-50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      {/* CHANGED: Using bg-black/50 for 50% opacity. */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
           <h3 className="text-lg font-semibold mb-4 text-center text-gray-800">Add Payment Received</h3>
 
@@ -150,14 +151,14 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
                             required={transactionMethod === 'CUSTOMER_CREDIT_NOTE'}
                         />
                     </div>
-                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
                         {selectedCustomerCreditNotes.length > 0 ? (
-                           <p className="text-sm font-medium text-green-700"> Applied £{parseFloat(amount || 0).toFixed(2)} from {selectedCustomerCreditNotes.length} credit note(s).</p>
+                            <p className="text-sm font-medium text-green-700"> Applied £{parseFloat(amount || 0).toFixed(2)} from {selectedCustomerCreditNotes.length} credit note(s).</p>
                         ) : (
-                           <p className="text-sm text-gray-600">Enter Original Booking ID and click below.</p>
+                            <p className="text-sm text-gray-600">Enter Original Booking ID and click below.</p>
                         )}
                         <button type="button" onClick={handleOpenCustomerCreditPopup} className="mt-2 text-sm px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50" disabled={!searchBookingId || isNaN(parseInt(searchBookingId))}>
-                           {selectedCustomerCreditNotes.length > 0 ? 'Change Credit Selection' : 'Find & Select Credit'}
+                            {selectedCustomerCreditNotes.length > 0 ? 'Change Credit Selection' : 'Find & Select Credit'}
                         </button>
                     </div>
                     <div>
@@ -186,14 +187,14 @@ export default function ReceivedAmountPopup({ initialData, onClose, onSubmit }) 
       </div>
 
       {showCustomerCreditSelect && (
-            <SelectCustomerCreditPopup
-                amountToCover={Infinity} 
-                availableNotes={availableCustomerNotes}
-                previouslySelectedNotes={selectedCustomerCreditNotes}
-                onClose={() => setShowCustomerCreditSelect(false)}
-                onConfirm={handleCustomerCreditConfirm}
-            />
-        )}
+          <SelectCustomerCreditPopup
+              amountToCover={Infinity} 
+              availableNotes={availableCustomerNotes}
+              previouslySelectedNotes={selectedCustomerCreditNotes}
+              onClose={() => setShowCustomerCreditSelect(false)}
+              onConfirm={handleCustomerCreditConfirm}
+          />
+      )}
     </>
   );
 }
