@@ -1222,8 +1222,19 @@ const updateInstalment = async (req, res) => {
 
 const getCustomerDeposits = async (req, res) => {
   try {
+    const { role, firstName, lastName } = req.user;
+    const agentName = `${firstName} ${lastName}`;
+
+    const isAdmin = (role === 'ADMIN' || role === 'SUPER_ADMIN');
+    const permissions = {
+      canSettlePayments: isAdmin,
+    };
+
+    const roleWhere = isAdmin ? {} : { agentName };
+
     const bookings = await prisma.booking.findMany({
       where: {
+        ...roleWhere,
         paymentMethod: {
           in: ['INTERNAL', 'INTERNAL_HUMM', 'FULL', 'HUMM', 'FULL_HUMM'],
         },
@@ -1450,8 +1461,9 @@ const getCustomerDeposits = async (req, res) => {
         revenue: revenue.toFixed(2),
         received: totalReceived.toFixed(2),
         balance: currentBalance.toFixed(2),
-        initialDeposit: sumOfInitialPayments.toFixed(2), // Use sumOfInitialPayments for consistency
+        initialDeposit: sumOfInitialPayments.toFixed(2), 
         paymentHistory: paymentHistory,
+        _permissions: permissions 
       };
     });
 

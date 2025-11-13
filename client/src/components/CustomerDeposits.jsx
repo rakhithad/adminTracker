@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { getCustomerDeposits, generateCustomerDepositReportPDF, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
@@ -43,27 +43,16 @@ const getActionStatus = (booking) => {
     if (booking.bookingStatus === 'CANCELLED') {
         const cancellation = booking.cancellation;
         if (cancellation?.createdCustomerPayable?.pendingAmount > 0) return 'CUSTOMER_OWES';
-
-        // --- THIS IS THE FIX ---
-        // We check for a paid cash refund FIRST.
-        // This ensures "Refund Paid" shows even if a credit note was voided in the process.
         if (cancellation?.refundStatus === 'PAID') return 'REFUND_PAID';
-        // --- END OF FIX ---
-
         if (cancellation?.generatedCustomerCreditNote) {
             const creditNote = cancellation.generatedCustomerCreditNote;
             if (creditNote.status === 'USED') return 'CREDIT_USED';
             if (creditNote.status === 'PARTIALLY_USED') return 'CREDIT_PARTIAL';
             if (creditNote.status === 'AVAILABLE') return 'CREDIT_AVAILABLE';
         }
-
         if (cancellation?.refundStatus === 'PENDING') return 'REFUND_PENDING';
-        // 'REFUND_PAID' was moved up
-        
         return 'CANCELLED_SETTLED';
     }
-
-    // This part for non-cancelled bookings remains the same
     const balance = parseFloat(booking.balance);
     if (balance > 0) {
         const hasPendingInstalments = (booking.instalments || []).some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
@@ -74,9 +63,24 @@ const getActionStatus = (booking) => {
 };
 
 
-// --- *** CORRECTED ActionCell COMPONENT *** ---
 const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
     const status = getActionStatus(booking);
+    const permissions = booking._permissions || { canSettlePayments: false };
+
+    if (!permissions.canSettlePayments) {
+        switch (status) {
+            case 'CUSTOMER_OWES':
+                return <StatusBadge color="red"><FaExclamationCircle /> Debt Pending</StatusBadge>;
+            case 'REFUND_PENDING':
+            case 'CREDIT_AVAILABLE':
+            case 'CREDIT_PARTIAL':
+                return <StatusBadge color="blue"><FaReceipt /> Refund Pending</StatusBadge>;
+            case 'FINAL_SETTLEMENT_DUE':
+                return <StatusBadge color="yellow"><FaExclamationCircle /> Balance Due</StatusBadge>;
+            case 'INSTALMENT_DUE':
+                return <StatusBadge color="gray"><FaMoneyBillWave /> Instalment Due</StatusBadge>;
+        }
+    }
 
     switch (status) {
         case 'CUSTOMER_OWES': {
@@ -146,14 +150,12 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                 </div>
             );
 
-        // --- THIS IS THE FIXED CASE ---
         case 'INSTALMENT_DUE': {
             const instalments = booking.instalments || [];
             const nextInstalment = instalments.find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
             
             if (!nextInstalment) return <StatusBadge color="gray">Processing...</StatusBadge>;
 
-            // If NOT expanded, show the original compact view
             if (!expanded) {
                 return (
                     <div className="text-center space-y-1">
@@ -175,7 +177,6 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
                 );
             }
 
-            // If EXPANDED, show the full list
             return (
                 <div className="text-left space-y-2 p-2 bg-gray-50 rounded-lg w-full">
                     {instalments.map(inst => {
@@ -223,7 +224,6 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
         case 'COMPLETED': default: return <StatusBadge color="green"><FaCheckCircle /> Completed</StatusBadge>;
     }
 };
-// --- *** END OF CORRECTIONS *** ---
 
 
 export default function CustomerDeposits() {
@@ -265,18 +265,14 @@ export default function CustomerDeposits() {
     };
 
     const handleSaveSettlement = async (bookingId, formData) => {
-  try {
-    // This calls your API
-    await recordSettlementPayment(bookingId, formData); 
-    
-    // Now call the original completion function to refresh and close
-    handleActionCompletion(); 
-  } catch (error) {
-    // This will pass the error back to the popup's error state
-    console.error("Failed to save settlement:", error);
-    throw error; 
-  }
-};
+        try {
+            await recordSettlementPayment(bookingId, formData); 
+            handleActionCompletion(); 
+        } catch (error) {
+            console.error("Failed to save settlement:", error);
+            throw error; 
+        }
+    };
 
     const handleSavePayment = (payload) => {
         const { updatedInstalment, bookingUpdate } = payload;

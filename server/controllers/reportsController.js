@@ -3,7 +3,7 @@ const { createDepositReportPdf } = require('../services/pdfReportGenerator');
 
 const generateCustomerDepositReport = async (req, res) => {
     try {
-        const filters = req.body; // { status, startDate, endDate, searchTerm }
+        const filters = req.body;
 
         // 1. Fetch and process the data using the service
         const bookings = await fetchAndProcessDepositData(filters);

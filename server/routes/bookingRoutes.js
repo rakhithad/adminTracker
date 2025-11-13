@@ -49,7 +49,7 @@ router.get('/dashboard/attention-bookings',authenticateToken, authorizeRole(['CO
 router.get('/dashboard/overdue-bookings',authenticateToken, authorizeRole(['CONSULTANT','MANAGEMENT','ADMIN', 'SUPER_ADMIN']), getOverdueBookings);
 
 router.get('/dashboard/recent', authenticateToken, getRecentBookings);
-router.get('/customer-deposits', authenticateToken, getCustomerDeposits);
+router.get('/customer-deposits', authenticateToken, authorizeRole(['CONSULTANT','MANAGEMENT','ADMIN', 'SUPER_ADMIN']), getCustomerDeposits);
 router.patch('/instalments/:id', authenticateToken, updateInstalment);
 router.get('/suppliers-info', authenticateToken, getSuppliersInfo);
 router.post('/suppliers/settlements', authenticateToken, createSupplierPaymentSettlement)
