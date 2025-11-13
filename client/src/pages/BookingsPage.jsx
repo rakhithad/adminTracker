@@ -73,8 +73,13 @@ export default function BookingsPage() {
     try {
       setLoading(true);
       setError(null);
-      const response = await getBookings();
-      const bookingsData = Array.isArray(response.data.data) ? response.data.data : [];
+      const response = await getBookings(); // This API call is now filtered by role
+      
+      // --- THIS IS THE FIX ---
+      // We go one level deeper to find the array
+      const bookingsData = Array.isArray(response.data.data.data) ? response.data.data.data : [];
+      // --- END OF FIX ---
+
       setAllBookings(bookingsData);
     } catch (error) {
       console.error("Failed to fetch bookings:", error);

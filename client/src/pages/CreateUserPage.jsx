@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaUserPlus, FaSpinner, FaLock, FaUser, FaAddressBook, FaBriefcase } from 'react-icons/fa';
+import { FaUserPlus, FaSpinner, FaLock, FaUser, FaBriefcase } from 'react-icons/fa';
 import { createUser } from '../api/api';
 
 // --- STYLED Reusable Form Components ---

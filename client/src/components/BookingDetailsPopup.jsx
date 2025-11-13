@@ -244,6 +244,13 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
     const [showCostEditor, setShowCostEditor] = useState(false);
     const [agents, setAgents] = useState([]); 
 
+    const permissions = booking._permissions || {
+      canEdit: false,
+      canCancel: false,
+      canVoid: false,
+      canDateChange: false
+    };
+
     const paymentHistory = useMemo(() => buildPaymentHistory(booking), [booking]);
     const totalReceived = useMemo(() => {
         return paymentHistory.reduce((sum, item) => {
@@ -496,7 +503,10 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
             <InfoItem label="Product Cost">
                 <div className="flex items-center gap-4">
                     <p className="font-semibold text-red-600">£{booking.prodCost?.toFixed(2)}</p>
-                    {(isEditing || hasMissingSuppliers) && (
+                    
+                    {/* --- ROLE CHECK FOR EDIT COSTS BUTTON --- */}
+                    {/* Show if (editing OR missing suppliers) AND user has edit permission */}
+                    {(isEditing || hasMissingSuppliers) && permissions.canEdit && (
                         <button 
                             onClick={() => setShowCostEditor(true)}
                             className="px-3 py-1 text-xs font-semibold bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200"
@@ -581,16 +591,21 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                 <header className="flex justify-between items-start p-5 border-b border-slate-200 bg-slate-50/50 rounded-t-xl">
                     <div>
                         <h2 className="text-2xl font-bold text-slate-900">Booking Details</h2>
-                        <p className="text-sm text-slate-500 mt-1">Ref: <span className="font-semibold text-blue-600">{booking.refNo}</span>  |  Passenger: <span className="font-semibold">{booking.paxName}</span></p>
+                        <p className="text-sm text-slate-500 mt-1">Ref: <span className="font-semibold text-blue-600">{booking.refNo}</span> | Passenger: <span className="font-semibold">{booking.paxName}</span></p>
                     </div>
+                    
+                    {/* --- 4. UPDATED HEADER ACTIONS --- */}
                     <div className="flex items-center space-x-2 flex-shrink-0">
                         {isEditing ? (
+                            // This part is only reachable if user has edit permission
                             <>
                                 <ActionButton onClick={handleSave} icon={<FaSave />} className="bg-green-600 text-white hover:bg-green-700">Save Changes</ActionButton>
                                 <ActionButton onClick={() => { setIsEditing(false); setEditData(booking); }} icon={<FaBan />} className="bg-slate-500 text-white hover:bg-slate-600">Cancel</ActionButton>
                             </>
                         ) : (
+                            // View Mode
                             <>
+                                {/* --- BUTTON FOR EVERYONE --- */}
                                 <ActionButton 
                                     onClick={handleGenerateInvoice} 
                                     icon={isGeneratingInvoice ? <FaSpinner className="animate-spin" /> : <FaFileInvoice />}
@@ -599,8 +614,12 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                                 >
                                     {isGeneratingInvoice ? 'Generating...' : (booking.invoiced ? 'Re-Download Invoice' : 'Generate Invoice')}
                                 </ActionButton>
-                                <ActionButton onClick={() => setIsEditing(true)} disabled={isVoided} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
-                                {booking.bookingStatus !== 'CANCELLED' && (
+
+                                {/* --- ADMIN-ONLY BUTTONS --- */}
+                                {permissions.canEdit && (
+                                    <ActionButton onClick={() => setIsEditing(true)} disabled={isVoided} icon={<FaPencilAlt />} className="bg-blue-600 text-white hover:bg-blue-700">Edit</ActionButton>
+                                )}
+                                {permissions.canDateChange && booking.bookingStatus !== 'CANCELLED' && (
                                     <ActionButton
                                         onClick={handleDateChange} icon={<FaCalendarAlt />}
                                         className="bg-purple-600 text-white hover:bg-purple-700"
@@ -608,13 +627,15 @@ export default function BookingDetailsPopup({ booking, onClose, onSave }) {
                                         title={booking.isChainCancelled ? "Cannot create date change for a cancelled booking chain." : ""}
                                     >Date Change</ActionButton>
                                 )}
-                                {!booking.cancellation && booking.bookingStatus !== 'CANCELLED' && (
+                                {permissions.canCancel && !booking.cancellation && booking.bookingStatus !== 'CANCELLED' && (
                                     <ActionButton onClick={() => setShowCancelPopup(true)} disabled={isVoided} icon={<FaBan />} className="bg-red-600 text-white hover:bg-red-700">Cancel Booking</ActionButton>
                                 )}
-                                {isVoided ? (
-                                    <ActionButton onClick={handleUnvoid} icon={<FaUndo />} className="bg-green-600 text-white hover:bg-green-700">Unvoid</ActionButton>
-                                ) : (
-                                    <ActionButton onClick={() => setShowVoidPopup(true)} icon={<FaExclamationTriangle />} className="bg-orange-500 text-white hover:bg-orange-600">Void Booking</ActionButton>
+                                {permissions.canVoid && (
+                                    isVoided ? (
+                                        <ActionButton onClick={handleUnvoid} icon={<FaUndo />} className="bg-green-600 text-white hover:bg-green-700">Unvoid</ActionButton>
+                                    ) : (
+                                        <ActionButton onClick={() => setShowVoidPopup(true)} icon={<FaExclamationTriangle />} className="bg-orange-500 text-white hover:bg-orange-600">Void Booking</ActionButton>
+                                    )
                                 )}
                             </>
                         )}

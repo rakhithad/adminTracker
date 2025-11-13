@@ -653,56 +653,82 @@ const createBooking = async (req, res) => {
 };
 
 const getBookings = async (req, res) => {
-  try {
-    const bookings = await prisma.booking.findMany({
-      include: {
-        costItems: { include: { suppliers: true } },
-        passengers: true,
-        instalments: { include: { payments: true } },
-        cancellation: {
-          include: {
-            // Include all cancellation details needed for history
-            createdCustomerPayable: { include: { settlements: true } },
-            refundPayment: true,
-            generatedCustomerCreditNote: {
-              include: {
-                generatedFromCancellation: {
-                  select: { originalBooking: { select: { refNo: true } } }
-                },
-                usageHistory: {
-                  include: {
-                    usedOnInitialPayment: {
-                      select: { booking: { select: { refNo: true } } }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        initialPayments: {
-          include: {
-            appliedCustomerCreditNoteUsage: {
-              include: {
-                creditNote: {
-                  include: {
-                    generatedFromCancellation: {
-                      select: { originalBooking: { select: { refNo: true } } }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-      },
-      orderBy: { pcDate: 'desc' },
-    });
-    return apiResponse.success(res, bookings);
-  } catch (error) {
-    console.error("Error fetching bookings:", error);
-    return apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
-  }
+  try {
+    // 1. Get user details from the auth middleware
+    const { role, firstName, lastName } = req.user;
+    const agentName = `${firstName} ${lastName}`;
+
+    // 2. Define permissions based on role
+    const isAdmin = (role === 'ADMIN' || role === 'SUPER_ADMIN');
+    const permissions = {
+      canEdit: isAdmin,
+      canCancel: isAdmin,
+      canVoid: isAdmin,
+      canDateChange: isAdmin
+    };
+
+    // 3. Create a filter based on the user's role
+    const roleWhere = isAdmin ? {} : { agentName }; // Admins see all, others see their own
+
+    // 4. Apply the filter to the Prisma query
+    const bookings = await prisma.booking.findMany({
+      where: roleWhere, // <-- FILTER IS APPLIED HERE
+      include: {
+        costItems: { include: { suppliers: true } },
+        passengers: true,
+        instalments: { include: { payments: true } },
+        cancellation: {
+          include: {
+            createdCustomerPayable: { include: { settlements: true } },
+            refundPayment: true,
+            generatedCustomerCreditNote: {
+              include: {
+                generatedFromCancellation: {
+                  select: { originalBooking: { select: { refNo: true } } }
+                },
+                usageHistory: {
+                  include: {
+                    usedOnInitialPayment: {
+                      select: { booking: { select: { refNo: true } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        initialPayments: {
+          include: {
+            appliedCustomerCreditNoteUsage: {
+              include: {
+                creditNote: {
+                  include: {
+                    generatedFromCancellation: {
+                      select: { originalBooking: { select: { refNo: true } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+      },
+      orderBy: { pcDate: 'desc' },
+    });
+
+    // 5. Loop through bookings and attach the permissions object
+    const bookingsWithPermissions = bookings.map(booking => ({
+      ...booking,
+      _permissions: permissions
+    }));
+
+    // 6. Return data in the format your frontend expects
+    return apiResponse.success(res, { data: bookingsWithPermissions });
+
+  } catch (error) {
+    console.error("Error fetching bookings:", error);
+    return apiResponse.error(res, "Failed to get all bookings: " + error.message, 500);
+  }
 };
 
 const updateBooking = async (req, res) => {
@@ -862,7 +888,6 @@ const getDateFilter = (startDate, endDate) => {
     dateFilter.gte = new Date(startDate);
   }
   if (endDate) {
-    // Add 1 day to the end date to include the entire day
     const end = new Date(endDate);
     end.setDate(end.getDate() + 1);
     dateFilter.lt = end;
@@ -870,12 +895,23 @@ const getDateFilter = (startDate, endDate) => {
   return dateFilter;
 };
 
+// --- UPDATED CONTROLLER 1 ---
 const getDashboardStats = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    const { role, firstName, lastName } = req.user; // <-- FIXED
+    const agentName = `${firstName} ${lastName}`;
 
-    const bookingWhere = {};
-    const pendingWhere = {};
+    // --- Role-Based Filter ---
+    // If ADMIN or SUPER_ADMIN, roleWhere is empty (gets all)
+    // Otherwise, it filters by the logged-in user's agentName.
+    const roleWhere = (role === 'ADMIN' || role === 'SUPER_ADMIN') 
+      ? {} 
+      : { agentName };
+    // --- End Role Filter ---
+
+    const bookingWhere = { ...roleWhere };
+    const pendingWhere = { ...roleWhere }; // Assumes PendingBooking also has agentName
 
     if (startDate || endDate) {
       const dateFilter = getDateFilter(startDate, endDate);
@@ -898,21 +934,21 @@ const getDashboardStats = async (req, res) => {
       prisma.booking.count({ 
         where: { ...bookingWhere, bookingStatus: 'COMPLETED' } 
       }),
-      // Aggregate all financials in one call
       prisma.booking.aggregate({
         _sum: {
           revenue: true,
           profit: true,
-          balance: true,
         },
+        // We only sum financials for the role's bookings
         where: { ...bookingWhere, bookingStatus: { notIn: ['VOID'] } },
       }),
     ]);
     
-    // Get total outstanding balance (not just for the period, this is a snapshot)
+    // Balance Due is also filtered by role
     const totalBalanceDue = await prisma.booking.aggregate({
       _sum: { balance: true },
       where: { 
+        ...roleWhere, // <-- Filter added
         balance: { gt: 0 },
         bookingStatus: { notIn: ['VOID', 'CANCELLED'] }
       },
@@ -933,14 +969,25 @@ const getDashboardStats = async (req, res) => {
   }
 };
 
+// --- UPDATED CONTROLLER 2 ---
 const getAttentionBookings = async (req, res) => {
   try {
+    // Get user role and name from the auth middleware
+    const { role, fullName: agentName } = req.user;
+
+    // --- Role-Based Filter ---
+    const roleWhere = (role === 'ADMIN' || role === 'SUPER_ADMIN') 
+      ? {} 
+      : { agentName };
+    // --- End Role Filter ---
+
     const bookings = await prisma.booking.findMany({
       where: {
+        ...roleWhere, // <-- Filter added
         bookingStatus: { notIn: ['CANCELLED', 'VOID'] },
         OR: [
           { issuedDate: null },
-          { costItems: { none: {} } } // <-- THIS IS THE FIX
+          { costItems: { none: {} } }
         ],
       },
       take: 10,
@@ -956,12 +1003,10 @@ const getAttentionBookings = async (req, res) => {
       },
     });
 
-    // Format data for the frontend
     const attentionList = bookings.map(b => ({
       id: b.id,
       refNo: b.refNo,
       paxName: b.paxName,
-      // Updated logic to correctly show the reason
       reason: b.issuedDate === null 
         ? 'Missing Issued Date' 
         : 'Missing Supplier Costs',
@@ -974,16 +1019,27 @@ const getAttentionBookings = async (req, res) => {
   }
 };
 
+// --- UPDATED CONTROLLER 3 ---
 const getOverdueBookings = async (req, res) => {
   try {
+    // Get user role and name from the auth middleware
+    const { role, fullName: agentName } = req.user;
+
+    // --- Role-Based Filter ---
+    const roleWhere = (role === 'ADMIN' || role === 'SUPER_ADMIN') 
+      ? {} 
+      : { agentName };
+    // --- End Role Filter ---
+
     const bookings = await prisma.booking.findMany({
       where: {
+        ...roleWhere, // <-- Filter added
         bookingStatus: { notIn: ['CANCELLED', 'VOID'] },
         balance: { gt: 0 },
-        travelDate: { lt: new Date() }, // Travel date is in the past
+        travelDate: { lt: new Date() },
       },
       take: 10,
-      orderBy: { travelDate: 'asc' }, // Show oldest first
+      orderBy: { travelDate: 'asc' },
       select: {
         id: true,
         refNo: true,
