@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'; // Added useEffect for initial check
-import { createSupplierPayableSettlement } from '../api/api'; // Ensure this path is correct
+import { useState, useEffect } from 'react';
+import { createSupplierPayableSettlement } from '../api/api';
 import { FaTimes, FaFileInvoiceDollar, FaHistory } from 'react-icons/fa';
 
 export default function SettlePayablePopup({ payable, supplier, onClose, onSubmit }) {
@@ -86,7 +86,8 @@ export default function SettlePayablePopup({ payable, supplier, onClose, onSubmi
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    // CHANGED: Using bg-black/50
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-2xl p-8 w-full max-w-lg shadow-2xl transform transition-all max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-6 pb-4 border-b">
           <h2 className="text-2xl font-bold text-gray-800 flex items-center">

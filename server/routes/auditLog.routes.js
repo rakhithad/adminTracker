@@ -2,14 +2,13 @@
 
 const express = require('express');
 const { getAuditHistory } = require('../controllers/auditLogController.js');
-// Assuming your auth middleware also uses CommonJS. If not, we'll fix it.
-const { authenticateToken } = require('../middleware/auth.middleware.js');
+const { authenticateToken, authorizeRole } = require('../middleware/auth.middleware.js');
 
 const router = express.Router();
 
 router.get(
   '/',
-  authenticateToken,
+  authenticateToken,authorizeRole(['ADMIN', 'MANAGEMENT', 'SUPER_MANAGER', 'SUPER_ADMIN' ]),
   getAuditHistory
 );
 

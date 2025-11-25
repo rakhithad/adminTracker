@@ -58,6 +58,10 @@ model Booking {
 
   cancellation      Cancellation?   
 
+  accountingMonth  DateTime?         @map("accounting_month")
+  internalInvoices InternalInvoice[]
+  commissionAmount Float?            @map("commission_amount")
+
   @@map("bookings")
 }
 
@@ -159,6 +163,8 @@ model User {
   createdPendingBookings PendingBooking[]
   voidedBookings Booking[] @relation("VoidedBookings")
   auditLogs AuditLog[]
+  InternalInvoices InternalInvoice[]
+
 
   @@map("users")
 }
@@ -380,8 +386,15 @@ model Cancellation {
 
   createdCustomerPayable  CustomerPayable?
 
+  
   createdPayable          SupplierPayable?
   generatedCreditNote     SupplierCreditNote?
+
+  generatedCustomerCreditNote CustomerCreditNote?
+
+  accountingMonth  DateTime?         @map("accounting_month")
+  commissionAmount Float?            @map("commission_amount")
+  internalInvoices InternalInvoice[]
 
 
 
@@ -538,6 +551,11 @@ enum ActionType {
   CREATE_CANCELLATION
   SETTLEMENT_PAYMENT
   REFUND_PAYMENT
+  GENERATE_INVOICE
+  CREATE_INTERNAL_INVOICE
+  UPDATE_INTERNAL_INVOICE
+  UPDATE_ACCOUNTING_MONTH
+  UPDATE_COMMISSION_AMOUNT
 }
 
 model InitialPayment {
@@ -554,8 +572,77 @@ model InitialPayment {
   bookingId         Int?
   booking           Booking?        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
+  appliedCustomerCreditNoteUsage CustomerCreditNoteUsage?
+
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("initial_payments")
 }
+
+
+//invoicing
+model InvoiceCounter {
+  id          Int      @id @default(autoincrement())
+  prefix      String   @unique // Will store "YYYY-MM-DD-external"
+  lastNumber  Int      @map("last_number")
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoice_counters")
+}
+
+
+model InternalInvoice {
+  id          Int      @id @default(autoincrement())
+  amount      Float
+  invoiceDate DateTime @map("invoice_date")
+  bookingId   Int?      @map("booking_id")
+  commissionMonth DateTime @map("commission_month")
+  booking     Booking?  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  cancellationId Int?            @map("cancellation_id")
+  cancellation   Cancellation?   @relation(fields: [cancellationId], references: [id], onDelete: Cascade)
+  
+  createdById String   @map("created_by_id")
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("internal_invoices")
+}
+
+
+model CustomerCreditNote {
+  id                          Int      @id @default(autoincrement())
+  customerName                String   @map("customer_name") // Index is now defined below
+  initialAmount               Float    @map("initial_amount")
+  remainingAmount             Float    @map("remaining_amount")
+  status                      CreditNoteStatus @default(AVAILABLE)
+
+  generatedFromCancellationId Int      @unique @map("generated_from_cancellation_id")
+  generatedFromCancellation   Cancellation @relation(fields: [generatedFromCancellationId], references: [id])
+
+  usageHistory                CustomerCreditNoteUsage[]
+
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  @@index([customerName]) // Use the model-level index definition
+  @@map("customer_credit_notes")
+}
+
+model CustomerCreditNoteUsage {
+  id                          Int      @id @default(autoincrement())
+  amountUsed                  Float    @map("amount_used")
+  usedAt                      DateTime @default(now()) @map("used_at")
+
+  // Link back to the specific Credit Note used
+  creditNoteId                Int      @map("credit_note_id")
+  creditNote                  CustomerCreditNote @relation(fields: [creditNoteId], references: [id])
+
+  // Link to the specific InitialPayment where this credit was applied
+  usedOnInitialPaymentId      Int      @unique @map("used_on_initial_payment_id") // One usage per payment record
+  usedOnInitialPayment        InitialPayment @relation(fields: [usedOnInitialPaymentId], references: [id])
+
+  @@map("customer_credit_note_usage")
+}
+

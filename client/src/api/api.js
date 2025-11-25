@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { supabase } from '../supabaseClient';
+import { saveAs } from 'file-saver';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000/api',
@@ -58,6 +59,15 @@ export const updatePendingBooking = async (bookingId, updates) => {
 export const getDashboardStats = async () => {
   return await api.get('/bookings/dashboard/stats');
 };
+
+export const getAttentionBookings = async () => {
+  return await api.get('/bookings/dashboard/attention-bookings');
+};
+
+export const getOverdueBookings = async () => {
+  return await api.get('/bookings/dashboard/overdue-bookings');
+};
+
 
 export const getRecentBookings = async () => {
   return await api.get('/bookings/dashboard/recent');
@@ -151,4 +161,164 @@ export const updateUserById = async (userId, userData) => {
 //audit history
 export const getAuditHistory = (modelName, recordId) => {
     return api.get(`/audit-history?modelName=${modelName}&recordId=${recordId}`);
+};
+
+
+export const generateInvoicePDF = async (bookingId, invoiceNumber) => {
+  try {
+    // FIX: Use the 'api' instance, not the global 'axios'
+    const response = await api.post(`/bookings/${bookingId}/invoice`, {}, {
+      responseType: 'blob', // Important: we expect a file back
+    });
+
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    // Use the invoiceNumber from the response if available, otherwise create a new one
+    const contentDisposition = response.headers['content-disposition'];
+    let fileName = `invoice-${invoiceNumber || 'download'}.pdf`;
+    if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (fileNameMatch.length === 2)
+            fileName = fileNameMatch[1];
+    }
+    
+    saveAs(blob, fileName);
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Error generating invoice PDF:", error);
+    return { success: false, message: "Could not generate PDF." };
+  }
+};
+
+export const getInternalInvoicingReport = async () => {
+  return await api.get('/reports/internal-invoicing');
+};
+
+export const createInternalInvoice = async (data) => {
+    // data can be { bookingId, amount, invoiceDate, commissionAmount? }
+    try {
+        const response = await api.post('/reports/internal-invoicing', data, {
+            responseType: 'blob', // Expect a PDF file back
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        // Extract filename from headers if possible
+        const contentDisposition = response.headers['content-disposition'];
+        let fileName = 'commission-receipt.pdf';
+        if (contentDisposition) {
+            const fileNameMatch = contentDisposition.match(/filename="(.+)"/);
+            if (fileNameMatch && fileNameMatch.length === 2) fileName = fileNameMatch[1];
+        }
+        saveAs(blob, fileName);
+        return { success: true };
+    } catch (error) {
+        console.error("Error creating internal invoice:", error);
+        return { success: false, message: "Could not generate PDF receipt." };
+    }
+};
+
+export const updateInternalInvoice = async (invoiceId, data) => {
+  // data should be { amount, invoiceDate }
+  return await api.put(`/reports/internal-invoicing/${invoiceId}`, data);
+};
+
+export const getInvoiceHistoryForBooking = async (recordId, recordType) => {
+  return await api.get(`/reports/internal-invoicing/${recordType}/${recordId}/history`);
+};
+
+
+export const updateCommissionAmount = async (recordId, recordType, commissionAmount) => {
+  return await api.put(`/reports/internal-invoicing/commission-amount`, { 
+    recordId, 
+    recordType, 
+    commissionAmount 
+  });
+};
+
+export const downloadInvoiceReceipt = async (invoiceId, folderNo) => {
+    try {
+        const response = await api.get(`/reports/internal-invoicing/${invoiceId}/pdf`, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, `commission-receipt-${folderNo}-${invoiceId}.pdf`);
+        return { success: true };
+    } catch (error) {
+        console.error("Error downloading receipt:", error);
+        return { success: false, message: "Could not download PDF." };
+    }
+};
+
+export const updateRecordAccountingMonth = async (recordId, recordType, accountingMonth) => {
+  return await api.put('/reports/internal-invoicing/accounting-month', {
+    recordId,
+    recordType,
+    accountingMonth,
+  });
+};
+
+export const generateCommissionSummaryPDF = async (filters) => {
+    try {
+        const response = await api.post('/reports/internal-invoicing/summary-pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'commission-summary-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating summary PDF:", error);
+        return { success: false };
+    }
+};
+
+export const generateTransactionReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/transactions/summary-pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'transaction-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating transaction PDF:", error);
+        return { success: false };
+    }
+};
+
+export const generateSupplierReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/supplier-reports/pdf', filters, {
+            responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        saveAs(blob, 'supplier-report.pdf');
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating supplier report PDF:", error);
+        return { success: false };
+    }
+};
+
+export const generateCustomerDepositReportPDF = async (filters) => {
+    try {
+        const response = await api.post('/reports/customer-deposits', filters, {
+            responseType: 'blob', // IMPORTANT: This tells axios to expect a file
+        });
+        
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const filename = `Customer-Deposit-Report-${new Date().toISOString().split('T')[0]}.pdf`;
+        
+        saveAs(blob, filename); // Uses file-saver to trigger download
+        
+        return { success: true };
+    } catch (error) {
+        console.error("Error generating customer deposit report PDF:", error);
+        // You might want to handle cases where the server returns a JSON error instead of a blob
+        return { success: false, message: "Could not generate PDF report." };
+    }
+};
+
+export const getCustomerCreditNotes = async (originalBookingId) => {
+  return await api.get(`/bookings/credit-notes/customer`, { 
+    params: { originalBookingId } // Changed parameter name
+  });
 };

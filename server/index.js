@@ -25,6 +25,18 @@ app.use('/api/bookings', bookingRoutes);
 const auditLogRoutes = require('./routes/auditLog.routes');
 app.use('/api/audit-history', auditLogRoutes);
 
+const internalInvoiceRoutes = require('./routes/internalInvoiceRoutes');
+app.use('/api/reports/internal-invoicing', internalInvoiceRoutes);
+
+const transactionRoutes = require('./routes/transactionRoutes')
+app.use('/api/transactions', transactionRoutes);
+
+const supplierReportRoutes = require('./routes/supplierReportRoutes');
+app.use('/api/supplier-reports', supplierReportRoutes);
+
+const customerDepositReportRoutes = require('./routes/CustomerDepositReport');
+app.use('/api', customerDepositReportRoutes);
+
 app.listen(PORT, () => {
     console.log("server is running on Port " + PORT);
 });

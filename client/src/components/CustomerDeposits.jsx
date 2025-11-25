@@ -1,16 +1,12 @@
-import { useState, useEffect } from 'react';
-import { getCustomerDeposits, recordSettlementPayment } from '../api/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getCustomerDeposits, generateCustomerDepositReportPDF, recordSettlementPayment } from '../api/api';
 import InstalmentPaymentPopup from './InstalmentPaymentPopup';
 import FinalSettlementPopup from './FinalSettlementPopup';
 import PaymentHistoryPopup from './PaymentHistoryPopup';
-import { FaSearch, FaExclamationCircle, FaCheckCircle, FaBan, FaMoneyBillWave, FaHandHoldingUsd, FaReceipt } from 'react-icons/fa';
+import { FaSearch, FaExclamationCircle, FaCheckCircle, FaBan, FaMoneyBillWave, FaHandHoldingUsd, FaReceipt, FaDownload, FaSpinner, FaInfoCircle } from 'react-icons/fa';
 import SettleCustomerPayablePopup from '../components/SettleCustomerPayablePopup';
 import RecordRefundPopup from '../components/RecordRefundPopup';
 
-
-// --- Reusable Styled Components ---
-
-// A standardized button for all actions in the table
 const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
     const colorClasses = {
         blue: 'bg-blue-600 hover:bg-blue-700 text-white',
@@ -18,7 +14,6 @@ const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
         green: 'bg-green-600 hover:bg-green-700 text-white',
         yellow: 'bg-yellow-500 hover:bg-yellow-600 text-white',
     };
-
     return (
         <button
             onClick={(e) => { e.stopPropagation(); onClick(); }}
@@ -29,13 +24,13 @@ const ActionButton = ({ onClick, icon, children, color = 'blue' }) => {
         </button>
     );
 };
-
-// A standardized badge for displaying status
 const StatusBadge = ({ children, color = 'gray' }) => {
     const colorClasses = {
         gray: 'bg-gray-100 text-gray-700',
         green: 'bg-green-100 text-green-800',
         red: 'bg-red-100 text-red-800',
+        blue: 'bg-blue-100 text-blue-800',
+        purple: 'bg-purple-100 text-purple-800'
     };
     return (
         <div className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-full ${colorClasses[color]}`}>
@@ -44,38 +39,49 @@ const StatusBadge = ({ children, color = 'gray' }) => {
     );
 };
 
-
-// --- ActionCell Component ---
-// This component encapsulates all the logic for the "Action / Outcome" column.
-const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
-    
-    // 1. Determine the single, definitive status of the booking
-    let status = 'COMPLETED';
+const getActionStatus = (booking) => {
     if (booking.bookingStatus === 'CANCELLED') {
         const cancellation = booking.cancellation;
-        if (cancellation?.createdCustomerPayable?.pendingAmount > 0) {
-            status = 'CUSTOMER_OWES';
-        } else if (cancellation?.refundStatus === 'PENDING') {
-            status = 'REFUND_PENDING';
-        } else if (cancellation?.refundStatus === 'PAID') {
-            status = 'REFUND_PAID';
-        } else {
-            status = 'CANCELLED_SETTLED';
+        if (cancellation?.createdCustomerPayable?.pendingAmount > 0) return 'CUSTOMER_OWES';
+        if (cancellation?.refundStatus === 'PAID') return 'REFUND_PAID';
+        if (cancellation?.generatedCustomerCreditNote) {
+            const creditNote = cancellation.generatedCustomerCreditNote;
+            if (creditNote.status === 'USED') return 'CREDIT_USED';
+            if (creditNote.status === 'PARTIALLY_USED') return 'CREDIT_PARTIAL';
+            if (creditNote.status === 'AVAILABLE') return 'CREDIT_AVAILABLE';
         }
-    } else if (parseFloat(booking.balance) > 0) {
+        if (cancellation?.refundStatus === 'PENDING') return 'REFUND_PENDING';
+        return 'CANCELLED_SETTLED';
+    }
+    const balance = parseFloat(booking.balance);
+    if (balance > 0) {
         const hasPendingInstalments = (booking.instalments || []).some(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
-        if (hasPendingInstalments) {
-            status = 'INSTALMENT_DUE';
-        } else {
-            status = 'FINAL_SETTLEMENT_DUE';
+        return hasPendingInstalments ? 'INSTALMENT_DUE' : 'FINAL_SETTLEMENT_DUE';
+    }
+    if (balance < 0) return 'OVERPAID';
+    return 'COMPLETED';
+};
+
+
+const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
+    const status = getActionStatus(booking);
+    const permissions = booking._permissions || { canSettlePayments: false };
+
+    if (!permissions.canSettlePayments) {
+        switch (status) {
+            case 'CUSTOMER_OWES':
+                return <StatusBadge color="red"><FaExclamationCircle /> Debt Pending</StatusBadge>;
+            case 'REFUND_PENDING':
+            case 'CREDIT_AVAILABLE':
+            case 'CREDIT_PARTIAL':
+                return <StatusBadge color="blue"><FaReceipt /> Refund Pending</StatusBadge>;
+            case 'FINAL_SETTLEMENT_DUE':
+                return <StatusBadge color="yellow"><FaExclamationCircle /> Balance Due</StatusBadge>;
+            case 'INSTALMENT_DUE':
+                return <StatusBadge color="gray"><FaMoneyBillWave /> Instalment Due</StatusBadge>;
         }
-    } else if (parseFloat(booking.balance) < 0) {
-        // Handle overpaid for non-cancelled bookings explicitly
-        status = 'OVERPAID';
     }
 
-
-    // 2. Render UI based on the determined status
     switch (status) {
         case 'CUSTOMER_OWES': {
             const payable = booking.cancellation.createdCustomerPayable;
@@ -90,21 +96,50 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
         }
 
         case 'REFUND_PENDING':
+        case 'CREDIT_AVAILABLE':
+        case 'CREDIT_PARTIAL': {
+            const creditNote = booking.cancellation?.generatedCustomerCreditNote;
+            const isCreditIssued = (status === 'CREDIT_AVAILABLE' || status === 'CREDIT_PARTIAL') && creditNote;
+
+            let amountToRefund;
+            if (isCreditIssued) {
+                amountToRefund = parseFloat(creditNote.remainingAmount);
+            } else {
+                amountToRefund = parseFloat(booking.cancellation?.refundToPassenger || 0);
+            }
+
             return (
                 <div className="text-center space-y-1">
-                    <ActionButton color="green" icon={<FaReceipt />} onClick={() => onAction('recordRefund', { cancellation: booking.cancellation, booking })}>
-                        Record Refund
+                    <ActionButton
+                        color="green"
+                        icon={<FaReceipt />}
+                        onClick={() => onAction('recordRefund', {
+                            cancellation: {
+                                ...booking.cancellation,
+                                refundToPassenger: amountToRefund
+                            },
+                            booking
+                        })}
+                    >
+                        Record Cash Refund
                     </ActionButton>
-                    <p className="text-xs text-green-700 font-medium">Due: £{booking.cancellation.refundToPassenger.toFixed(2)}</p>
+
+                    {isCreditIssued ? (
+                        <p className="text-xs text-blue-700 font-medium" title={`Note ID: ${creditNote.id}, Initial: £${creditNote.initialAmount.toFixed(2)}`}>
+                            Credit Avail: £{creditNote.remainingAmount.toFixed(2)}
+                        </p>
+                    ) : (
+                        <p className="text-xs text-orange-600 font-medium">Cash Refund Due: £{amountToRefund.toFixed(2)}</p>
+                    )}
+
+                    {isCreditIssued && <p className="text-xs text-gray-500">(Issuing cash will void remaining credit)</p>}
                 </div>
             );
+        }
 
-        case 'REFUND_PAID':
-            return <StatusBadge color="green"><FaCheckCircle /> Refund Paid</StatusBadge>;
-
-        case 'CANCELLED_SETTLED':
-            return <StatusBadge color="gray"><FaBan /> Cancelled</StatusBadge>;
-
+        case 'REFUND_PAID': return <StatusBadge color="green"><FaCheckCircle /> Refund Paid</StatusBadge>;
+        case 'CREDIT_USED': return <StatusBadge color="purple"><FaCheckCircle /> Credit Used</StatusBadge>;
+        case 'CANCELLED_SETTLED': return <StatusBadge color="gray"><FaBan /> Cancelled</StatusBadge>;
         case 'FINAL_SETTLEMENT_DUE':
             return (
                 <div className="text-center space-y-1">
@@ -116,300 +151,350 @@ const ActionCell = ({ booking, onAction, expanded, onToggleExpand }) => {
             );
 
         case 'INSTALMENT_DUE': {
-            const nextInstalment = (booking.instalments || []).find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
-            if (!nextInstalment) {
-                 return <StatusBadge color="gray">Processing...</StatusBadge>; // Should not happen often
-            }
-            return (
-                <div className="text-center space-y-1">
-                    <ActionButton icon={<FaMoneyBillWave />} onClick={() => onAction('payInstalment', { instalment: nextInstalment, booking })}>
-                        Pay Instalment
-                    </ActionButton>
-                    <div className="text-xs text-gray-600">
-                        <p>Next: £{nextInstalment.amount.toFixed(2)}</p>
-                        <p className={nextInstalment.status === 'OVERDUE' ? 'text-red-600 font-semibold' : ''}>
-                           Due: {new Date(nextInstalment.dueDate).toLocaleDateString('en-GB')}
-                        </p>
+            const instalments = booking.instalments || [];
+            const nextInstalment = instalments.find(inst => ['PENDING', 'OVERDUE'].includes(inst.status));
+            
+            if (!nextInstalment) return <StatusBadge color="gray">Processing...</StatusBadge>;
+
+            if (!expanded) {
+                return (
+                    <div className="text-center space-y-1">
+                        <ActionButton icon={<FaMoneyBillWave />} onClick={() => onAction('payInstalment', { instalment: nextInstalment, booking })}>
+                            Pay Instalment
+                        </ActionButton>
+                        <div className="text-xs text-gray-600">
+                            <p>Next: £{nextInstalment.amount.toFixed(2)}</p>
+                            <p className={nextInstalment.status === 'OVERDUE' ? 'text-red-600 font-semibold' : ''}>
+                                Due: {new Date(nextInstalment.dueDate).toLocaleDateString('en-GB')}
+                            </p>
+                        </div>
+                        {instalments.length > 1 && (
+                            <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-1">
+                                Show All ({instalments.length})
+                            </button>
+                        )}
                     </div>
-                     {(booking.instalments || []).length > 1 && (
-                        <button onClick={(e) => { e.stopPropagation(); onToggleExpand(); }} className="text-blue-600 hover:underline text-xs font-medium mt-1">
-                            {expanded ? 'Collapse' : 'Show All'}
+                );
+            }
+
+            return (
+                <div className="text-left space-y-2 p-2 bg-gray-50 rounded-lg w-full">
+                    {instalments.map(inst => {
+                        const isNext = inst.id === nextInstalment.id;
+                        const isOverdue = inst.status === 'OVERDUE';
+                        const isPaid = inst.status === 'PAID';
+                        
+                        return (
+                            <div key={inst.id} className={`flex justify-between items-center text-xs p-1.5 rounded ${isNext ? 'bg-blue-100 ring-1 ring-blue-400' : ''} ${isPaid ? 'bg-green-50 opacity-70' : ''}`}>
+                                <div className="flex flex-col">
+                                    <span className={`font-semibold ${isOverdue ? 'text-red-600' : (isPaid ? 'text-green-700' : 'text-gray-700')}`}>
+                                        £{inst.amount.toFixed(2)}
+                                    </span>
+                                    <span className={isPaid ? 'text-gray-400' : 'text-gray-500'}>
+                                        Due: {new Date(inst.dueDate).toLocaleDateString('en-GB')}
+                                    </span>
+                                </div>
+                                {isPaid ? (
+                                    <StatusBadge color="green"><FaCheckCircle /> Paid</StatusBadge>
+                                ) : isNext ? (
+                                    <ActionButton 
+                                        icon={<FaMoneyBillWave />} 
+                                        onClick={() => onAction('payInstalment', { instalment: inst, booking })}
+                                    >
+                                        Pay
+                                    </ActionButton>
+                                ) : (
+                                    <StatusBadge color={isOverdue ? 'red' : 'gray'}>
+                                        {isOverdue ? 'Overdue' : 'Pending'}
+                                    </StatusBadge>
+                                )}
+                            </div>
+                        );
+                    })}
+                    {instalments.length > 1 && (
+                        <button onClick={onToggleExpand} className="text-blue-600 hover:underline text-xs font-medium mt-2 w-full text-center">
+                            Collapse
                         </button>
                     )}
                 </div>
             );
         }
 
-        case 'OVERPAID':
-            return <StatusBadge color="blue"><FaCheckCircle /> Overpaid</StatusBadge>;
-        
-        case 'COMPLETED':
-        default:
-            return <StatusBadge color="green"><FaCheckCircle /> Completed</StatusBadge>;
+        case 'OVERPAID': return <StatusBadge color="blue"><FaCheckCircle /> Overpaid</StatusBadge>;
+        case 'COMPLETED': default: return <StatusBadge color="green"><FaCheckCircle /> Completed</StatusBadge>;
     }
 };
 
 
-// --- Main Component ---
 export default function CustomerDeposits() {
-  const [bookings, setBookings] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState(''); // Correctly declared
-  const [paymentPopup, setPaymentPopup] = useState(null);
-  const [settlementPopup, setSettlementPopup] = useState(null);
-  const [expandedRows, setExpandedRows] = useState({});
-  const [filter, setFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
-  const [customerPayablePopup, setCustomerPayablePopup] = useState(null);
-  const [recordRefundPopup, setRecordRefundPopup] = useState(null);
+    const [bookings, setBookings] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [errorMessage, setErrorMessage] = useState('');
+    const [paymentPopup, setPaymentPopup] = useState(null);
+    const [settlementPopup, setSettlementPopup] = useState(null);
+    const [expandedRows, setExpandedRows] = useState({});
+    const [filter, setFilter] = useState('all');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [historyPopupBooking, setHistoryPopupBooking] = useState(null);
+    const [customerPayablePopup, setCustomerPayablePopup] = useState(null);
+    const [recordRefundPopup, setRecordRefundPopup] = useState(null);
+    const [startDate, setStartDate] = useState(() => {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 3);
+        return date.toISOString().split('T')[0];
+    });
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
-  useEffect(() => {
-    fetchBookings();
-  }, []);
+    useEffect(() => {
+        fetchBookings();
+    }, []);
 
-  const fetchBookings = async () => {
-    try {
-      setLoading(true);
-      setErrorMessage(''); // <--- CORRECTED: Use setErrorMessage
-      const response = await getCustomerDeposits();
-      const data = response.data.data || response.data || [];
-      setBookings(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error('Error fetching customer deposits:', error);
-      setErrorMessage(error.response?.data?.error || 'Failed to load customer deposits.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSavePayment = (payload) => {
-    const { updatedInstalment, bookingUpdate } = payload;
-    setBookings((prevBookings) =>
-      prevBookings.map((booking) => {
-        if (booking.id !== bookingUpdate.id) {
-          return booking;
+    const fetchBookings = async () => {
+        try {
+            setLoading(true);
+            const response = await getCustomerDeposits();
+            const data = response.data.data || response.data || [];
+            setBookings(Array.isArray(data) ? data : []);
+        } catch (error) {
+            console.error('Error fetching customer deposits:', error);
+            setErrorMessage(error.response?.data?.error || 'Failed to load customer deposits.');
+        } finally {
+            setLoading(false);
         }
-        return {
-          ...booking,
-          received: bookingUpdate.received,
-          balance: bookingUpdate.balance,
-          instalments: booking.instalments.map((inst) =>
-            inst.id === updatedInstalment.id ? updatedInstalment : inst
-          ),
-        };
-      })
-    );
-    setPaymentPopup(null);
-  };
+    };
 
-  const handleSaveSettlement = async (bookingId, paymentData) => {
-    try {
-      await recordSettlementPayment(bookingId, paymentData);
-      handleActionCompletion();
-    } catch (error) {
-      console.error('Final settlement API error:', error);
-      throw error;
+    const handleSaveSettlement = async (bookingId, formData) => {
+        try {
+            await recordSettlementPayment(bookingId, formData); 
+            handleActionCompletion(); 
+        } catch (error) {
+            console.error("Failed to save settlement:", error);
+            throw error; 
+        }
+    };
+
+    const handleSavePayment = (payload) => {
+        const { updatedInstalment, bookingUpdate } = payload;
+        setBookings((prevBookings) =>
+            prevBookings.map((booking) => {
+                if (booking.id !== bookingUpdate.id) return booking;
+                return {
+                    ...booking,
+                    received: bookingUpdate.received,
+                    balance: bookingUpdate.balance,
+                    instalments: booking.instalments.map((inst) =>
+                        inst.id === updatedInstalment.id ? updatedInstalment : inst
+                    ),
+                };
+            })
+        );
+        setPaymentPopup(null);
+    };
+
+    const handleActionCompletion = () => {
+        fetchBookings();
+        setSettlementPopup(null);
+        setCustomerPayablePopup(null);
+        setRecordRefundPopup(null);
+    };
+
+    const formatDate = (dateStr) => {
+        if (!dateStr) return 'N/A';
+        return new Date(dateStr).toLocaleDateString('en-GB');
+    };
+
+    const toggleExpand = (bookingId) => {
+        setExpandedRows((prev) => ({ ...prev, [bookingId]: !prev[bookingId] }));
+    };
+
+    const filteredBookings = useMemo(() => {
+        return bookings.filter((booking) => {
+            const actionStatus = getActionStatus(booking);
+            let statusMatch = true;
+
+            switch (filter) {
+                case 'customer_owes': statusMatch = actionStatus === 'CUSTOMER_OWES'; break;
+                case 'refund_pending': statusMatch = ['REFUND_PENDING', 'CREDIT_AVAILABLE', 'CREDIT_PARTIAL'].includes(actionStatus); break;
+                case 'final_settlement': statusMatch = actionStatus === 'FINAL_SETTLEMENT_DUE'; break;
+                case 'instalment_due': statusMatch = actionStatus === 'INSTALMENT_DUE'; break;
+                case 'completed_settled':
+                    statusMatch = ['COMPLETED', 'OVERPAID', 'REFUND_PAID', 'CREDIT_USED', 'CANCELLED_SETTLED'].includes(actionStatus);
+                    break;
+                case 'all':
+                default: statusMatch = true; break;
+            }
+
+            if (!statusMatch) return false;
+
+            if (searchTerm.trim() === '') return true;
+            const searchLower = searchTerm.toLowerCase();
+            return (
+                (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
+                (booking.refNo || '').toLowerCase().includes(searchLower) ||
+                (booking.paxName || '').toLowerCase().includes(searchLower) ||
+                (booking.agentName || '').toLowerCase().includes(searchLower) ||
+                (booking.paymentMethod || '').toLowerCase().includes(searchLower)
+            );
+        });
+    }, [bookings, filter, searchTerm]);
+
+    const handleAction = (actionType, payload) => {
+        switch (actionType) {
+            case 'settlePayable': setCustomerPayablePopup(payload); break;
+            case 'recordRefund': setRecordRefundPopup(payload); break;
+            case 'finalSettlement': setSettlementPopup(payload); break;
+            case 'payInstalment': setPaymentPopup(payload); break;
+            default: console.warn('Unknown action type:', actionType);
+        }
+    };
+
+    const handleGenerateReport = async () => {
+        setIsGeneratingReport(true);
+        const filters = { status: filter, searchTerm, startDate, endDate };
+        const result = await generateCustomerDepositReportPDF(filters);
+        if (!result.success) alert(result.message);
+        setIsGeneratingReport(false);
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
+                <div className="text-center">
+                    <FaSpinner className="animate-spin text-blue-600 h-12 w-12 mx-auto mb-4" />
+                    <p className="text-lg font-semibold text-gray-700">Loading customer deposits...</p>
+                </div>
+            </div>
+        );
     }
-  };
 
-
-  const handleActionCompletion = () => {
-    fetchBookings();
-    setSettlementPopup(null);
-    setCustomerPayablePopup(null);
-    setRecordRefundPopup(null);
-  };
-
-  const formatDate = (dateStr) => {
-    if (!dateStr) return 'N/A';
-    return new Date(dateStr).toLocaleDateString('en-GB');
-  };
-
-  const toggleExpand = (bookingId) => {
-    setExpandedRows((prev) => ({
-      ...prev,
-      [bookingId]: !prev[bookingId],
-    }));
-  };
-
-  const calculateDaysLeft = (travelDate) => {
-    if (!travelDate) return null;
-    const today = new Date();
-    const travel = new Date(travelDate);
-    const diffTime = travel - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays >= 0 ? diffDays : null;
-  };
-
-  const filteredBookings = bookings.filter((booking) => {
-    const balance = parseFloat(booking.balance);
-    let statusMatch = true;
-
-    if (filter === 'ongoing') {
-        statusMatch = balance > 0 && booking.bookingStatus !== 'CANCELLED';
-    } else if (filter === 'completed') {
-        statusMatch = balance <= 0 && booking.bookingStatus !== 'CANCELLED';
-    } else if (filter === 'cancelled') {
-        statusMatch = booking.bookingStatus === 'CANCELLED';
+    if (errorMessage) {
+        return (
+            <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
+                <div className="text-center max-w-md p-6">
+                    <div className="text-red-500 mb-4">
+                        <FaExclamationCircle className="h-12 w-12 mx-auto" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Data</h3>
+                    <p className="text-gray-600 mb-6">{errorMessage}</p>
+                    <button onClick={fetchBookings} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+                        Retry
+                    </button>
+                </div>
+            </div>
+        );
     }
 
-    if (!statusMatch) return false;
-
-    if (searchTerm.trim() === '') return true;
-
-    const searchLower = searchTerm.toLowerCase();
     return (
-        (booking.folderNo || '').toString().toLowerCase().includes(searchLower) ||
-        (booking.refNo || '').toLowerCase().includes(searchLower) ||
-        (booking.paxName || '').toLowerCase().includes(searchLower) ||
-        (booking.agentName || '').toLowerCase().includes(searchLower) ||
-        (booking.paymentMethod || '').toLowerCase().includes(searchLower)
+        <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto">
+            <div className="flex justify-between items-center mb-5 flex-wrap gap-4">
+                <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
+                <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-700">From:</label>
+                        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="p-2 border rounded-lg text-sm" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-700">To:</label>
+                        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="p-2 border rounded-lg text-sm" />
+                    </div>
+
+                    <div className="relative">
+                        <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                        <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
+                    </div>
+
+                    <select value={filter} onChange={(e) => setFilter(e.target.value)} className="p-2 border rounded-lg">
+                        <option value="all">All Statuses</option>
+                        <option value="instalment_due">Instalment Due</option>
+                        <option value="final_settlement">Final Settlement Due</option>
+                        <option value="customer_owes">Customer Owes (Cancelled)</option>
+                        <option value="refund_pending">Refund/Credit Pending</option>
+                        <option value="completed_settled">Completed / Settled</option>
+                    </select>
+
+                    <button onClick={handleGenerateReport} disabled={isGeneratingReport} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors">
+                        {isGeneratingReport ? <FaSpinner className="animate-spin h-4 w-4" /> : <FaDownload />}
+                        <span>{isGeneratingReport ? 'Generating...' : 'Download Report'}</span>
+                    </button>
+                </div>
+            </div>
+
+            {filteredBookings.length > 0 ? (
+                <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Folder No</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">PC Date</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Ref No</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Passenger</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Agent</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Payment Method</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Revenue (£)</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Initial Deposit (£)</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Total Paid (£)</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Balance (£)</th>
+                                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 w-[150px]">Action / Outcome</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                            {filteredBookings.map((booking) => {
+                                const isCancelled = booking.bookingStatus === 'CANCELLED';
+                                const balance = parseFloat(booking.balance);
+
+                                const creditPayment = (booking.initialPayments || []).find(
+                                    p => p.transactionMethod === 'CUSTOMER_CREDIT_NOTE' && p.appliedCustomerCreditNoteUsage
+                                );
+                                const creditRefNo = creditPayment?.appliedCustomerCreditNoteUsage?.creditNote?.generatedFromCancellation?.originalBooking?.refNo;
+
+                                return (
+                                    <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)} >
+                                        <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>{booking.folderNo}</td>
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
+
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>
+                                            {creditRefNo ? (
+                                                <div className="flex flex-col">
+                                                    <span>{booking.paymentMethod}</span>
+                                                    <span className="text-xs text-blue-600" title={`Paid via credit from ${creditRefNo.trim()}`}>
+                                                        (Credit: {creditRefNo.trim()})
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                booking.paymentMethod
+                                            )}
+                                        </td>
+
+                                        <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
+                                        <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit || 0).toFixed(2)}</td>
+                                        <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received || 0).toFixed(2)}</td>
+                                        <td className={`py-3 px-3 text-sm font-bold ${isCancelled ? 'text-gray-500' : (balance > 0 ? 'text-red-600' : (balance < 0 ? 'text-blue-600' : 'text-green-600'))}`}>
+                                            {balance.toFixed(2)}
+                                            {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid)</span>)}
+                                        </td>
+                                        <td className="py-3 px-3 text-sm w-[150px]" onClick={e => e.stopPropagation()}>
+                                            <ActionCell booking={booking} onAction={handleAction} expanded={expandedRows[booking.id]} onToggleExpand={() => toggleExpand(booking.id)} />
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <div className="text-center py-16">
+                    <p className="text-gray-500">No bookings match your current filter.</p>
+                </div>
+            )}
+
+            {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
+            {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}            {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
+            {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={handleActionCompletion} /> )}
+            {recordRefundPopup && ( <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={handleActionCompletion} /> )}
+        </div>
     );
-  });
-
-  const handleAction = (actionType, payload) => {
-      switch (actionType) {
-          case 'settlePayable':
-              setCustomerPayablePopup(payload);
-              break;
-          case 'recordRefund':
-              setRecordRefundPopup(payload);
-              break;
-          case 'finalSettlement':
-              setSettlementPopup(payload);
-              break;
-          case 'payInstalment':
-              setPaymentPopup(payload);
-              break;
-          default:
-              console.warn('Unknown action type:', actionType);
-      }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-lg font-semibold text-gray-700">Loading customer deposits...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (errorMessage) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px] bg-white rounded-2xl shadow-lg">
-        <div className="text-center max-w-md p-6">
-          <div className="text-red-500 mb-4">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <h3 className="text-xl font-semibold text-gray-800 mb-2">Error Loading Data</h3>
-          <p className="text-gray-600 mb-6">{errorMessage}</p>
-          <button onClick={fetchBookings} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white shadow-2xl rounded-2xl overflow-hidden p-6 max-w-full mx-auto">
-      <div className="flex justify-between items-center mb-5 flex-wrap gap-4">
-        <h2 className="text-2xl font-bold text-gray-800">Customer Deposits</h2>
-        <div className="flex items-center gap-4">
-          <div className="relative">
-            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input type="text" placeholder="Search by Folder, Ref..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 border rounded-lg" />
-          </div>
-          <select value={filter} onChange={(e) => setFilter(e.target.value)} className="p-2 border rounded-lg">
-            <option value="all">All Bookings</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
-      </div>
-      
-      {filteredBookings.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Folder No</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">PC Date</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Ref No</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Passenger</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Agent</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Payment Method</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Travel Date</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Revenue (£)</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Initial Deposit (£)</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Total Paid (£)</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 whitespace-nowrap">Balance (£)</th>
-                <th className="py-2 px-3 text-left text-xs font-semibold text-gray-700 w-[150px]">Action / Outcome</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredBookings.map((booking) => {
-                const isCancelled = booking.bookingStatus === 'CANCELLED';
-                const daysLeft = calculateDaysLeft(booking.travelDate);
-                const balance = parseFloat(booking.balance);
-
-                return (
-                  <tr key={booking.id} className={`${isCancelled ? 'bg-gray-50' : 'hover:bg-blue-50/50'} transition-colors duration-150 cursor-pointer`} onClick={() => setHistoryPopupBooking(booking)}>
-                    <td className={`py-3 px-3 text-sm font-semibold ${isCancelled ? 'text-gray-400' : 'text-blue-600'}`}>{booking.folderNo}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{formatDate(booking.pcDate)}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.refNo}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.paxName}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{booking.agentName}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>{booking.paymentMethod}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'} whitespace-nowrap`}>
-                      {formatDate(booking.travelDate)}
-                      {!isCancelled && daysLeft !== null && (<span className={`block text-xs font-medium ${daysLeft <= 7 ? 'text-red-700' : 'text-blue-700'}`}>{daysLeft} days left</span>)}
-                    </td>
-                    <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.revenue).toFixed(2)}</td>
-                    <td className={`py-3 px-3 text-sm ${isCancelled ? 'text-gray-500' : 'text-gray-600'}`}>{parseFloat(booking.initialDeposit).toFixed(2)}</td>
-                    <td className={`py-3 px-3 text-sm font-medium ${isCancelled ? 'text-gray-500' : 'text-gray-800'}`}>{parseFloat(booking.received).toFixed(2)}</td>
-                    <td className={`py-3 px-3 text-sm font-bold 
-                        ${isCancelled ? 'text-gray-500' : 
-                          (balance > 0 ? 'text-red-600' : 
-                          (balance < 0 ? 'text-blue-600' : 'text-green-600'))}`}>
-                        {balance.toFixed(2)}
-                        {balance < 0 && !isCancelled && (<span className="block text-xs font-normal">(Overpaid)</span>)}
-                        {balance < 0 && isCancelled && (<span className="block text-xs font-normal">(Refund Due)</span>)}
-                    </td>
-                    <td className="py-3 px-3 text-sm w-[150px]">
-                        <ActionCell 
-                            booking={booking}
-                            onAction={handleAction}
-                            expanded={expandedRows[booking.id]}
-                            onToggleExpand={() => toggleExpand(booking.id)}
-                        />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : ( 
-        <div className="text-center py-16">
-          <p className="text-gray-500">No bookings match your current filter.</p>
-        </div>
-      )}
-      
-      {paymentPopup && (<InstalmentPaymentPopup {...paymentPopup} onClose={() => setPaymentPopup(null)} onSubmit={handleSavePayment} />)}
-      {settlementPopup && (<FinalSettlementPopup booking={settlementPopup} onClose={() => setSettlementPopup(null)} onSubmit={handleSaveSettlement} />)}
-      {historyPopupBooking && (<PaymentHistoryPopup booking={historyPopupBooking} onClose={() => setHistoryPopupBooking(null)} />)}
-      {customerPayablePopup && ( <SettleCustomerPayablePopup payable={customerPayablePopup.payable} booking={customerPayablePopup.booking} onClose={() => setCustomerPayablePopup(null)} onSubmit={handleActionCompletion} /> )}
-      {recordRefundPopup && (
-        <RecordRefundPopup cancellation={recordRefundPopup.cancellation} booking={recordRefundPopup.booking} onClose={() => setRecordRefundPopup(null)} onSubmit={handleActionCompletion} />
-      )}
-    </div>
-  );
 }

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet, } from 'react-router-dom';
 import { supabase } from './supabaseClient';
-import Home from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import BookingsPage from './pages/BookingsPage';
 import CreateBooking from './pages/CreateBookingPage';
@@ -12,8 +11,9 @@ import ProfilePage from './pages/ProfilePage';
 import UserManagementPage from './pages/UserManagementPage';
 import AuthPage from './components/Auth';
 import CreateUserPage from './pages/CreateUserPage';
-import NavigationBar from './components/NavigationBar';                                                               
-
+import NavigationBar from './components/NavigationBar';     
+import InternalInvoicingPage from './pages/InternalInvoicingPage';  
+import ReportsPage from './pages/ReportsPage';
 
 const ProtectedRoutes = ({ session }) => {
   if (!session) {
@@ -61,7 +61,6 @@ function App() {
         </Route>
 
         <Route element={<ProtectedRoutes session={session} />}>
-          <Route path="/" element={<Home />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/bookings" element={<BookingsPage />} />
           <Route path="/customer-deposits" element={<CustomerDepositPage />} />
@@ -71,9 +70,11 @@ function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/user-management" element={<UserManagementPage />} />
           <Route path="/create-user" element={<CreateUserPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/reports/internal-invoicing" element={<InternalInvoicingPage />} />
         </Route>
         
-        <Route path="*" element={<Navigate to="/" />} />
+        <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
     </BrowserRouter>
   );

@@ -2,52 +2,66 @@ import React, { useState } from 'react';
 
 export default function CancellationPopup({ booking, onClose, onConfirm }) {
   const [supplierCancellationFee, setSupplierCancellationFee] = useState('');
-  const [adminFee, setAdminFee] = useState(''); // New state for Admin Fee
+  const [adminFee, setAdminFee] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+ 
+  // REMOVED: issueCreditNote state
+  // REMOVED: calculatedRefund state
+  // REMOVED: useEffect for calculating refund display
+
   const handleSubmit = async () => {
-    // Updated validation
-    if (!supplierCancellationFee || !adminFee) {
-      setError('All fields are required.');
-      return;
+    // Basic validation for numbers
+    const supFeeNum = parseFloat(supplierCancellationFee);
+    const adminFeeNum = parseFloat(adminFee);
+    if (isNaN(supFeeNum) || supFeeNum < 0 || isNaN(adminFeeNum) || adminFeeNum < 0) {
+        setError('Fees must be valid positive numbers or zero.');
+        return;
     }
+    if (supplierCancellationFee === '' || adminFee === '') { // Keep basic required check
+        setError('All fee fields are required.');
+        return;
+    }
+
+
     setIsSubmitting(true);
     setError('');
     try {
-      // Updated payload: Sending fees, not the refund amount
+      // REMOVED: issueCreditNote flag from payload
       await onConfirm({
-        supplierCancellationFee: parseFloat(supplierCancellationFee),
-        adminFee: parseFloat(adminFee),
-            });
+        supplierCancellationFee: supFeeNum,
+        adminFee: adminFeeNum,
+      });
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || 'An error occurred.');
+      setError(err.response?.data?.message || 'An error occurred during cancellation processing.');
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl animate-slide-up">
         <h3 className="text-lg font-bold text-red-600">Cancel Booking</h3>
-        <p className="text-sm text-gray-600 mb-4">Ref: {booking.refNo}</p>
+        <p className="text-sm text-gray-600 mb-4">Ref: {booking.refNo} | Pax: {booking.paxName}</p>
         
         {error && <div className="mb-4 p-2 bg-red-100 text-red-700 rounded">{error}</div>}
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium">Supplier Cancellation Fee (£)</label>
-            <input type="number" step="0.01" value={supplierCancellationFee} onChange={e => setSupplierCancellationFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 500" required />
+            <label className="block text-sm font-medium">Supplier Cancellation Fee (£)*</label>
+            <input type="number" step="0.01" min="0" value={supplierCancellationFee} onChange={e => setSupplierCancellationFee(e.target.value)} className="w-full p-2 border rounded bg-gray-50 focus:bg-white" placeholder="e.g., 500" required />
             <p className="text-xs text-gray-500 mt-1">The non-refundable amount kept by the supplier.</p>
           </div>
           
           <div>
-            <label className="block text-sm font-medium">Consultant Fee (£)</label>
-            <input type="number" step="0.01" value={adminFee} onChange={e => setAdminFee(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., 50" required />
+            <label className="block text-sm font-medium">Consultant Fee (£)*</label>
+            <input type="number" step="0.01" min="0" value={adminFee} onChange={e => setAdminFee(e.target.value)} className="w-full p-2 border rounded bg-gray-50 focus:bg-white" placeholder="e.g., 50" required />
              <p className="text-xs text-gray-500 mt-1">Your company's fee for this cancellation.</p>
           </div>
 
+          {/* REMOVED: Conditional refund display and credit note checkbox section */}
+          
         </div>
 
         <div className="flex justify-end space-x-2 mt-6">
